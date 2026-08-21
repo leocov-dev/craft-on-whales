@@ -260,5 +260,5 @@ const errorHandler = makeJsonErrorHandler('inventory-api');
 router.use(errorHandler);
 globalSearch.use(errorHandler);
 
+router.globalSearch = globalSearch;
 module.exports = router;
-module.exports.globalSearch = globalSearch;

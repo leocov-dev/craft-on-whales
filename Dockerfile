@@ -36,4 +36,4 @@ VOLUME /data
 # root-equivalent on the host — dropping privileges here would only pretend.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD wget -q -O /dev/null "http://127.0.0.1:${PANEL_PORT}/login" || exit 1
-CMD ["node", "src/server.js"]
+CMD ["node", "-r", "tsx/cjs", "src/server.js"]

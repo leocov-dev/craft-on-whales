@@ -5,15 +5,15 @@
     "moduleResolution": "bundler",
     "moduleDetection": "force",
     "lib": ["ES2023"],
-    "allowJs": false,
+    "allowJs": true,
+    "checkJs": true,
     "noEmit": true,
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
+    "strict": false,
+    "noImplicitAny": false,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "esModuleInterop": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "types/**/*.d.ts"],
+  "include": ["src/**/*.js", "types/**/*.d.ts"],
   "exclude": ["node_modules", "data", "data-*", "public", "docker-minecraft-server", "discovery", "test"]
 }

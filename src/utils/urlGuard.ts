@@ -12,16 +12,18 @@
 // determined DNS-rebind retains a narrow window. That's acceptable
 // defense-in-depth here (the caller is already an authenticated operator).
 
+import type { LookupAddress } from 'node:dns';
+
 const dns = require('node:dns').promises;
 const net = require('node:net');
 const httpError = require('./httpError');
 
 const MAX_REDIRECTS = 5;
 
-function isBlockedIpv4(ip) {
+function isBlockedIpv4(ip: string): boolean {
   const p = ip.split('.').map(Number);
   if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  const [a, b] = p;
+  const [a, b] = p as [number, number, number, number];
   if (a === 0) return true; // 0.0.0.0/8 "this host"
   if (a === 10) return true; // private
   if (a === 127) return true; // loopback
@@ -34,7 +36,7 @@ function isBlockedIpv4(ip) {
 }
 
 /** Expand a (possibly `::`-compressed) IPv6 address to 8 explicit hex groups. */
-function expandIpv6(ip) {
+function expandIpv6(ip: string): string[] {
   let s = ip.toLowerCase();
   // A trailing dotted-quad ("…:ffff:127.0.0.1") is two groups' worth of bits —
   // fold it into two hex groups first, or the ':'-split below yields 7 parts
@@ -42,8 +44,8 @@ function expandIpv6(ip) {
   const dq = s.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (dq) {
     const [, prefix, a, b, c, d] = dq;
-    const g = (x, y) => ((Number(x) << 8) | Number(y)).toString(16);
-    s = `${prefix}${g(a, b)}:${g(c, d)}`;
+    const g = (x: string, y: string) => ((Number(x) << 8) | Number(y)).toString(16);
+    s = `${prefix}${g(a!, b!)}:${g(c!, d!)}`;
   }
   if (s.includes('::')) {
     const [head, tail] = s.split('::');
@@ -56,22 +58,22 @@ function expandIpv6(ip) {
 }
 
 /** IPv4-mapped IPv6 (`::ffff:a.b.c.d` or its fully-expanded hex form) -> dotted v4, else null. */
-function ipv6MappedIpv4(groups) {
+function ipv6MappedIpv4(groups: string[]): string | null {
   if (groups.length !== 8) return null;
   // Compare NUMERICALLY, not by string: a group may be spelled with 1–4 hex
   // digits, so "0", "00", "0000" are all zero and "ffff"/"FFFF" all 0xffff.
   // A leading-zero spelling like "0:00:0:0:0:ffff:7f00:1" must not slip past.
-  const hex = (g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN);
+  const hex = (g: string) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN);
   const parts = groups.map(hex);
   if (parts.some(Number.isNaN)) return null;
   if (!parts.slice(0, 5).every((n) => n === 0)) return null;
   if (parts[5] !== 0xffff) return null;
-  const hi = parts[6];
-  const lo = parts[7];
+  const hi = parts[6]!;
+  const lo = parts[7]!;
   return [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.');
 }
 
-function isBlockedIpv6(ip) {
+function isBlockedIpv6(ip: string): boolean {
   const s = ip.toLowerCase();
   if (s === '::' || s === '::1') return true; // unspecified / loopback
   if (s.startsWith('fe80')) return true; // link-local
@@ -97,12 +99,12 @@ function isBlockedIpv6(ip) {
 // but not numbers — are left alone. The earlier /^[0-9a-fx.]+$/ over-matched
 // those and 400'd legitimate mod/icon fetches.
 const NUMERIC_LABEL_RE = /^(?:0x[0-9a-f]+|\d+)$/i;
-function isAmbiguousNumericHost(host) {
+function isAmbiguousNumericHost(host: string): boolean {
   const labels = host.split('.');
   return labels.length > 0 && labels.every((l) => NUMERIC_LABEL_RE.test(l));
 }
 
-function isBlockedIp(ip) {
+function isBlockedIp(ip: string): boolean {
   // Normalize IPv4-mapped IPv6 (::ffff:1.2.3.4) to its v4 form.
   const v4 = ip.toLowerCase().startsWith('::ffff:') ? ip.slice(ip.lastIndexOf(':') + 1) : ip;
   if (net.isIPv4(v4)) return isBlockedIpv4(v4);
@@ -111,8 +113,8 @@ function isBlockedIp(ip) {
 }
 
 /** Throw unless `rawUrl` is an http(s) URL that resolves only to public addresses. */
-async function assertPublicUrl(rawUrl) {
-  let u;
+async function assertPublicUrl(rawUrl: string): Promise<URL> {
+  let u: URL;
   try {
     u = new URL(rawUrl);
   } catch {
@@ -122,13 +124,13 @@ async function assertPublicUrl(rawUrl) {
     throw httpError(400, `Only http(s) URLs are allowed (got ${u.protocol})`);
   }
   const host = u.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
-  let addrs;
+  let addrs: string[];
   if (net.isIP(host)) {
     addrs = [host];
   } else if (isAmbiguousNumericHost(host)) {
     throw httpError(400, `Refusing to resolve an ambiguous numeric host (${host})`);
   } else {
-    let results;
+    let results: LookupAddress[];
     try {
       results = await dns.lookup(host, { all: true });
     } catch {
@@ -147,7 +149,7 @@ async function assertPublicUrl(rawUrl) {
  * resolves to a public address before connecting. Options are passed through;
  * `redirect` is forced to manual so hops can be re-checked.
  */
-async function safeFetch(rawUrl, options = {}) {
+async function safeFetch(rawUrl: string, options: RequestInit = {}): Promise<Response> {
   let current = String(rawUrl);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(current);
@@ -159,4 +161,4 @@ async function safeFetch(rawUrl, options = {}) {
   throw httpError(502, `Too many redirects (more than ${MAX_REDIRECTS})`);
 }
 
-module.exports = { safeFetch, assertPublicUrl, isBlockedIp, isAmbiguousNumericHost };
+export = { safeFetch, assertPublicUrl, isBlockedIp, isAmbiguousNumericHost };

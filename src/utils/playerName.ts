@@ -18,13 +18,13 @@
 const NAME_PATTERN = '[.*]?[A-Za-z0-9_]{1,16}';
 const PLAYER_NAME_RE = new RegExp(`^${NAME_PATTERN}$`);
 
-function isValidPlayerName(name) {
+function isValidPlayerName(name: unknown): boolean {
   return PLAYER_NAME_RE.test(String(name ?? ''));
 }
 
 /** True when `name` carries a Bedrock (Geyser/Floodgate) prefix. */
-function isBedrockName(name) {
+function isBedrockName(name: unknown): boolean {
   return /^[.*]/.test(String(name ?? ''));
 }
 
-module.exports = { NAME_PATTERN, PLAYER_NAME_RE, isValidPlayerName, isBedrockName };
+export = { NAME_PATTERN, PLAYER_NAME_RE, isValidPlayerName, isBedrockName };

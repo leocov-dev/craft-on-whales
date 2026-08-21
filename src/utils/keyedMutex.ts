@@ -6,9 +6,9 @@
 // interleave and tear each other's output.
 
 function createKeyedMutex() {
-  const tails = new Map();
+  const tails = new Map<string, Promise<void>>();
 
-  function withLock(key, fn) {
+  function withLock<T>(key: string, fn: () => T | Promise<T>): Promise<T> {
     const prev = tails.get(key) || Promise.resolve();
     // Run fn once the previous holder settles, regardless of its outcome.
     const result = prev.then(
@@ -30,4 +30,4 @@ function createKeyedMutex() {
   return { withLock };
 }
 
-module.exports = { createKeyedMutex };
+export = { createKeyedMutex };

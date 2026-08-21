@@ -28,12 +28,18 @@ const { PLAYER_NAME_RE } = require('./playerName');
 const LIST_RE =
   /There are (\d+)(?: (?:of a max of|out of maximum) |\/)(\d+) players online:?(?:\.(?=\s|$|\.))?\s*(.*)/i;
 
+interface PlayerList {
+  online: number;
+  max: number;
+  names: string[];
+}
+
 /**
- * @param {string} text - ANSI/§-stripped `rcon-cli list` output.
- * @returns {{online: number, max: number, names: string[]} | null} null if the
- *   text doesn't match any known phrasing (caller decides how to treat that).
+ * @param text - ANSI/§-stripped `rcon-cli list` output.
+ * @returns null if the text doesn't match any known phrasing (caller decides
+ *   how to treat that).
  */
-function parsePlayerList(text) {
+function parsePlayerList(text: string): PlayerList | null {
   const m = LIST_RE.exec(text);
   if (!m) return null;
   return {
@@ -48,4 +54,4 @@ function parsePlayerList(text) {
   };
 }
 
-module.exports = { parsePlayerList };
+export = { parsePlayerList };
