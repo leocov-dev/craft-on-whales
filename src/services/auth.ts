@@ -2,7 +2,7 @@
 
 // Users + credentials. bcryptjs hashes; roles admin/operator/viewer.
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
 const db = require('../db') as typeof import('../db');

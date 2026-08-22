@@ -6,7 +6,7 @@
 // commands) runs AS that player, with per-command permissions and cooldowns.
 // Zero mods — detection is log-based, execution is RCON-based.
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const { nanoid } = require('nanoid');
 const db = require('../db') as typeof import('../db');
 const players = require('./players') as typeof import('./players');

@@ -9,7 +9,7 @@
 // - No UPnP: we detect the public IP (ipify, cached 1h) and give manual
 //   port-forward guidance instead.
 
-const httpError = require('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const os = require('node:os');
 const archiver = require('archiver');

@@ -6,7 +6,7 @@
 import type { Row } from '../db/types';
 import type { Server, ServerExtraPort, ServerExtraBind } from './types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const path = require('node:path');
 const { nanoid } = require('nanoid');

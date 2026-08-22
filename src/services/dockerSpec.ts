@@ -9,7 +9,7 @@ import type { ServerExtraPort, ServerExtraBind } from './types';
 
 const path = require('node:path');
 const yaml = require('js-yaml') as typeof import('js-yaml');
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const { isPortFree } = require('./ports') as typeof import('./ports');
 const networks = require('../docker/networks') as typeof import('../docker/networks');
 

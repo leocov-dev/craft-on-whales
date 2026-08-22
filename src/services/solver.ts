@@ -9,7 +9,7 @@
 
 import type { ModrinthVersion } from './types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const modrinth = require('./modrinthApi') as typeof import('./modrinthApi');
 const { parseVersion } = require('./javaMatrix') as typeof import('./javaMatrix');
 

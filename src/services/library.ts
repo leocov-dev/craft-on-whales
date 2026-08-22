@@ -4,7 +4,7 @@
 // ./data/library/<kind>/, installed into servers by hard link (falls back to
 // copy across volumes), with locally cached icons.
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');

@@ -10,7 +10,7 @@
 
 import type { Row } from '../db/types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const db = require('../db') as typeof import('../db');
 
 const INDEX_URL = 'https://downloads.gtnewhorizons.com/versions.json';

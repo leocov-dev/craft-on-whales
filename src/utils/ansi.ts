@@ -8,15 +8,15 @@ const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 // Some log pipelines lose the ESC byte and leave bare "[0;39m" fragments.
 const BARE_SGR_RE = /\[[0-9;]{1,8}m/g;
 
-function stripAnsi(text: unknown): string {
+export function stripAnsi(text: unknown): string {
   return String(text ?? '')
     .replace(ANSI_RE, '')
     .replace(BARE_SGR_RE, '');
 }
 
 /** Strip ANSI + Minecraft § codes — for parsing player names etc. */
-function cleanText(text: unknown): string {
+export function cleanText(text: unknown): string {
   return stripAnsi(text).replace(/§[0-9a-fk-orA-FK-OR]/g, '');
 }
 
-export = { stripAnsi, cleanText, ANSI_RE };
+export { ANSI_RE };

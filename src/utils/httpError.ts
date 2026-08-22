@@ -5,10 +5,8 @@
  * error handler (see web/middleware/jsonErrorHandler.js) turns them into the
  * matching response status.
  */
-function httpError(status: number, message?: string): Error {
+export function httpError(status: number, message?: string): Error {
   const err = new Error(message);
   err.status = status;
   return err;
 }
-
-export = httpError;

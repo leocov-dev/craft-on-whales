@@ -5,7 +5,7 @@
 // where the file format allows, while it is stopped (direct JSON edits under
 // the server's data dir, applied on next start).
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');

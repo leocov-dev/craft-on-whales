@@ -7,7 +7,7 @@
 
 import type { IntegrationRow } from './types';
 
-const httpError = require('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const db = require('../db');
 const secrets = require('../services/secrets');
 

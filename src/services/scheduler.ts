@@ -4,7 +4,7 @@
 // and global maintenance (update check, storage rescan, tmp cleanup, backup
 // pruning). Every firing is a history event; next-run times come from croner.
 
-const httpError = require('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const { Cron } = require('croner');
 const { nanoid } = require('nanoid');
 const db = require('../db');

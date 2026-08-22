@@ -8,7 +8,7 @@
 
 import type { z } from 'zod';
 
-const httpError = require('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');

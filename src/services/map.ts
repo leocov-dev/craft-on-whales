@@ -7,7 +7,7 @@
 import type { Row } from '../db/types';
 import type { Server } from './types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');

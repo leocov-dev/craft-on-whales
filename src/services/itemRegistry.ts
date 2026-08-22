@@ -26,7 +26,7 @@
 
 import type { Row } from '../db/types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const yauzl = require('yauzl') as typeof import('yauzl');

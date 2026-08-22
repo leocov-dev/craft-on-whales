@@ -12,11 +12,9 @@
 // determined DNS-rebind retains a narrow window. That's acceptable
 // defense-in-depth here (the caller is already an authenticated operator).
 
-import type { LookupAddress } from 'node:dns';
-
-const dns = require('node:dns').promises;
-const net = require('node:net');
-const httpError = require('./httpError');
+import { promises as dns, type LookupAddress } from 'node:dns';
+import net from 'node:net';
+import { httpError } from './httpError';
 
 const MAX_REDIRECTS = 5;
 
@@ -161,4 +159,4 @@ async function safeFetch(rawUrl: string, options: RequestInit = {}): Promise<Res
   throw httpError(502, `Too many redirects (more than ${MAX_REDIRECTS})`);
 }
 
-export = { safeFetch, assertPublicUrl, isBlockedIp, isAmbiguousNumericHost };
+export { safeFetch, assertPublicUrl, isBlockedIp, isAmbiguousNumericHost };

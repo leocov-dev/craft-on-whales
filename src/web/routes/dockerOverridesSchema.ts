@@ -10,7 +10,7 @@
 import type { Request } from 'express';
 
 const { z } = require('zod');
-const httpError = require('../../utils/httpError') as typeof import('../../utils/httpError');
+import { httpError } from '../../utils/httpError';
 
 const dockerOverridesSchema = {
   // '' is accepted (and only meaningful in a PATCH) as "clear it, go back to msm-<id>".

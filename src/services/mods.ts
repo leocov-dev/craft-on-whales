@@ -11,7 +11,7 @@
 import type { Row } from '../db/types';
 import type { ContentServer } from './types';
 
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');

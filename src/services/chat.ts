@@ -7,7 +7,7 @@
 const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
 const { cleanText } = require('../utils/ansi') as typeof import('../utils/ansi');
 const { recordEvent } = require('../events') as typeof import('../events');
-const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const { PLAYER_NAME_RE } = require('../utils/playerName') as typeof import('../utils/playerName');
 
 type ColorName =

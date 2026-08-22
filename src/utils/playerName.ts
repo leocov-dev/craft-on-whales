@@ -15,16 +15,14 @@
 // NAME_PATTERN is a raw string fragment (no anchors) for embedding inside a
 // bigger pattern (e.g. logClassifier's `^(<name>) joined the game$`);
 // PLAYER_NAME_RE is the anchored, ready-to-use form for standalone checks.
-const NAME_PATTERN = '[.*]?[A-Za-z0-9_]{1,16}';
-const PLAYER_NAME_RE = new RegExp(`^${NAME_PATTERN}$`);
+export const NAME_PATTERN = '[.*]?[A-Za-z0-9_]{1,16}';
+export const PLAYER_NAME_RE = new RegExp(`^${NAME_PATTERN}$`);
 
-function isValidPlayerName(name: unknown): boolean {
+export function isValidPlayerName(name: unknown): boolean {
   return PLAYER_NAME_RE.test(String(name ?? ''));
 }
 
 /** True when `name` carries a Bedrock (Geyser/Floodgate) prefix. */
-function isBedrockName(name: unknown): boolean {
+export function isBedrockName(name: unknown): boolean {
   return /^[.*]/.test(String(name ?? ''));
 }
-
-export = { NAME_PATTERN, PLAYER_NAME_RE, isValidPlayerName, isBedrockName };

@@ -13,7 +13,7 @@
 // counts unknown"; listOnlineNames treats it as "couldn't ask" and, when
 // asked to, throws rather than guessing).
 
-const { PLAYER_NAME_RE } = require('./playerName');
+import { PLAYER_NAME_RE } from './playerName';
 
 // The trailing period only counts as punctuation when it's followed by
 // whitespace, end-of-string, or another period — otherwise a Bedrock name's
@@ -39,7 +39,7 @@ interface PlayerList {
  * @returns null if the text doesn't match any known phrasing (caller decides
  *   how to treat that).
  */
-function parsePlayerList(text: string): PlayerList | null {
+export function parsePlayerList(text: string): PlayerList | null {
   const m = LIST_RE.exec(text);
   if (!m) return null;
   return {
@@ -53,5 +53,3 @@ function parsePlayerList(text: string): PlayerList | null {
       : [],
   };
 }
-
-export = { parsePlayerList };

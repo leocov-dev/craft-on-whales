@@ -4,7 +4,7 @@
 // → re-pin → recreate → start → monitor → one-click rollback on failure.
 // Never automatic unless the server's update_policy is 'auto'.
 
-const httpError = require('../utils/httpError');
+import { httpError } from '../utils/httpError';
 const { recordEvent } = require('../events');
 const serversService = require('../services/servers');
 const packsService = require('../services/packs');

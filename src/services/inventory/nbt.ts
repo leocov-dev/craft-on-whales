@@ -6,7 +6,7 @@
 
 import type { NormalizedItem, NormalizedEnchant, NestedInventory, NestedInventoryEntry } from './types';
 
-const httpError = require('../../utils/httpError') as typeof import('../../utils/httpError');
+import { httpError } from '../../utils/httpError';
 const { PLAYER_NAME_RE } = require('../../utils/playerName');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

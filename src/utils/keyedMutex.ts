@@ -5,7 +5,7 @@
 // critical sections (e.g. the save-off/copy/save-on dance) so they can't
 // interleave and tear each other's output.
 
-function createKeyedMutex() {
+export function createKeyedMutex() {
   const tails = new Map<string, Promise<void>>();
 
   function withLock<T>(key: string, fn: () => T | Promise<T>): Promise<T> {
@@ -29,5 +29,3 @@ function createKeyedMutex() {
 
   return { withLock };
 }
-
-export = { createKeyedMutex };
