@@ -470,7 +470,7 @@ The field catalog in `src/config/` is the single source of truth for server sett
 | `npm run build`      | minified CSS build (also runs automatically on install) |
 | `npm run lint`       | ESLint over `src/`, `scripts/`, `public/js/`, `test/`   |
 | `npm run format`     | Prettier over the tree                                  |
-| `npm run typecheck`  | `tsc --checkJs` over the type-clean core                |
+| `npm run typecheck`  | `tsc -p tsconfig.json` — strict, over all of `src/`      |
 | `npm test`           | unit tests (`node:test`); runs on a clean clone         |
 | `npm run test:smoke` | live QA sweep against a running panel (needs Docker)    |
 
@@ -535,3 +535,7 @@ breaking), and how to run the QA sweep.
 The server icon sprites in `public/icons/servers/` are Minecraft game assets
 (© Mojang AB, sourced from [minecraft.wiki](https://minecraft.wiki)) and are **not** covered by the
 MIT license; they are used here as visual identification for Minecraft servers.
+
+---
+
+Coding agent? See [AGENTS.md](AGENTS.md).

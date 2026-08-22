@@ -1,7 +1,9 @@
 # Contributing
 
-Thanks for your interest in improving Minecraft Server Manager. This project is a server-rendered
-Node.js app with no build step beyond CSS, so the barrier to hacking on it is low.
+Thanks for your interest in improving Minecraft Server Manager. The backend (`src/`) is **strict
+TypeScript**, compiled at type-check time only (`tsx` runs it directly, no emit step). The frontend
+is currently server-rendered Handlebars + hand-written browser JS, and is **in the process of
+migrating to Vue** — see [Frontend](#frontend) below before starting client-side work.
 
 ## Getting set up
 
@@ -23,7 +25,7 @@ These are the exact gates CI runs — each works on a clean clone with no Docker
 ```bash
 npm run lint          # ESLint (errors, no warnings)
 npm run format:check  # Prettier
-npm run typecheck     # tsc --checkJs over the type-clean core
+npm run typecheck     # tsc -p tsconfig.json — strict, over all of src/
 npm test              # unit tests (node:test)
 npm run build         # CSS build
 ```
@@ -31,11 +33,11 @@ npm run build         # CSS build
 `npm run format` fixes formatting. `npm test` is a real, fast unit suite (no Docker); `npm run
 test:smoke` is the separate live sweep against a running panel.
 
-Keep changes focused and match the surrounding style (Prettier enforces it). The code is **plain
-CommonJS JS — no TypeScript compile step and no client bundler**; please don't introduce one without
-discussion. Type safety comes from JSDoc + a `tsc --checkJs` gate: `types/globals.d.ts` holds ambient
-augmentations, and dynamic interop files (Docker/NBT/HTTP-JSON) carry a `// @ts-nocheck` header while
-type coverage is grown incrementally — new modules are checked by default, so keep them clean.
+Keep changes focused and match the surrounding style (Prettier enforces it). `src/` is **strict
+TypeScript** (`allowJs: false`) — every file is `.ts` and fully type-checked, there's no JS/JSDoc
+fallback and no `@ts-nocheck` escape hatch. `types/globals.d.ts` holds ambient augmentations for
+untyped third-party surfaces. New code should be typed properly, not loosened with `any` to get a
+gate to pass.
 
 `public/vendor/chart.umd.js` is a **vendored** copy of Chart.js (not an npm dependency) — update it by
 hand and note the version in the PR.
@@ -77,10 +79,19 @@ web/routes (HTTP)  →  services (domain logic)  →  docker / db / storage (inf
 
 Prefer the shared helpers over re-implementing patterns:
 
-- `src/utils/httpError.js` — `httpError(status, message)` for throwing HTTP errors from services.
-- `src/web/middleware/jsonErrorHandler.js` — the standard JSON error handler (redacts 5xx detail).
-- `src/web/middleware/asyncHandler.js` — wraps async route handlers so rejections reach the error
+- `src/utils/httpError.ts` — `httpError(status, message)` for throwing HTTP errors from services.
+- `src/web/middleware/jsonErrorHandler.ts` — the standard JSON error handler (redacts 5xx detail).
+- `src/web/middleware/asyncHandler.ts` — wraps async route handlers so rejections reach the error
   handler. Prefer it over hand-written `try/catch → next(err)`.
+
+## Frontend
+
+Views are still server-rendered **Handlebars** (`views/`), with hand-written browser JS in
+`public/js/` progressively enhancing them — no client bundler yet. This is actively being migrated
+to **Vue**; if you're picking up frontend work, check for an open tracking issue / in-progress
+branch before starting new Handlebars-based UI, since it may be scoped for the rewrite instead of
+incremental patching. Backend API shape (`web/routes/`) is not expected to change for this
+migration — it's a view-layer swap.
 
 ## Reporting bugs / requesting features
 

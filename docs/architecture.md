@@ -1,16 +1,19 @@
 # Architecture
 
-Minecraft Server Manager is a single-process, server-rendered Node.js application. It manages
-Minecraft servers that run as Docker containers using the
+Minecraft Server Manager is a single-process, server-rendered application with a **strict
+TypeScript** backend (`src/`, no `allowJs`, no `@ts-nocheck`). It manages Minecraft servers that
+run as Docker containers using the
 [itzg/docker-minecraft-server](https://github.com/itzg/docker-minecraft-server) image, talking to the
 Docker daemon over its API (never by shelling out to the `docker` CLI).
 
 ## Runtime shape
 
-- **Express + Handlebars** render pages server-side. There is no SPA and no client bundler; the
-  browser JS in `public/js/` is hand-written and progressively enhances the rendered HTML.
-- **`node:sqlite`** (built into Node ≥ 22.5) is the database — synchronous, zero native modules,
-  WAL mode. A small versioned-migration runner applies `src/db/migrations/*` on boot.
+- **Express + Handlebars** render pages server-side. There is no client bundler today; the browser
+  JS in `public/js/` is hand-written and progressively enhances the rendered HTML. This view layer
+  is in the process of migrating to **Vue** — the backend API shape is not expected to change for
+  that migration.
+- **`node:sqlite`** (flagless, built into Node ≥ 24) is the database — synchronous, zero native
+  modules, WAL mode. A small versioned-migration runner applies `src/db/migrations/*` on boot.
 - **`ws`** carries the live console and stats streams.
 - **dockerode** is the only way the app talks to Docker. The endpoint is auto-detected per platform
   (Windows named pipe vs. unix socket).
