@@ -38,7 +38,7 @@ router.get(
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="crash-reports-${serverId}.zip"`);
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = /** @type {any} */ (archiver)('zip', { zlib: { level: 9 } });
     archive.on('error', (err) => next(err));
     archive.pipe(res);
     for (const row of rows) {

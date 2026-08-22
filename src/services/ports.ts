@@ -4,11 +4,13 @@
 // 25565, RCON = game + 1000, Bedrock UDP first-free from 19132. A port is
 // "taken" if any DB server claims it OR the OS reports it in use.
 
+import type { Row } from '../db/types';
+
 const net = require('node:net');
 const db = require('../db');
 const config = require('../config');
 
-function probe(port, host = '0.0.0.0') {
+function probe(port: number, host: string = '0.0.0.0'): Promise<boolean> {
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.unref();
@@ -19,40 +21,54 @@ function probe(port, host = '0.0.0.0') {
   });
 }
 
-function dbPortsInUse() {
-  const rows = db.all(
+function dbPortsInUse(): Set<number> {
+  const rows: Row[] = db.all(
     'SELECT port_game, port_rcon, port_bedrock, extra_ports_json FROM servers WHERE deleted_at IS NULL'
   );
-  const used = new Set();
+  const used = new Set<number>();
   for (const r of rows) {
-    used.add(r.port_game);
-    used.add(r.port_rcon);
-    if (r.port_bedrock) used.add(r.port_bedrock);
-    for (const p of JSON.parse(String(r.extra_ports_json || '[]'))) {
+    used.add(Number(r.port_game));
+    used.add(Number(r.port_rcon));
+    if (r.port_bedrock) used.add(Number(r.port_bedrock));
+    for (const p of JSON.parse(String(r.extra_ports_json || '[]')) as { hostPort?: number }[]) {
       if (p && p.hostPort) used.add(p.hostPort);
     }
   }
   // BlueMap's web-server port lives in `integrations`, not on the server row —
   // it must be unioned in too, or a fresh port allocation could collide with it.
-  for (const row of db.all("SELECT config_json FROM integrations WHERE kind = 'bluemap' AND enabled = 1")) {
-    const hostPort = JSON.parse(String(row.config_json || '{}')).hostPort;
+  for (const row of db.all("SELECT config_json FROM integrations WHERE kind = 'bluemap' AND enabled = 1") as Row[]) {
+    const hostPort = (JSON.parse(String(row.config_json || '{}')) as { hostPort?: number }).hostPort;
     if (hostPort) used.add(hostPort);
   }
   used.add(config.port); // never hand out the panel's own port
   return used;
 }
 
-async function isPortFree(port) {
+/** True when `port` is a valid, unclaimed, currently-bindable port. `port` is
+ *  checked at runtime rather than typed as `number` — callers (including
+ *  route handlers parsing user input) may pass anything. */
+async function isPortFree(port: unknown): Promise<boolean> {
   // undefined/null/NaN/'25565xyz' must NOT pass as free — that silently
   // skipped RCON collision validation for explicit game ports.
   if (!Number.isInteger(port)) return false;
-  if (port < 1024 || port > 65535) return false;
-  if (dbPortsInUse().has(port)) return false;
-  return probe(port);
+  const p = port as number;
+  if (p < 1024 || p > 65535) return false;
+  if (dbPortsInUse().has(p)) return false;
+  return probe(p);
+}
+
+interface SuggestPortsOptions {
+  withBedrock?: boolean;
+}
+
+interface SuggestedPorts {
+  game: number;
+  rcon: number;
+  bedrock: number | null;
 }
 
 /** Suggest a { game, rcon } pair (and bedrock when requested). */
-async function suggestPorts({ withBedrock = false } = {}) {
+async function suggestPorts({ withBedrock = false }: SuggestPortsOptions = {}): Promise<SuggestedPorts> {
   const used = dbPortsInUse();
   let game = config.ports.gameStart;
   for (;;) {
@@ -61,7 +77,7 @@ async function suggestPorts({ withBedrock = false } = {}) {
     game += 1;
     if (game > 65000) throw new Error('No free game ports available');
   }
-  const result = { game, rcon: game + config.ports.rconOffset, bedrock: null };
+  const result: SuggestedPorts = { game, rcon: game + config.ports.rconOffset, bedrock: null };
   if (withBedrock) {
     let b = config.ports.bedrockStart;
     while (used.has(b) || !(await probe(b))) {
@@ -73,4 +89,4 @@ async function suggestPorts({ withBedrock = false } = {}) {
   return result;
 }
 
-module.exports = { isPortFree, suggestPorts };
+export = { isPortFree, suggestPorts };

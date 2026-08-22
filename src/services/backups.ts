@@ -1,28 +1,39 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Backups: consistent snapshots of a server dir into ./data/backups/<id>/,
 // with the save-off/save-all/save-on dance when the server is running,
 // retention pruning, and restore.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const archiver = require('archiver');
-const yauzl = require('yauzl');
+const yauzl = require('yauzl') as typeof import('yauzl');
 const { nanoid } = require('nanoid');
-const db = require('../db');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const { execCapture, inspectStatus } = require('../docker/containers');
-const indexer = require('../storage/indexer');
-const { withSaveLock } = require('./serverLocks');
+const db = require('../db') as typeof import('../db');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
+const indexer = require('../storage/indexer') as typeof import('../storage/indexer');
+const { withSaveLock } = require('./serverLocks') as typeof import('./serverLocks');
 
 const KEEP_SCHEDULED = 10; // retention: newest N scheduled backups per server
 
-async function createBackup(serverId, { reason = 'manual', actor = 'system', note = '', task = null } = {}) {
-  const server = db.get('SELECT * FROM servers WHERE id = ? AND deleted_at IS NULL', serverId);
+interface CreateBackupOptions {
+  reason?: string;
+  actor?: string;
+  note?: string;
+  task?: { step(label: string): void; progress(current: number, total?: number): void } | null;
+}
+
+async function createBackup(
+  serverId: string,
+  { reason = 'manual', actor = 'system', note = '', task = null }: CreateBackupOptions = {}
+): Promise<Row> {
+  const server: Row | undefined = db.get('SELECT * FROM servers WHERE id = ? AND deleted_at IS NULL', serverId);
   if (!server) throw httpError(404, 'Server not found');
 
   // Free-space preflight: need roughly the server dir size.
@@ -32,7 +43,7 @@ async function createBackup(serverId, { reason = 'manual', actor = 'system', not
     throw httpError(507, `Not enough disk space for a backup (~${(needed / 1024 ** 3).toFixed(1)} GB needed)`);
   }
 
-  const info = await inspectStatus(serverId).catch(() => ({ exists: false }));
+  const info = await inspectStatus(serverId).catch(() => ({ exists: false, status: 'stopped' as const }));
   const running = info.exists && ['running', 'starting', 'unhealthy'].includes(info.status);
 
   // Seconds-resolution stamp + a nanoid suffix: two backups in the same minute
@@ -46,7 +57,7 @@ async function createBackup(serverId, { reason = 'manual', actor = 'system', not
   const archive = async () => {
     if (task) task.step('Compressing server files');
     await zipDirectory(dataPath('servers', serverId), absPath, {
-      onProgress: task ? (processedBytes) => task.progress(processedBytes, needed) : null,
+      onProgress: task ? (processedBytes: number) => task.progress(processedBytes, needed) : null,
     });
   };
 
@@ -58,7 +69,7 @@ async function createBackup(serverId, { reason = 'manual', actor = 'system', not
       if (task) task.step('Pausing world saves');
       const paused = await execCapture(serverId, ['rcon-cli', 'save-off'])
         .then(() => true)
-        .catch((err) => {
+        .catch((err: Error) => {
           console.warn(
             `[backup] save-off failed for ${serverId}: ${err.message} — archive may be slightly inconsistent`
           );
@@ -98,16 +109,26 @@ async function createBackup(serverId, { reason = 'manual', actor = 'system', not
   });
   await pruneRetention(serverId, { actor });
   indexer.scan().catch(() => {});
-  return db.get('SELECT * FROM backups WHERE id = ?', id);
+  return db.get('SELECT * FROM backups WHERE id = ?', id) as Row;
+}
+
+interface RestoreBackupOptions {
+  actor?: string;
+  skipSafety?: boolean;
+  task?: { step(label: string): void } | null;
 }
 
 /** Restore = stop server, wipe dir, extract archive. Safety backup first unless told not to. */
-async function restoreBackup(serverId, backupId, { actor = 'system', skipSafety = false, task = null } = {}) {
-  const backup = db.get('SELECT * FROM backups WHERE id = ? AND server_id = ?', backupId, serverId);
+async function restoreBackup(
+  serverId: string,
+  backupId: string,
+  { actor = 'system', skipSafety = false, task = null }: RestoreBackupOptions = {}
+): Promise<{ ok: true }> {
+  const backup: Row | undefined = db.get('SELECT * FROM backups WHERE id = ? AND server_id = ?', backupId, serverId);
   if (!backup) throw httpError(404, 'Backup not found');
 
   // Disk preflight: safety backup + extracted content ≈ zip size ×2.
-  const zipStat = await fsp.stat(dataPath(backup.rel_path)).catch(() => null);
+  const zipStat = await fsp.stat(dataPath(String(backup.rel_path))).catch(() => null);
   if (!zipStat) throw httpError(404, `Backup archive is missing on disk: ${backup.filename}`);
   const { free } = await indexer.diskFree();
   if (free < zipStat.size * 2) {
@@ -118,10 +139,10 @@ async function restoreBackup(serverId, backupId, { actor = 'system', skipSafety 
   }
 
   if (task) task.step('Stopping server');
-  const { stopServer } = require('./servers');
+  const { stopServer } = require('./servers') as typeof import('./servers');
   await stopServer(serverId, { actor }).catch(() => {});
   // NEVER rm -rf under a live container: verify the container really stopped.
-  const info = await inspectStatus(serverId).catch(() => ({ exists: false }));
+  const info = await inspectStatus(serverId).catch(() => ({ exists: false, status: 'stopped' as const }));
   if (info.exists && ['running', 'starting', 'unhealthy'].includes(info.status)) {
     throw httpError(
       409,
@@ -143,45 +164,56 @@ async function restoreBackup(serverId, backupId, { actor = 'system', skipSafety 
   const serverDir = dataPath('servers', serverId);
   await fsp.rm(serverDir, { recursive: true, force: true });
   await fsp.mkdir(serverDir, { recursive: true });
-  await extractZip(dataPath(backup.rel_path), serverDir);
+  await extractZip(dataPath(String(backup.rel_path)), serverDir);
 
   recordEvent({ serverId, actor, type: 'backup-restored', summary: `Restored backup ${backup.filename}` });
   indexer.scan().catch(() => {});
   return { ok: true };
 }
 
-async function deleteBackup(backupId, { actor = 'system' } = {}) {
-  const backup = db.get('SELECT * FROM backups WHERE id = ?', backupId);
+async function deleteBackup(
+  backupId: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ freedBytes: number }> {
+  const backup: Row | undefined = db.get('SELECT * FROM backups WHERE id = ?', backupId);
   if (!backup) return { freedBytes: 0 };
-  await fsp.rm(dataPath(backup.rel_path), { force: true });
+  await fsp.rm(dataPath(String(backup.rel_path)), { force: true });
   db.run('DELETE FROM backups WHERE id = ?', backupId);
   recordEvent({
-    serverId: backup.server_id,
+    serverId: String(backup.server_id),
     actor,
     type: 'backup-deleted',
-    summary: `Backup deleted: ${backup.filename} (${(backup.size_bytes / 1024 ** 3).toFixed(2)} GB freed)`,
+    summary: `Backup deleted: ${backup.filename} (${(Number(backup.size_bytes) / 1024 ** 3).toFixed(2)} GB freed)`,
   });
-  return { freedBytes: backup.size_bytes };
+  return { freedBytes: Number(backup.size_bytes) };
 }
 
 /** Keep newest N scheduled; manual + pre-update are never auto-pruned. */
-async function pruneRetention(serverId, { actor = 'system' } = {}) {
+async function pruneRetention(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<number> {
   const stale = db.all(
     `SELECT * FROM backups WHERE server_id = ? AND reason = 'scheduled'
      ORDER BY created_at DESC LIMIT -1 OFFSET ?`,
     serverId,
     KEEP_SCHEDULED
-  );
-  for (const b of stale) await deleteBackup(b.id, { actor });
+  ) as Row[];
+  for (const b of stale) await deleteBackup(String(b.id), { actor });
   return stale.length;
 }
 
-function zipDirectory(sourceDir, outFile, { onProgress = null } = {}) {
+interface ZipDirectoryOptions {
+  onProgress?: ((processedBytes: number) => void) | null;
+}
+
+function zipDirectory(
+  sourceDir: string,
+  outFile: string,
+  { onProgress = null }: ZipDirectoryOptions = {}
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outFile);
     const archive = archiver('zip', { zlib: { level: 6 } });
     let settled = false;
-    const fail = (err) => {
+    const fail = (err: Error) => {
       if (settled) return;
       settled = true;
       // Destroy the write stream and remove the half-written .zip so a repeatedly
@@ -201,7 +233,7 @@ function zipDirectory(sourceDir, outFile, { onProgress = null } = {}) {
     });
     output.on('error', fail);
     archive.on('error', fail);
-    if (onProgress) archive.on('progress', (d) => onProgress(d.fs.processedBytes));
+    if (onProgress) archive.on('progress', (d: { fs: { processedBytes: number } }) => onProgress(d.fs.processedBytes));
     archive.pipe(output);
     archive.directory(sourceDir, false);
     archive.finalize();
@@ -213,7 +245,7 @@ const MAX_EXTRACT_BYTES = 50 * 1024 ** 3;
 const MAX_EXTRACT_ENTRIES = 200000;
 
 /** Zip-slip-safe extraction with a decompression-bomb ceiling. */
-function extractZip(zipFile, destDir) {
+function extractZip(zipFile: string, destDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
       if (err) return reject(err);
@@ -221,11 +253,11 @@ function extractZip(zipFile, destDir) {
       let entryCount = 0;
       let writtenBytes = 0;
       let declaredBytes = 0;
-      const fail = (e) => {
+      const fail = (e: Error) => {
         if (settled) return;
         settled = true;
         try {
-          zip.destroy();
+          zip.destroy?.();
         } catch {
           /* */
         }
@@ -256,7 +288,7 @@ function extractZip(zipFile, destDir) {
           zip.openReadStream(entry, (streamErr, readStream) => {
             if (streamErr) return fail(streamErr);
             const out = fs.createWriteStream(target);
-            readStream.on('data', (chunk) => {
+            readStream.on('data', (chunk: Buffer) => {
               writtenBytes += chunk.length;
               if (writtenBytes > MAX_EXTRACT_BYTES) {
                 readStream.destroy();
@@ -281,8 +313,8 @@ function extractZip(zipFile, destDir) {
   });
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref());
 }
 
-module.exports = { createBackup, restoreBackup, deleteBackup, pruneRetention, extractZip };
+export = { createBackup, restoreBackup, deleteBackup, pruneRetention, extractZip };

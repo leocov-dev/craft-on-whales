@@ -4,15 +4,18 @@
 // with the map web server exposed on a panel-allocated host port and served
 // to the browser only through the panel's authenticated proxy.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+import type { Server } from './types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
-const db = require('../db');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const serversService = require('./servers');
-const modsService = require('./mods');
+const db = require('../db') as typeof import('../db');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const serversService = require('./servers') as typeof import('./servers');
+const modsService = require('./mods') as typeof import('./mods');
 
 const BLUEMAP_CONTAINER_PORT = '8100/tcp';
 const HOST_PORT_START = 8123;
@@ -31,19 +34,24 @@ const SUPPORTED = new Set([
   'SPIGOT',
 ]);
 
-function getMapConfig(serverId) {
-  const row = db.get("SELECT * FROM integrations WHERE server_id = ? AND kind = 'bluemap'", serverId);
+interface MapConfig {
+  enabled: boolean;
+  hostPort: number | null;
+}
+
+function getMapConfig(serverId: string): MapConfig {
+  const row: Row | undefined = db.get("SELECT * FROM integrations WHERE server_id = ? AND kind = 'bluemap'", serverId);
   if (!row) return { enabled: false, hostPort: null };
-  const cfg = JSON.parse(String(row.config_json || '{}'));
+  const cfg = JSON.parse(String(row.config_json || '{}')) as { hostPort?: number };
   return { enabled: Boolean(row.enabled), hostPort: cfg.hostPort || null };
 }
 
-function supportsMap(server) {
-  return SUPPORTED.has(server.type) || (modsService.isPackServer(server) && modsService.loaderOf(server));
+function supportsMap(server: Server): boolean {
+  return SUPPORTED.has(server.type) || (modsService.isPackServer(server) && Boolean(modsService.loaderOf(server)));
 }
 
 /** Plugin servers read plugins/BlueMap/, mod servers config/bluemap/. */
-function mapConfDir(serverId, server) {
+function mapConfDir(serverId: string, server: Server): string {
   const rel = ['PAPER', 'PURPUR', 'PUFFERFISH', 'LEAF', 'FOLIA', 'SPIGOT'].includes(server.type)
     ? ['plugins', 'BlueMap']
     : ['config', 'bluemap'];
@@ -73,10 +81,10 @@ const DIM_CONFIGS = [
  * Only ever touches the `world:` line — a file BlueMap (or the admin) already
  * created keeps every other setting (name, sky-color, start-pos, …) as-is.
  */
-function writeMapConfigs(serverId) {
+function writeMapConfigs(serverId: string): void {
   const server = serversService.getServer(serverId);
   if (!server) return;
-  const level = require('./worlds').activeLevelName(server);
+  const level: string = (require('./worlds') as typeof import('./worlds')).activeLevelName(server);
   const mapsDir = path.join(mapConfDir(serverId, server), 'maps');
   fs.mkdirSync(mapsDir, { recursive: true });
 
@@ -92,7 +100,7 @@ function writeMapConfigs(serverId) {
       fs.writeFileSync(file, `${worldLine}\ndimension: "${dim.dimension}"\nname: "${dim.name}"\n`);
       continue;
     }
-    const text = fs.readFileSync(file, 'utf8');
+    const text: string = fs.readFileSync(file, 'utf8');
     const escaped = worldFolder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     if (new RegExp(`^world\\s*:\\s*"?${escaped}"?\\s*$`, 'm').test(text)) continue; // already correct
     const patched = /^world\s*:.*$/m.test(text) ? text.replace(/^world\s*:.*$/m, worldLine) : `${worldLine}\n${text}`;
@@ -100,7 +108,10 @@ function writeMapConfigs(serverId) {
   }
 }
 
-async function enableMap(serverId, { actor = 'system' } = {}) {
+async function enableMap(
+  serverId: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ hostPort: number }> {
   const server = serversService.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   if (!supportsMap(server)) {
@@ -143,7 +154,7 @@ async function enableMap(serverId, { actor = 'system' } = {}) {
   return { hostPort };
 }
 
-async function disableMap(serverId, { actor = 'system' } = {}) {
+async function disableMap(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
   const server = serversService.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   db.run(
@@ -151,7 +162,7 @@ async function disableMap(serverId, { actor = 'system' } = {}) {
     serverId
   );
   // Remove the BlueMap jar (overlay row) if present.
-  const row = db.get(
+  const row: Row | undefined = db.get(
     "SELECT filename FROM server_content WHERE server_id = ? AND managed_by = 'overlay' AND name LIKE 'BlueMap%'",
     serverId
   );
@@ -161,20 +172,20 @@ async function disableMap(serverId, { actor = 'system' } = {}) {
 }
 
 /** Extra container ports for a server, consumed by the servers service. */
-function extraPortsFor(serverId) {
+function extraPortsFor(serverId: string): { container: string; host: number }[] {
   const cfg = getMapConfig(serverId);
   return cfg.enabled && cfg.hostPort ? [{ container: BLUEMAP_CONTAINER_PORT, host: cfg.hostPort }] : [];
 }
 
-async function freePort() {
+async function freePort(): Promise<number> {
   const used = new Set(
-    db
-      .all("SELECT config_json FROM integrations WHERE kind = 'bluemap'")
-      .map((r) => JSON.parse(String(r.config_json || '{}')).hostPort)
+    (db.all("SELECT config_json FROM integrations WHERE kind = 'bluemap'") as Row[]).map(
+      (r) => (JSON.parse(String(r.config_json || '{}')) as { hostPort?: number }).hostPort
+    )
   );
   for (let port = HOST_PORT_START; port < HOST_PORT_START + 500; port += 1) {
     if (used.has(port)) continue;
-    const free = await new Promise((resolve) => {
+    const free = await new Promise<boolean>((resolve) => {
       const srv = net.createServer();
       srv.unref();
       srv.once('error', () => resolve(false));
@@ -185,7 +196,7 @@ async function freePort() {
   throw httpError(503, 'No free port for the map web server');
 }
 
-module.exports = {
+export = {
   getMapConfig,
   supportsMap,
   enableMap,

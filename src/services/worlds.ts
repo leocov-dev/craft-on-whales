@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // TOTAL WORLD MANAGEMENT. The world library (./data/library/worlds) plus every
@@ -10,28 +9,31 @@
 // level (level.dat at the zip root). Bukkit-split dimension dirs travel as
 // top-level sibling directories named `<base>_nether` / `<base>_the_end`.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+import type { Server } from './types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const archiver = require('archiver');
-const yauzl = require('yauzl');
-const tar = require('tar');
+const yauzl = require('yauzl') as typeof import('yauzl');
+const tar = require('tar') as typeof import('tar');
 const { nanoid } = require('nanoid');
-const db = require('../db');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const { execCapture, inspectStatus } = require('../docker/containers');
-const indexer = require('../storage/indexer');
+const db = require('../db') as typeof import('../db');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
+const indexer = require('../storage/indexer') as typeof import('../storage/indexer');
 const library = require('./library');
-const { withSaveLock } = require('./serverLocks');
+const { withSaveLock } = require('./serverLocks') as typeof import('./serverLocks');
 
 // Run the save-off/flush → copy → save-on dance under the shared per-server save
 // lock when the server is running, so it can't overlap a concurrent backup or
 // world export and tear the copy. When stopped, just run the copy directly.
-async function withPausedSaves(serverId, running, copy) {
+async function withPausedSaves<T>(serverId: string, running: boolean, copy: () => Promise<T>): Promise<T> {
   if (!running) return copy();
   return withSaveLock(serverId, async () => {
     await execCapture(serverId, ['rcon-cli', 'save-off']).catch(() => {});
@@ -47,7 +49,7 @@ async function withPausedSaves(serverId, running, copy) {
 
 const DIM_SUFFIXES = ['_nether', '_the_end'];
 
-const FLAVOR_LABEL = {
+const FLAVOR_LABEL: Record<string, string> = {
   VANILLA: 'Vanilla',
   PAPER: 'Paper',
   PURPUR: 'Purpur',
@@ -68,7 +70,7 @@ const FLAVOR_LABEL = {
 
 // Server-type family — used for compat warnings (Bukkit-family splits worlds
 // into three dirs; modded worlds carry loader-specific dimensions/data).
-const FAMILY = {
+const FAMILY: Record<string, string> = {
   PAPER: 'bukkit',
   PURPUR: 'bukkit',
   SPIGOT: 'bukkit',
@@ -84,27 +86,32 @@ const FAMILY = {
   MODRINTH: 'modded',
   FTBA: 'modded',
 };
-const familyOf = (type) => FAMILY[type] || 'vanilla';
-const flavorLabel = (type) => FLAVOR_LABEL[type] || type;
+const familyOf = (type: string): string => FAMILY[type] || 'vanilla';
+const flavorLabel = (type: string): string => FLAVOR_LABEL[type] || type;
 
 // ---------------------------------------------------------------------------
 // World root detection
+
+interface DetectedWorldRoot {
+  rootAbs: string;
+  split: boolean;
+  dims: string[];
+}
 
 /**
  * Find the world root inside an extracted archive: the shallowest directory
  * containing a level.dat (handles nested single-folder wrappers and level.dat
  * anywhere in the tree). Detects Bukkit-split layouts (sibling <name>_nether /
  * <name>_the_end directories next to the main world).
- * @returns {Promise<{rootAbs:string, split:boolean, dims:string[]}|null>}
- *          dims[0] is always the main root; extras are split dimension dirs.
+ * dims[0] is always the main root; extras are split dimension dirs.
  */
-async function detectWorldRoot(extractedDir) {
+async function detectWorldRoot(extractedDir: string): Promise<DetectedWorldRoot | null> {
   let queue = [path.resolve(extractedDir)];
-  let found = null;
+  let found: string | null = null;
 
   while (queue.length && !found) {
-    const next = [];
-    const candidates = [];
+    const next: string[] = [];
+    const candidates: string[] = [];
     for (const dir of queue) {
       let entries;
       try {
@@ -112,17 +119,17 @@ async function detectWorldRoot(extractedDir) {
       } catch {
         continue;
       }
-      if (entries.some((e) => e.isFile() && e.name.toLowerCase() === 'level.dat')) {
+      if (entries.some((e: import('node:fs').Dirent) => e.isFile() && e.name.toLowerCase() === 'level.dat')) {
         candidates.push(dir); // don't descend into a found world
         continue;
       }
-      for (const e of entries) {
+      for (const e of entries as import('node:fs').Dirent[]) {
         if (e.isDirectory() && !e.isSymbolicLink()) next.push(path.join(dir, e.name));
       }
     }
     if (candidates.length) {
       // Prefer a candidate that isn't itself a Bukkit dimension dir.
-      found = candidates.find((c) => !isDimName(path.basename(c))) || candidates[0];
+      found = candidates.find((c) => !isDimName(path.basename(c))) || (candidates[0] as string);
     }
     queue = next;
   }
@@ -151,15 +158,31 @@ async function detectWorldRoot(extractedDir) {
 // ---------------------------------------------------------------------------
 // Import (upload) into the library
 
+interface ImportArchiveOptions {
+  name?: string;
+  originalName?: string;
+  actor?: string;
+  flavor?: string | null;
+  source?: string;
+  onProgress?: (info: { stage: string }) => void;
+}
+
 /**
  * Import an uploaded world archive (.zip / .mcworld / .tar / .tar.gz) into the
  * library: extract to tmp, detect the world root, normalize into a fresh zip
  * under library/worlds, hash, and record a library_files row.
  */
 async function importArchive(
-  uploadPath,
-  { name = '', originalName = '', actor = 'system', flavor = null, source = 'upload', onProgress = () => {} } = {}
-) {
+  uploadPath: string,
+  {
+    name = '',
+    originalName = '',
+    actor = 'system',
+    flavor = null,
+    source = 'upload',
+    onProgress = () => {},
+  }: ImportArchiveOptions = {}
+): Promise<Row> {
   const stat = await fsp.stat(uploadPath).catch(() => null);
   if (!stat || !stat.isFile()) throw httpError(400, 'Upload not found — try again');
 
@@ -209,10 +232,25 @@ async function importArchive(
   }
 }
 
+interface AddZipToLibraryOptions {
+  name: string;
+  actor: string;
+  worldSource?: string;
+  worldFlavor?: string | null;
+  mcVersion: string | null;
+  split: boolean;
+}
+
 /** Move a finished world zip into library/worlds + insert the DB row (dedup by hash). */
-async function addZipToLibrary(zipAbs, { name, actor, worldSource, worldFlavor, mcVersion, split }) {
+async function addZipToLibrary(
+  zipAbs: string,
+  { name, actor, worldSource, worldFlavor, mcVersion, split }: AddZipToLibraryOptions
+): Promise<Row> {
   const sha256 = await sha256File(zipAbs);
-  const existing = db.get("SELECT * FROM library_files WHERE sha256 = ? AND category = 'world'", sha256);
+  const existing: Row | undefined = db.get(
+    "SELECT * FROM library_files WHERE sha256 = ? AND category = 'world'",
+    sha256
+  );
   if (existing) {
     await fsp.rm(zipAbs, { force: true });
     return existing;
@@ -247,7 +285,7 @@ async function addZipToLibrary(zipAbs, { name, actor, worldSource, worldFlavor, 
     details: { id, sha256, sizeBytes: size, split: Boolean(split), mcVersion: mcVersion || null, source: worldSource },
   });
   indexer.scan().catch(() => {});
-  return db.get('SELECT * FROM library_files WHERE id = ?', id);
+  return db.get('SELECT * FROM library_files WHERE id = ?', id) as Row;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,11 +295,14 @@ async function addZipToLibrary(zipAbs, { name, actor, worldSource, worldFlavor, 
  * Snapshot a server's active world (plus Bukkit-split dims) into the library.
  * Works while the server runs — wraps the copy in save-off/save-all/save-on.
  */
-async function extractFromServer(serverId, { name = '', actor = 'system' } = {}) {
+async function extractFromServer(
+  serverId: string,
+  { name = '', actor = 'system' }: { name?: string; actor?: string } = {}
+): Promise<Row> {
   const server = mustServer(serverId);
   const level = activeLevelName(server);
   const dims = serverWorldDims(serverId, level);
-  if (!fs.existsSync(path.join(dims[0], 'level.dat'))) {
+  if (!fs.existsSync(path.join(dims[0] as string, 'level.dat'))) {
     throw httpError(404, `World "${level}" has no level.dat yet — start the server once so it generates the world`);
   }
 
@@ -304,7 +345,7 @@ async function extractFromServer(serverId, { name = '', actor = 'system' } = {})
       serverId,
       actor,
       type: 'world-extracted',
-      summary: `World "${level}" saved to library as "${row.name}" (${humanBytes(row.size_bytes)})`,
+      summary: `World "${level}" saved to library as "${row.name}" (${humanBytes(Number(row.size_bytes))})`,
       details: { libraryId: row.id, level, sizeBytes: row.size_bytes, running },
     });
     return row;
@@ -317,25 +358,32 @@ async function extractFromServer(serverId, { name = '', actor = 'system' } = {})
 // ---------------------------------------------------------------------------
 // Per-server world listing
 
+interface ServerWorldSummary {
+  name: string;
+  active: boolean;
+  dims: string[];
+  sizeBytes: number;
+  seed: string | null;
+}
+
 /**
  * Scan a server dir for worlds (top-level dirs containing level.dat), grouping
  * Bukkit-split dims under their main world and marking the active one.
- * @returns [{name, active, dims:[names], sizeBytes, seed}]
  */
-async function listServerWorlds(serverId) {
+async function listServerWorlds(serverId: string): Promise<ServerWorldSummary[]> {
   const server = mustServer(serverId);
   const base = dataPath('servers', serverId);
   const level = activeLevelName(server);
   const props = readProps(serverId);
 
-  let entries = [];
+  let entries: import('node:fs').Dirent[];
   try {
     entries = await fsp.readdir(base, { withFileTypes: true });
   } catch {
     return [];
   }
-  const dirNames = new Set(entries.filter((e) => e.isDirectory()).map((e) => e.name));
-  const withLevelDat = [...dirNames].filter((n) => fs.existsSync(path.join(base, n, 'level.dat')));
+  const dirNames = new Set<string>(entries.filter((e) => e.isDirectory()).map((e) => e.name));
+  const withLevelDat: string[] = [...dirNames].filter((n) => fs.existsSync(path.join(base, n, 'level.dat')));
 
   // A dir is a split dim (not its own world) when its base world also exists.
   const mains = withLevelDat.filter((n) => {
@@ -343,7 +391,7 @@ async function listServerWorlds(serverId) {
     return !(m && dirNames.has(m) && withLevelDat.includes(m));
   });
 
-  const worlds = [];
+  const worlds: ServerWorldSummary[] = [];
   for (const main of mains) {
     const dimNames = [main, ...DIM_SUFFIXES.map((s) => main + s).filter((d) => dirNames.has(d))];
     const sizeBytes = await dirsSize(dimNames.map((d) => path.join(base, d)));
@@ -356,7 +404,7 @@ async function listServerWorlds(serverId) {
       seed: active ? props.get('level-seed') || null : null,
     });
   }
-  worlds.sort((a, b) => b.active - a.active || a.name.localeCompare(b.name));
+  worlds.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
   return worlds;
 }
 
@@ -364,14 +412,25 @@ async function listServerWorlds(serverId) {
 // Install from library
 
 /** Compat warnings for installing library world `libraryId` into `serverId`. */
-function installWarnings(libraryId, serverId) {
+function installWarnings(libraryId: string, serverId: string): string[] {
   const lib = mustLibWorld(libraryId);
   const server = mustServer(serverId);
-  return compatWarnings({ flavor: lib.world_flavor, version: lib.version }, server);
+  return compatWarnings(
+    {
+      flavor: lib.world_flavor == null ? null : String(lib.world_flavor),
+      version: lib.version == null ? null : String(lib.version),
+    },
+    server
+  );
 }
 
-function compatWarnings(world, server) {
-  const warnings = [];
+interface CompatWorld {
+  flavor?: string | null;
+  version?: string | null;
+}
+
+function compatWarnings(world: CompatWorld, server: Server): string[] {
+  const warnings: string[] = [];
   if (world.flavor && familyOf(world.flavor) !== familyOf(server.type)) {
     warnings.push(
       `This world came from a ${flavorLabel(world.flavor)} server but the target runs ${flavorLabel(server.type)} — ` +
@@ -394,6 +453,19 @@ function compatWarnings(world, server) {
   return warnings;
 }
 
+interface InstallToServerOptions {
+  mode?: 'replace' | 'alongside';
+  newName?: string;
+  actor?: string;
+}
+
+interface InstallToServerResult {
+  installedAs: string;
+  mode: 'replace' | 'alongside';
+  warnings: string[];
+  sizeBytes: number;
+}
+
 /**
  * Install a library world into a server.
  * mode 'replace': requires the server stopped; safety backup, then the active
@@ -401,19 +473,33 @@ function compatWarnings(world, server) {
  * mode 'alongside': extracts under `newName` next to existing worlds — switch
  *                   with activateWorld later. Safe while running.
  */
-async function installToServer(libraryId, serverId, { mode = 'replace', newName = '', actor = 'system' } = {}) {
+async function installToServer(
+  libraryId: string,
+  serverId: string,
+  { mode = 'replace', newName = '', actor = 'system' }: InstallToServerOptions = {}
+): Promise<InstallToServerResult> {
   const lib = mustLibWorld(libraryId);
   const server = mustServer(serverId);
-  const warnings = compatWarnings({ flavor: lib.world_flavor, version: lib.version }, server);
+  const warnings = compatWarnings(
+    {
+      flavor: lib.world_flavor == null ? null : String(lib.world_flavor),
+      version: lib.version == null ? null : String(lib.version),
+    },
+    server
+  );
 
   // Disk-growing op: quota + free space first (extracted ≈ up to ~2x the zip).
-  indexer.assertUnderQuota(server, lib.size_bytes * 2);
+  const libSizeBytes = Number(lib.size_bytes);
+  indexer.assertUnderQuota(
+    { id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes },
+    libSizeBytes * 2
+  );
   const { free } = await indexer.diskFree();
-  if (free < lib.size_bytes * 2.5) {
-    throw httpError(507, `Not enough disk space to install this world (~${humanBytes(lib.size_bytes * 2.5)} needed)`);
+  if (free < libSizeBytes * 2.5) {
+    throw httpError(507, `Not enough disk space to install this world (~${humanBytes(libSizeBytes * 2.5)} needed)`);
   }
 
-  let targetLevel;
+  let targetLevel: string;
   if (mode === 'replace') {
     if (await isRunning(serverId)) {
       throw httpError(
@@ -422,14 +508,14 @@ async function installToServer(libraryId, serverId, { mode = 'replace', newName 
       );
     }
     targetLevel = activeLevelName(server);
-    const { createBackup } = require('./backups');
+    const { createBackup } = require('./backups') as typeof import('./backups');
     await createBackup(serverId, {
       reason: 'manual',
       actor,
       note: `Safety backup before installing world "${lib.name}"`,
     });
   } else {
-    targetLevel = sanitizeWorldName(newName || lib.name);
+    targetLevel = sanitizeWorldName(newName || String(lib.name));
     if (fs.existsSync(dataPath('servers', serverId, targetLevel))) {
       throw httpError(409, `A world named "${targetLevel}" already exists on this server — pick another name`);
     }
@@ -439,9 +525,9 @@ async function installToServer(libraryId, serverId, { mode = 'replace', newName 
   await fsp.mkdir(tmpDir, { recursive: true });
   let replacedBytes = 0;
   try {
-    await extractZip(dataPath(lib.rel_path), tmpDir);
+    await extractZip(dataPath(String(lib.rel_path)), tmpDir);
 
-    const tops = await fsp.readdir(tmpDir, { withFileTypes: true });
+    const tops: import('node:fs').Dirent[] = await fsp.readdir(tmpDir, { withFileTypes: true });
     const dimTops = tops.filter((e) => e.isDirectory() && isDimName(e.name));
     const mainTops = tops.filter((e) => !dimTops.includes(e));
 
@@ -478,7 +564,7 @@ async function installToServer(libraryId, serverId, { mode = 'replace', newName 
 }
 
 /** Warnings for a server→server copy (source world flavor/version vs target). */
-function copyWarnings(sourceServerId, targetServerId) {
+function copyWarnings(sourceServerId: string, targetServerId: string): string[] {
   const source = mustServer(sourceServerId);
   const target = mustServer(targetServerId);
   const level = activeLevelName(source);
@@ -488,15 +574,19 @@ function copyWarnings(sourceServerId, targetServerId) {
   return compatWarnings({ flavor: source.type, version }, target);
 }
 
+interface CopyBetweenServersResult extends InstallToServerResult {
+  library: Row;
+}
+
 /**
  * Copy the active world from one server to another via the library machinery:
  * snapshot source (works while running) → install into target.
  */
 async function copyBetweenServers(
-  sourceServerId,
-  targetServerId,
-  { mode = 'replace', newName = '', actor = 'system' } = {}
-) {
+  sourceServerId: string,
+  targetServerId: string,
+  { mode = 'replace', newName = '', actor = 'system' }: InstallToServerOptions = {}
+): Promise<CopyBetweenServersResult> {
   const source = mustServer(sourceServerId);
   const target = mustServer(targetServerId);
   if (sourceServerId === targetServerId)
@@ -506,7 +596,7 @@ async function copyBetweenServers(
     name: `${source.display_name} → ${target.display_name} (copy)`,
     actor,
   });
-  const result = await installToServer(row.id, targetServerId, { mode, newName, actor });
+  const result = await installToServer(String(row.id), targetServerId, { mode, newName, actor });
   recordEvent({
     serverId: targetServerId,
     actor,
@@ -521,17 +611,24 @@ async function copyBetweenServers(
 // Duplicate / rename / activate / reset / delete
 
 /** Fork a copy of a world within the same server (consistent while running). */
-async function duplicateWorld(serverId, worldName, { actor = 'system' } = {}) {
+async function duplicateWorld(
+  serverId: string,
+  worldName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ name: string; sizeBytes: number }> {
   const server = mustServer(serverId);
   checkWorldName(worldName);
   const dims = serverWorldDims(serverId, worldName);
-  if (!fs.existsSync(dims[0])) throw httpError(404, `No world named "${worldName}" on this server`);
+  if (!fs.existsSync(dims[0] as string)) throw httpError(404, `No world named "${worldName}" on this server`);
 
   let copyName = `${worldName}-copy`;
   for (let i = 2; fs.existsSync(dataPath('servers', serverId, copyName)); i++) copyName = `${worldName}-copy${i}`;
 
   const sizeBytes = await dirsSize(dims);
-  indexer.assertUnderQuota(server, sizeBytes);
+  indexer.assertUnderQuota(
+    { id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes },
+    sizeBytes
+  );
   const { free } = await indexer.diskFree();
   if (free < sizeBytes * 1.1)
     throw httpError(507, `Not enough disk space to duplicate (~${humanBytes(sizeBytes)} needed)`);
@@ -557,13 +654,18 @@ async function duplicateWorld(serverId, worldName, { actor = 'system' } = {}) {
 }
 
 /** Rename a world (server must be stopped); updates level-name/LEVEL when active. */
-async function renameWorld(serverId, worldName, newName, { actor = 'system' } = {}) {
+async function renameWorld(
+  serverId: string,
+  worldName: string,
+  newName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ name: string; wasActive: boolean }> {
   const server = mustServer(serverId);
   checkWorldName(worldName);
   const clean = sanitizeWorldName(newName);
   if (await isRunning(serverId)) throw httpError(409, 'Stop the server before renaming worlds');
   const dims = serverWorldDims(serverId, worldName);
-  if (!fs.existsSync(dims[0])) throw httpError(404, `No world named "${worldName}" on this server`);
+  if (!fs.existsSync(dims[0] as string)) throw httpError(404, `No world named "${worldName}" on this server`);
   if (fs.existsSync(dataPath('servers', serverId, clean))) {
     throw httpError(409, `A world named "${clean}" already exists on this server`);
   }
@@ -587,7 +689,11 @@ async function renameWorld(serverId, worldName, newName, { actor = 'system' } = 
 }
 
 /** Make a world the active one (sets level-name / LEVEL). Server must be stopped. */
-async function activateWorld(serverId, worldName, { actor = 'system' } = {}) {
+async function activateWorld(
+  serverId: string,
+  worldName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ active: string; changed: boolean }> {
   const server = mustServer(serverId);
   checkWorldName(worldName);
   if (await isRunning(serverId)) throw httpError(409, 'Stop the server before switching worlds');
@@ -609,6 +715,23 @@ async function activateWorld(serverId, worldName, { actor = 'system' } = {}) {
 
 const LEVEL_TYPES = new Set(['DEFAULT', 'FLAT', 'LARGEBIOMES', 'AMPLIFIED']);
 
+interface ResetWorldOptions {
+  seedMode?: 'keep' | 'random' | 'custom';
+  seed?: string;
+  levelType?: string;
+  backup?: boolean;
+  actor?: string;
+}
+
+interface ResetWorldResult {
+  level: string;
+  seedMode: string;
+  keptSeed: string | null;
+  seed: string | null;
+  levelType: string | null;
+  freedBytes: number;
+}
+
 /**
  * Reset (re-roll) the active world: optional auto-backup, delete its dirs, and
  * regenerate on next start with full control over the seed and world type.
@@ -620,26 +743,26 @@ const LEVEL_TYPES = new Set(['DEFAULT', 'FLAT', 'LARGEBIOMES', 'AMPLIFIED']);
  * Server must be stopped.
  */
 async function resetWorld(
-  serverId,
-  { seedMode = 'random', seed = '', levelType = '', backup = true, actor = 'system' } = {}
-) {
+  serverId: string,
+  { seedMode = 'random', seed = '', levelType = '', backup = true, actor = 'system' }: ResetWorldOptions = {}
+): Promise<ResetWorldResult> {
   const server = mustServer(serverId);
   if (await isRunning(serverId)) throw httpError(409, 'Stop the server before resetting the world');
   const level = activeLevelName(server);
   const dims = serverWorldDims(serverId, level);
-  if (!fs.existsSync(dims[0])) throw httpError(404, `World "${level}" does not exist yet — nothing to reset`);
+  if (!fs.existsSync(dims[0] as string)) throw httpError(404, `World "${level}" does not exist yet — nothing to reset`);
 
   // Resolve the seed to apply (null → cleared → Minecraft picks a random one).
-  let newSeed = null;
+  let newSeed: string | null = null;
   if (seedMode === 'keep') {
-    newSeed = readProps(serverId).get('level-seed') || readLevelSeed(path.join(dims[0], 'level.dat')) || null;
+    newSeed = readProps(serverId).get('level-seed') || readLevelSeed(path.join(dims[0] as string, 'level.dat')) || null;
   } else if (seedMode === 'custom') {
     newSeed = String(seed || '').trim() || null;
   }
   const applyType = LEVEL_TYPES.has(levelType) ? levelType : '';
 
   if (backup) {
-    const { createBackup } = require('./backups');
+    const { createBackup } = require('./backups') as typeof import('./backups');
     await createBackup(serverId, { reason: 'manual', actor, note: `Safety backup before resetting world "${level}"` });
   }
 
@@ -648,7 +771,7 @@ async function resetWorld(
 
   // Persist the seed in server.properties + the SEED env var (itzg applies SEED
   // to level-seed on start); world type rides on the LEVEL_TYPE env the same way.
-  const env = { ...server.env };
+  const env: Record<string, string> = { ...server.env };
   if (newSeed) {
     setProp(serverId, 'level-seed', String(newSeed));
     env.SEED = String(newSeed);
@@ -658,7 +781,7 @@ async function resetWorld(
   }
   if (applyType) env.LEVEL_TYPE = applyType;
   if (JSON.stringify(env) !== JSON.stringify(server.env)) {
-    require('./servers').updateServer(serverId, { env }, { actor });
+    (require('./servers') as typeof import('./servers')).updateServer(serverId, { env }, { actor });
   }
 
   const seedNote =
@@ -695,14 +818,18 @@ async function resetWorld(
 }
 
 /** Delete a non-active world from a server. Returns freed bytes. */
-async function deleteServerWorld(serverId, worldName, { actor = 'system' } = {}) {
+async function deleteServerWorld(
+  serverId: string,
+  worldName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ freedBytes: number }> {
   const server = mustServer(serverId);
   checkWorldName(worldName);
   if (worldName === activeLevelName(server)) {
     throw httpError(409, 'This is the active world — activate another world first, or use Reset to regenerate it');
   }
   const dims = serverWorldDims(serverId, worldName);
-  if (!fs.existsSync(dims[0])) throw httpError(404, `No world named "${worldName}" on this server`);
+  if (!fs.existsSync(dims[0] as string)) throw httpError(404, `No world named "${worldName}" on this server`);
   const freedBytes = await dirsSize(dims);
   for (const dim of dims) await fsp.rm(dim, { recursive: true, force: true });
   recordEvent({
@@ -719,15 +846,25 @@ async function deleteServerWorld(serverId, worldName, { actor = 'system' } = {})
 // ---------------------------------------------------------------------------
 // Downloads
 
+interface PreparedWorldDownload {
+  absPath: string;
+  filename: string;
+  size: number;
+}
+
 /**
  * Zip a server world into ./data/tmp for a one-off download (consistent
  * snapshot while running). Caller must delete absPath when done sending.
  */
-async function prepareWorldDownload(serverId, worldName, { actor = 'system' } = {}) {
+async function prepareWorldDownload(
+  serverId: string,
+  worldName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<PreparedWorldDownload> {
   const server = mustServer(serverId);
   checkWorldName(worldName);
   const dims = serverWorldDims(serverId, worldName);
-  if (!fs.existsSync(dims[0])) throw httpError(404, `No world named "${worldName}" on this server`);
+  if (!fs.existsSync(dims[0] as string)) throw httpError(404, `No world named "${worldName}" on this server`);
 
   const sizeBytes = await dirsSize(dims);
   const { free } = await indexer.diskFree();
@@ -738,7 +875,7 @@ async function prepareWorldDownload(serverId, worldName, { actor = 'system' } = 
   const running = active && (await isRunning(serverId));
   const zipAbs = dataPath('tmp', `world-dl-${nanoid(6)}.zip`);
   await withPausedSaves(serverId, running, async () => {
-    await zipWorld(zipAbs, dims[0], dims.slice(1));
+    await zipWorld(zipAbs, dims[0] as string, dims.slice(1));
   });
   const size = (await fsp.stat(zipAbs)).size;
   recordEvent({
@@ -758,43 +895,59 @@ async function prepareWorldDownload(serverId, worldName, { actor = 'system' } = 
 // ---------------------------------------------------------------------------
 // Library listing / delete
 
+interface LibraryWorldView {
+  id: string;
+  name: string;
+  filename: string;
+  source: string;
+  sourceKind: 'import' | 'upload' | 'extract';
+  flavor: string | null;
+  mcVersion: string | null;
+  size: number;
+  created: string;
+  createdMs: number | null;
+  hash: string;
+}
+
 /** All library worlds mapped for the UI (friendly source labels, compat info). */
-function libraryWorlds() {
-  return db.all("SELECT * FROM library_files WHERE category = 'world' ORDER BY created_at DESC").map((row) => {
-    let source = 'Imported';
-    let sourceKind = 'import';
-    if (row.world_source === 'upload') {
-      source = 'Uploaded';
-      sourceKind = 'upload';
-    } else if (row.world_source && row.world_source.startsWith('extract:')) {
-      const sid = row.world_source.slice('extract:'.length);
-      const server = db.get('SELECT display_name FROM servers WHERE id = ?', sid);
-      source = `Extracted from ${server ? server.display_name : sid}`;
-      sourceKind = 'extract';
+function libraryWorlds(): LibraryWorldView[] {
+  return (db.all("SELECT * FROM library_files WHERE category = 'world' ORDER BY created_at DESC") as Row[]).map(
+    (row) => {
+      let source = 'Imported';
+      let sourceKind: 'import' | 'upload' | 'extract' = 'import';
+      if (row.world_source === 'upload') {
+        source = 'Uploaded';
+        sourceKind = 'upload';
+      } else if (row.world_source && String(row.world_source).startsWith('extract:')) {
+        const sid = String(row.world_source).slice('extract:'.length);
+        const server: Row | undefined = db.get('SELECT display_name FROM servers WHERE id = ?', sid);
+        source = `Extracted from ${server ? server.display_name : sid}`;
+        sourceKind = 'extract';
+      }
+      return {
+        id: String(row.id),
+        name: String(row.name),
+        filename: String(row.filename),
+        source,
+        sourceKind,
+        flavor: row.world_flavor ? flavorLabel(String(row.world_flavor)) : null,
+        mcVersion: row.version == null ? null : String(row.version),
+        size: Number(row.size_bytes),
+        created: String(row.created_at || '').slice(0, 16),
+        // created_at is SQLite datetime('now') — UTC without a zone marker.
+        // Epoch ms lets the frontend format in the viewer's locale/timezone.
+        createdMs: (() => {
+          const ms = Date.parse(String(row.created_at || '').replace(' ', 'T') + 'Z');
+          return Number.isFinite(ms) ? ms : null;
+        })(),
+        hash: String(row.sha256).slice(0, 10),
+      };
     }
-    return {
-      id: row.id,
-      name: row.name,
-      filename: row.filename,
-      source,
-      sourceKind,
-      flavor: row.world_flavor ? flavorLabel(row.world_flavor) : null,
-      mcVersion: row.version || null,
-      size: row.size_bytes,
-      created: (row.created_at || '').slice(0, 16),
-      // created_at is SQLite datetime('now') — UTC without a zone marker.
-      // Epoch ms lets the frontend format in the viewer's locale/timezone.
-      createdMs: (() => {
-        const ms = Date.parse(String(row.created_at || '').replace(' ', 'T') + 'Z');
-        return Number.isFinite(ms) ? ms : null;
-      })(),
-      hash: row.sha256.slice(0, 10),
-    };
-  });
+  );
 }
 
 /** Delete a library world archive (delegates to the shared library service). */
-async function deleteLibraryWorld(id, { actor = 'system' } = {}) {
+async function deleteLibraryWorld(id: string, { actor = 'system' }: { actor?: string } = {}) {
   mustLibWorld(id);
   return library.deleteLibraryFile(id, { actor });
 }
@@ -803,15 +956,15 @@ async function deleteLibraryWorld(id, { actor = 'system' } = {}) {
 // server.properties + level helpers
 
 /** Active level name: LEVEL env wins, then server.properties, then 'world'. */
-function activeLevelName(server) {
+function activeLevelName(server: Server): string {
   return (server.env && server.env.LEVEL) || readProps(server.id).get('level-name') || 'world';
 }
 
 /** Parse server.properties into a Map (empty when missing). */
-function readProps(serverId) {
-  const map = new Map();
+function readProps(serverId: string): Map<string, string> {
+  const map = new Map<string, string>();
   try {
-    const text = fs.readFileSync(dataPath('servers', serverId, 'server.properties'), 'utf8');
+    const text: string = fs.readFileSync(dataPath('servers', serverId, 'server.properties'), 'utf8');
     for (const line of text.split(/\r?\n/)) {
       if (!line || line.startsWith('#')) continue;
       const eq = line.indexOf('=');
@@ -824,7 +977,7 @@ function readProps(serverId) {
 }
 
 /** Set one server.properties key atomically (create the file when missing). */
-function setProp(serverId, key, value) {
+function setProp(serverId: string, key: string, value: string): void {
   const file = dataPath('servers', serverId, 'server.properties');
   let text = '';
   try {
@@ -842,19 +995,23 @@ function setProp(serverId, key, value) {
 }
 
 /** Point the server at a new level: property always, LEVEL env when present. */
-function setActiveLevel(server, levelName, { actor }) {
+function setActiveLevel(server: Server, levelName: string, { actor }: { actor?: string }): void {
   setProp(server.id, 'level-name', levelName);
   if (server.env && server.env.LEVEL !== undefined) {
-    require('./servers').updateServer(server.id, { env: { ...server.env, LEVEL: levelName } }, { actor });
+    (require('./servers') as typeof import('./servers')).updateServer(
+      server.id,
+      { env: { ...server.env, LEVEL: levelName } },
+      { actor }
+    );
   }
   // Keep BlueMap (if enabled) pointed at whichever world is actually active —
   // otherwise a rename/switch after enabling the map silently breaks it again.
-  const mapService = require('./map');
+  const mapService = require('./map') as typeof import('./map');
   if (mapService.getMapConfig(server.id).enabled) mapService.writeMapConfigs(server.id);
 }
 
 /** Existing dim dirs for a world: [main, main_nether?, main_the_end?] (absolute). */
-function serverWorldDims(serverId, worldName) {
+function serverWorldDims(serverId: string, worldName: string): string[] {
   const main = dataPath('servers', serverId, worldName);
   const dims = [main];
   for (const suffix of DIM_SUFFIXES) {
@@ -864,12 +1021,12 @@ function serverWorldDims(serverId, worldName) {
   return dims;
 }
 
-function isDimName(name) {
+function isDimName(name: string): boolean {
   return DIM_SUFFIXES.some((s) => name.endsWith(s) && name.length > s.length);
 }
 
 /** 'world_nether' -> 'world', null when not a dim name. */
-function dimBase(name) {
+function dimBase(name: string): string | null {
   for (const suffix of DIM_SUFFIXES) {
     if (name.endsWith(suffix) && name.length > suffix.length) return name.slice(0, -suffix.length);
   }
@@ -880,7 +1037,7 @@ function dimBase(name) {
 // level.dat best-effort NBT scans (no NBT dependency — gzip + tag-pattern scan)
 
 /** Read the MC version name ("1.21.5") out of level.dat, or null. */
-function readLevelVersion(levelDatAbs) {
+function readLevelVersion(levelDatAbs: string): string | null {
   const buf = readLevelBuffer(levelDatAbs);
   if (!buf) return null;
   // NBT string tag: 0x08, name length (2B BE) = 4, "Name", value length (2B BE), value
@@ -890,7 +1047,7 @@ function readLevelVersion(levelDatAbs) {
     const lenOff = idx + needle.length;
     if (lenOff + 2 <= buf.length) {
       const len = buf.readUInt16BE(lenOff);
-      const value = buf.slice(lenOff + 2, lenOff + 2 + len).toString('utf8');
+      const value = buf.subarray(lenOff + 2, lenOff + 2 + len).toString('utf8');
       if (/^\d+\.\d+/.test(value)) return value;
     }
     idx = buf.indexOf(needle, idx + 1);
@@ -899,7 +1056,7 @@ function readLevelVersion(levelDatAbs) {
 }
 
 /** Read the world seed out of level.dat (RandomSeed or WorldGenSettings.seed), or null. */
-function readLevelSeed(levelDatAbs) {
+function readLevelSeed(levelDatAbs: string): string | null {
   const buf = readLevelBuffer(levelDatAbs);
   if (!buf) return null;
   // NBT long tag: 0x04, name length (2B BE), name, 8-byte BE value
@@ -913,9 +1070,9 @@ function readLevelSeed(levelDatAbs) {
   return null;
 }
 
-function readLevelBuffer(levelDatAbs) {
+function readLevelBuffer(levelDatAbs: string): Buffer | null {
   try {
-    const raw = fs.readFileSync(levelDatAbs);
+    const raw: Buffer = fs.readFileSync(levelDatAbs);
     return raw[0] === 0x1f && raw[1] === 0x8b ? zlib.gunzipSync(raw) : raw;
   } catch {
     return null;
@@ -926,7 +1083,7 @@ function readLevelBuffer(levelDatAbs) {
 // Archive plumbing
 
 /** Zip a world: root contents at the top level, split dims as sibling dirs. */
-function zipWorld(outFile, rootAbs, dimDirs = []) {
+function zipWorld(outFile: string, rootAbs: string, dimDirs: string[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outFile);
     const archive = archiver('zip', { zlib: { level: 6 } });
@@ -940,7 +1097,7 @@ function zipWorld(outFile, rootAbs, dimDirs = []) {
 }
 
 /** Route an archive to the right extractor by magic bytes (zip/.mcworld, tar, tar.gz). */
-async function extractArchive(file, destDir, originalName = '') {
+async function extractArchive(file: string, destDir: string, originalName: string = ''): Promise<void> {
   const fd = await fsp.open(file, 'r');
   const head = Buffer.alloc(265);
   await fd.read(head, 0, 265, 0);
@@ -948,19 +1105,19 @@ async function extractArchive(file, destDir, originalName = '') {
 
   const isZip = head[0] === 0x50 && head[1] === 0x4b;
   const isGzip = head[0] === 0x1f && head[1] === 0x8b;
-  const isTar = head.slice(257, 262).toString('latin1') === 'ustar';
+  const isTar = head.subarray(257, 262).toString('latin1') === 'ustar';
 
   if (isZip) return extractZip(file, destDir);
   if (isGzip || isTar || /\.tar$/i.test(originalName)) {
     // node-tar sanitizes absolute paths and skips `..` entries by default; the
     // filter also enforces an uncompressed-size ceiling (decompression-bomb guard).
     let tarTotal = 0;
-    return tar.x({
+    await tar.x({
       file,
       cwd: destDir,
-      filter: (p, stat) => {
+      filter: (p: string, stat: { size?: number }) => {
         if (p.split(/[\\/]/).includes('..')) return false;
-        tarTotal += (stat && stat.size) || 0;
+        tarTotal += stat?.size || 0;
         if (tarTotal > MAX_EXTRACT_BYTES) {
           throw httpError(
             413,
@@ -970,6 +1127,7 @@ async function extractArchive(file, destDir, originalName = '') {
         return true;
       },
     });
+    return;
   }
   throw httpError(400, `That doesn't look like a zip or tar archive${originalName ? ` (${originalName})` : ''}`);
 }
@@ -980,7 +1138,7 @@ const MAX_EXTRACT_BYTES = 50 * 1024 ** 3;
 const MAX_EXTRACT_ENTRIES = 200000;
 
 /** Zip-slip-safe extraction (yauzl) with a decompression-bomb ceiling. */
-function extractZip(zipFile, destDir) {
+function extractZip(zipFile: string, destDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
       if (err) return reject(err);
@@ -988,11 +1146,11 @@ function extractZip(zipFile, destDir) {
       let entryCount = 0;
       let writtenBytes = 0;
       let declaredBytes = 0;
-      const fail = (e) => {
+      const fail = (e: Error) => {
         if (settled) return;
         settled = true;
         try {
-          zip.destroy();
+          zip.destroy?.();
         } catch {
           /* */
         }
@@ -1032,7 +1190,7 @@ function extractZip(zipFile, destDir) {
             if (streamErr) return fail(streamErr);
             const out = fs.createWriteStream(target);
             // Also count ACTUAL bytes so a lying header can't slip a bomb past the check.
-            readStream.on('data', (chunk) => {
+            readStream.on('data', (chunk: Buffer) => {
               writtenBytes += chunk.length;
               if (writtenBytes > MAX_EXTRACT_BYTES) {
                 readStream.destroy();
@@ -1061,18 +1219,18 @@ function extractZip(zipFile, destDir) {
 // ---------------------------------------------------------------------------
 // Small utilities
 
-async function isRunning(serverId) {
-  const info = await inspectStatus(serverId).catch(() => ({ exists: false }));
+async function isRunning(serverId: string): Promise<boolean> {
+  const info = await inspectStatus(serverId).catch(() => ({ exists: false, status: 'stopped' as const }));
   return info.exists && ['running', 'starting', 'unhealthy'].includes(info.status);
 }
 
-async function dirsSize(absDirs) {
+async function dirsSize(absDirs: string[]): Promise<number> {
   let total = 0;
   for (const dir of absDirs) total += await dirSize(dir);
   return total;
 }
 
-async function dirSize(abs) {
+async function dirSize(abs: string): Promise<number> {
   let total = 0;
   let entries;
   try {
@@ -1095,39 +1253,39 @@ async function dirSize(abs) {
   return total;
 }
 
-function sha256File(abs) {
+function sha256File(abs: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
     fs.createReadStream(abs)
-      .on('data', (chunk) => hash.update(chunk))
+      .on('data', (chunk: Buffer) => hash.update(chunk))
       .on('end', () => resolve(hash.digest('hex')))
       .on('error', reject);
   });
 }
 
 /** rename with cross-device fallback (tmp and servers share ./data, but be safe). */
-async function moveFile(from, to) {
+async function moveFile(from: string, to: string): Promise<void> {
   try {
     await fsp.rename(from, to);
-  } catch (err) {
-    if (err.code !== 'EXDEV') throw err;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
     await fsp.copyFile(from, to);
     await fsp.rm(from, { force: true });
   }
 }
 
-async function moveEntry(from, to) {
+async function moveEntry(from: string, to: string): Promise<void> {
   try {
     await fsp.rename(from, to);
-  } catch (err) {
-    if (err.code !== 'EXDEV') throw err;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
     await fsp.cp(from, to, { recursive: true });
     await fsp.rm(from, { recursive: true, force: true });
   }
 }
 
 /** World dir names: strip path separators & control chars, keep it friendly. */
-function sanitizeWorldName(name) {
+function sanitizeWorldName(name: unknown): string {
   const clean = String(name || '')
     .replace(/[\\/:*?"<>|\0]/g, '_')
     .replace(/^\.+/, '')
@@ -1138,32 +1296,32 @@ function sanitizeWorldName(name) {
 }
 
 /** Reject world names that could traverse paths (route params are user input). */
-function checkWorldName(name) {
-  if (!name || /[\\/\0]/.test(name) || name === '.' || name === '..' || name.startsWith('.')) {
+function checkWorldName(name: unknown): void {
+  if (!name || /[\\/\0]/.test(String(name)) || name === '.' || name === '..' || String(name).startsWith('.')) {
     throw httpError(400, 'Invalid world name');
   }
 }
 
-function sanitizeFilename(name) {
+function sanitizeFilename(name: unknown): string {
   return String(name)
     .replace(/[\\/:*?"<>|\0]/g, '_')
     .slice(0, 120);
 }
 
-function mustServer(serverId) {
-  const server = require('./servers').getServer(serverId);
+function mustServer(serverId: string): Server {
+  const server = (require('./servers') as typeof import('./servers')).getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   return server;
 }
 
-function mustLibWorld(libraryId) {
-  const lib = db.get("SELECT * FROM library_files WHERE id = ? AND category = 'world'", libraryId);
+function mustLibWorld(libraryId: string): Row {
+  const lib: Row | undefined = db.get("SELECT * FROM library_files WHERE id = ? AND category = 'world'", libraryId);
   if (!lib) throw httpError(404, 'World not found in the library');
   return lib;
 }
 
 /** Compare dotted versions: >0 when a is newer than b. Non-numeric parts compare as strings. */
-function compareVersions(a, b) {
+function compareVersions(a: string, b: string): number {
   const pa = String(a).split('.');
   const pb = String(b).split('.');
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -1179,17 +1337,17 @@ function compareVersions(a, b) {
   return 0;
 }
 
-function humanBytes(n) {
+function humanBytes(n: number): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref());
 }
 
-module.exports = {
+export = {
   detectWorldRoot,
   importArchive,
   extractFromServer,

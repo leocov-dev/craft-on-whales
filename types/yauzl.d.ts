@@ -15,6 +15,9 @@ declare module 'yauzl' {
     readEntry(): void;
     openReadStream(entry: Entry, callback: (err: Error | null, stream: Readable) => void): void;
     close(): void;
+    /** Not part of yauzl's real API — some call sites defensively call this in a
+     *  try/catch expecting it to no-op or throw; kept optional so both compile. */
+    destroy?(): void;
     on(event: 'entry', listener: (entry: Entry) => void): this;
     on(event: 'end', listener: () => void): this;
     on(event: 'error', listener: (err: Error) => void): this;

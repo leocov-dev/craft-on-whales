@@ -5,11 +5,13 @@
 // (container name, network, extra ports, extra volume binds). Never requires
 // ./servers — servers.js requires this module, and a cycle would break it.
 
+import type { ServerExtraPort, ServerExtraBind } from './types';
+
 const path = require('node:path');
-const yaml = require('js-yaml');
-const httpError = require('../utils/httpError');
-const { isPortFree } = require('./ports');
-const networks = require('../docker/networks');
+const yaml = require('js-yaml') as typeof import('js-yaml');
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+const { isPortFree } = require('./ports') as typeof import('./ports');
+const networks = require('../docker/networks') as typeof import('../docker/networks');
 
 const HEADER =
   '# Advanced Docker settings.\n' +
@@ -18,17 +20,46 @@ const HEADER =
   '# resources, env) is read-only context — edit it from the other wizard/\n' +
   '# settings sections instead.\n\n';
 
-function toYaml(spec) {
+/** The subset of previewCreateSpec/previewServerSpec (src/services/servers.ts)
+ *  the YAML preview round-trips through Apply. */
+interface DockerSpecPreview {
+  containerName: string | null;
+  network: string | null;
+  ports: {
+    extra: ServerExtraPort[];
+  };
+  volumes: {
+    extra: ServerExtraBind[];
+  };
+  [key: string]: unknown;
+}
+
+function toYaml(spec: DockerSpecPreview): string {
   return HEADER + yaml.dump(spec, { noRefs: true, lineWidth: 100 });
 }
 
+interface ParsedOverrides {
+  containerName: string | null;
+  networkName: string | null;
+  extraPorts: ServerExtraPort[];
+  extraBinds: ServerExtraBind[];
+}
+
+/** Raw shape a user-edited YAML document parses into. */
+interface RawYamlSpec {
+  containerName?: string | null;
+  network?: string | null;
+  ports?: { extra?: { hostPort: unknown; containerPort: unknown; protocol: 'tcp' | 'udp'; label?: string }[] };
+  volumes?: { extra?: { hostPath: string; containerPath: string; mode?: 'rw' | 'ro' }[] };
+}
+
 /** Parse edited YAML back into just the 4 editable override fields. */
-function fromYaml(text) {
-  let obj;
+function fromYaml(text: string): ParsedOverrides {
+  let obj: RawYamlSpec;
   try {
-    obj = yaml.load(text);
-  } catch (err) {
-    throw httpError(400, `Invalid YAML: ${err.message}`);
+    obj = yaml.load(text) as RawYamlSpec;
+  } catch (err: unknown) {
+    throw httpError(400, `Invalid YAML: ${(err as Error).message}`);
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
     throw httpError(400, 'Invalid YAML: expected a mapping at the top level');
@@ -52,6 +83,13 @@ function fromYaml(text) {
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 
+interface ValidateOverridesInput {
+  containerName?: string | null;
+  networkName?: string | null;
+  extraPorts?: ServerExtraPort[];
+  extraBinds?: ServerExtraBind[];
+}
+
 /**
  * Authoritative validation for the 4 override fields — must be run on every
  * path that can persist them (creation, and the Settings-tab PATCH), even
@@ -63,10 +101,10 @@ const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
  * bound, so isPortFree would otherwise — wrongly — report a collision).
  */
 async function validateOverrides(
-  { containerName, networkName, extraPorts = [], extraBinds = [] },
-  { previousExtraPorts = [] } = {}
-) {
-  const errors = [];
+  { containerName, networkName, extraPorts = [], extraBinds = [] }: ValidateOverridesInput,
+  { previousExtraPorts = [] }: { previousExtraPorts?: ServerExtraPort[] } = {}
+): Promise<void> {
+  const errors: string[] = [];
 
   if (containerName != null && !NAME_RE.test(containerName)) {
     errors.push(
@@ -88,7 +126,7 @@ async function validateOverrides(
   }
 
   const previousHostPorts = new Set((previousExtraPorts || []).map((p) => p.hostPort));
-  const seenPorts = new Set();
+  const seenPorts = new Set<number>();
   for (const p of extraPorts || []) {
     const hostPort = Number(p.hostPort);
     const containerPort = Number(p.containerPort);
@@ -135,4 +173,4 @@ async function validateOverrides(
   if (errors.length) throw httpError(400, errors.join(' '));
 }
 
-module.exports = { toYaml, fromYaml, validateOverrides };
+export = { toYaml, fromYaml, validateOverrides };

@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Scoped file manager. serverId scopes every operation to
@@ -6,15 +5,17 @@
 // DATA_DIR itself. Every path resolves through the path guard — nothing can
 // escape ./data, and server-scoped calls can't escape their server dir.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const config = require('../config');
-const db = require('../db');
-const { safeJoin } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const indexer = require('../storage/indexer');
+const config = require('../config') as typeof import('../config');
+const db = require('../db') as typeof import('../db');
+const { safeJoin } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const indexer = require('../storage/indexer') as typeof import('../storage/indexer');
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024; // editor cap
 // Global scope: panel-internal files at the DATA_DIR root that must never be read,
@@ -24,19 +25,25 @@ const MAX_TEXT_BYTES = 2 * 1024 * 1024; // editor cap
 const PROTECTED_GLOBAL = new Set(['panel.db', 'panel.db-wal', 'panel.db-shm', 'panel.db-journal', '.session-secret']);
 
 /** True for a DATA_DIR-root path that must be hidden/blocked in the global manager. */
-function isProtectedGlobal(rel) {
+function isProtectedGlobal(rel: string): boolean {
   return PROTECTED_GLOBAL.has(rel) || /^\.[^/\\]+$/.test(rel);
 }
 
+interface ResolvedPath {
+  base: string;
+  abs: string;
+  rel: string;
+}
+
 /** Resolve a scope-relative path to {base, abs, rel}. Throws 400 on escape. */
-function resolvePath(serverId, relPath = '') {
+function resolvePath(serverId: string | null, relPath: string = ''): ResolvedPath {
   const base = serverId ? safeJoin(config.dataDir, 'servers', serverId) : config.dataDir;
   const abs = safeJoin(base, String(relPath || '') || '.');
   const rel = path.relative(base, abs).split(path.sep).join('/');
   return { base, abs, rel };
 }
 
-function guardProtected(serverId, rel) {
+function guardProtected(serverId: string | null, rel: string): void {
   if (!serverId && isProtectedGlobal(rel)) {
     // Applies to read/download AND write — the DB holds password hashes and the
     // at-rest secret cipher, and .session-secret is that cipher's key, so neither
@@ -45,15 +52,29 @@ function guardProtected(serverId, rel) {
   }
 }
 
+interface ListEntry {
+  name: string;
+  dir: boolean;
+  size: number;
+  mtimeMs: number;
+  mtime: string;
+  path: string;
+}
+
+interface ListResult {
+  path: string;
+  entries: ListEntry[];
+}
+
 /** List a directory: entries {name, dir, size, mtime, mtimeMs, path}, dirs first. */
-async function list(serverId, relPath = '') {
+async function list(serverId: string | null, relPath: string = ''): Promise<ListResult> {
   const { abs, rel } = resolvePath(serverId, relPath);
   const st = await fsp.stat(abs).catch(() => null);
   if (!st) throw httpError(404, 'Folder not found');
   if (!st.isDirectory()) throw httpError(400, 'Not a folder');
 
   const dirents = await fsp.readdir(abs, { withFileTypes: true });
-  const entries = [];
+  const entries: ListEntry[] = [];
   for (const e of dirents) {
     // Never surface panel-internal files (DB, session secret) in the global manager.
     const childRel = rel ? `${rel}/${e.name}` : e.name;
@@ -88,12 +109,19 @@ async function list(serverId, relPath = '') {
       path: rel ? `${rel}/${e.name}` : e.name,
     });
   }
-  entries.sort((a, b) => b.dir - a.dir || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  entries.sort(
+    (a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
   return { path: rel, entries };
 }
 
+interface ReadTextResult {
+  content: string;
+  size: number;
+}
+
 /** Read a text file (≤ 2 MB; binary rejected by null-byte sniff). */
-async function readText(serverId, relPath) {
+async function readText(serverId: string | null, relPath: string): Promise<ReadTextResult> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel);
   const st = await fsp.stat(abs).catch(() => null);
@@ -104,15 +132,25 @@ async function readText(serverId, relPath) {
       `File is too large for the editor (${humanBytes(st.size)} — limit is 2 MB). Download it instead.`
     );
   }
-  const buf = await fsp.readFile(abs);
+  const buf: Buffer = await fsp.readFile(abs);
   if (buf.subarray(0, 8192).includes(0)) {
     throw httpError(415, 'This looks like a binary file — download it instead of editing');
   }
   return { content: buf.toString('utf8'), size: st.size };
 }
 
+interface WriteTextResult {
+  path: string;
+  size: number;
+}
+
 /** Write a text file atomically (tmp + rename). Creates the file when missing. */
-async function writeText(serverId, relPath, content, { actor = 'system' } = {}) {
+async function writeText(
+  serverId: string | null,
+  relPath: string,
+  content: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<WriteTextResult> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel);
   if (!rel) throw httpError(400, 'Cannot write the root');
@@ -140,7 +178,11 @@ async function writeText(serverId, relPath, content, { actor = 'system' } = {}) 
   return { path: rel, size: bytes };
 }
 
-async function mkdir(serverId, relPath, { actor = 'system' } = {}) {
+async function mkdir(
+  serverId: string | null,
+  relPath: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ path: string }> {
   const { abs, rel } = resolvePath(serverId, relPath);
   if (!rel) throw httpError(400, 'Folder name cannot be empty');
   if (fs.existsSync(abs)) throw httpError(409, 'That name already exists');
@@ -156,7 +198,12 @@ async function mkdir(serverId, relPath, { actor = 'system' } = {}) {
 }
 
 /** Rename in place (newName must not contain path separators). */
-async function rename(serverId, relPath, newName, { actor = 'system' } = {}) {
+async function rename(
+  serverId: string | null,
+  relPath: string,
+  newName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ path: string }> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel);
   if (!rel) throw httpError(400, 'Cannot rename the root');
@@ -180,7 +227,12 @@ async function rename(serverId, relPath, newName, { actor = 'system' } = {}) {
 }
 
 /** Move into a destination directory (keeps the base name). */
-async function move(serverId, relPath, destRel, { actor = 'system' } = {}) {
+async function move(
+  serverId: string | null,
+  relPath: string,
+  destRel: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ path: string }> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel);
   if (!rel) throw httpError(400, 'Cannot move the root');
@@ -205,7 +257,12 @@ async function move(serverId, relPath, destRel, { actor = 'system' } = {}) {
 }
 
 /** Copy into a destination directory (recursive; quota-checked). */
-async function copy(serverId, relPath, destRel, { actor = 'system' } = {}) {
+async function copy(
+  serverId: string | null,
+  relPath: string,
+  destRel: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ path: string; sizeBytes: number }> {
   const { abs, rel } = resolvePath(serverId, relPath);
   if (!rel) throw httpError(400, 'Cannot copy the root');
   const dest = resolvePath(serverId, destRel);
@@ -235,7 +292,11 @@ async function copy(serverId, relPath, destRel, { actor = 'system' } = {}) {
 }
 
 /** Delete a file or folder (recursive). Returns freed bytes. */
-async function remove(serverId, relPath, { actor = 'system' } = {}) {
+async function remove(
+  serverId: string | null,
+  relPath: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ freedBytes: number }> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel);
   if (!rel) throw httpError(400, 'Cannot delete the root folder');
@@ -255,7 +316,13 @@ async function remove(serverId, relPath, { actor = 'system' } = {}) {
 }
 
 /** Move an uploaded tmp file into a target directory (used by the upload routes). */
-async function acceptUpload(serverId, destRel, tmpAbs, originalName, { actor = 'system' } = {}) {
+async function acceptUpload(
+  serverId: string | null,
+  destRel: string,
+  tmpAbs: string,
+  originalName: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ path: string; name: string; size: number }> {
   const dest = resolvePath(serverId, destRel);
   const dst = await fsp.stat(dest.abs).catch(() => null);
   if (!dst || !dst.isDirectory()) throw httpError(400, 'Destination folder not found');
@@ -277,8 +344,15 @@ async function acceptUpload(serverId, destRel, tmpAbs, originalName, { actor = '
   return { path: rel, name: filename, size };
 }
 
+interface StatFileResult {
+  abs: string;
+  rel: string;
+  size: number;
+  name: string;
+}
+
 /** Absolute path + stat for downloads (files only). */
-async function statFile(serverId, relPath) {
+async function statFile(serverId: string | null, relPath: string): Promise<StatFileResult> {
   const { abs, rel } = resolvePath(serverId, relPath);
   guardProtected(serverId, rel); // no downloading panel.db either
   const st = await fsp.stat(abs).catch(() => null);
@@ -288,18 +362,27 @@ async function statFile(serverId, relPath) {
 
 // ---------------------------------------------------------------------------
 
-function assertRoom(serverId, aboutToAddBytes) {
+function assertRoom(serverId: string | null, aboutToAddBytes: number): void {
   if (!serverId) return;
-  const server = db.get('SELECT * FROM servers WHERE id = ? AND deleted_at IS NULL', serverId);
-  if (server) indexer.assertUnderQuota(server, aboutToAddBytes);
+  const server: Row | undefined = db.get('SELECT * FROM servers WHERE id = ? AND deleted_at IS NULL', serverId);
+  if (server) {
+    indexer.assertUnderQuota(
+      {
+        id: String(server.id),
+        display_name: String(server.display_name),
+        disk_quota_bytes: Number(server.disk_quota_bytes),
+      },
+      aboutToAddBytes
+    );
+  }
 }
 
-async function assertDiskFree(bytes) {
-  const { free } = await indexer.diskFree().catch(() => ({ free: Infinity }));
+async function assertDiskFree(bytes: number): Promise<void> {
+  const { free } = await indexer.diskFree().catch(() => ({ free: Infinity, total: Infinity }));
   if (free < bytes * 1.1) throw httpError(507, `Not enough disk space (~${humanBytes(bytes)} needed)`);
 }
 
-async function dirSize(abs) {
+async function dirSize(abs: string): Promise<number> {
   let total = 0;
   let entries;
   try {
@@ -322,17 +405,17 @@ async function dirSize(abs) {
   return total;
 }
 
-async function moveEntry(from, to) {
+async function moveEntry(from: string, to: string): Promise<void> {
   try {
     await fsp.rename(from, to);
-  } catch (err) {
-    if (err.code !== 'EXDEV') throw err;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
     await fsp.cp(from, to, { recursive: true });
     await fsp.rm(from, { recursive: true, force: true });
   }
 }
 
-function sanitizeName(name) {
+function sanitizeName(name: string): string {
   const clean = String(name || '')
     .replace(/[\\/:*?"<>|\0]/g, '_')
     .replace(/^\.+$/, '')
@@ -342,20 +425,20 @@ function sanitizeName(name) {
   return clean;
 }
 
-function formatWhen(ms) {
+function formatWhen(ms: number): string {
   if (!ms) return '—';
   const d = new Date(ms);
-  const pad = (n) => String(n).padStart(2, '0');
+  const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function humanBytes(n) {
+function humanBytes(n: number): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
-module.exports = {
+export = {
   list,
   readText,
   writeText,

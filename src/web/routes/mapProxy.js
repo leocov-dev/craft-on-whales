@@ -96,7 +96,7 @@ router.use('/:id', async (req, res) => {
     return res.status(405).send('Method not allowed');
   }
   const server = getServer(req.params.id);
-  const cfg = server ? getMapConfig(server.id) : { enabled: false };
+  const cfg = server ? getMapConfig(server.id) : { enabled: false, hostPort: null };
   if (!server || !cfg.enabled || !cfg.hostPort) {
     return res.status(404).send('Live map is not enabled for this server');
   }

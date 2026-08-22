@@ -6,12 +6,24 @@
 // Every op tries the modern form first and falls back to legacy.
 
 const fs = require('node:fs');
-const { execCapture } = require('../docker/containers');
-const { cleanText } = require('../utils/ansi');
-const { recordEvent } = require('../events');
-const { dataPath } = require('../storage/pathGuard');
+const { execCapture } = require('../docker/containers') as typeof import('../docker/containers');
+const { cleanText } = require('../utils/ansi') as typeof import('../utils/ansi');
+const { recordEvent } = require('../events') as typeof import('../events');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 
-const GAMERULES = {
+type GameruleKey =
+  | 'keepInventory'
+  | 'doDaylightCycle'
+  | 'doWeatherCycle'
+  | 'mobGriefing'
+  | 'doMobSpawning'
+  | 'doFireTick'
+  | 'fallDamage'
+  | 'naturalRegeneration'
+  | 'doInsomnia'
+  | 'doImmediateRespawn';
+
+const GAMERULES: Record<GameruleKey, string> = {
   keepInventory: 'keep_inventory',
   doDaylightCycle: 'do_daylight_cycle',
   doWeatherCycle: 'do_weather_cycle',
@@ -24,7 +36,27 @@ const GAMERULES = {
   doImmediateRespawn: 'do_immediate_respawn',
 };
 
-const QUICK_ACTIONS = {
+interface QuickActionCmd {
+  cmd: string[];
+  label: string;
+}
+interface QuickActionRule {
+  rule: GameruleKey;
+  value: 'true' | 'false';
+  label: string;
+}
+interface QuickActionVariants {
+  variants: string[][];
+  label: string;
+}
+interface QuickActionProp {
+  prop: 'pvp';
+  value: boolean;
+  label: string;
+}
+type QuickAction = QuickActionCmd | QuickActionRule | QuickActionVariants | QuickActionProp;
+
+const QUICK_ACTIONS: Record<string, QuickAction> = {
   'time-day': { cmd: ['time', 'set', 'day'], label: 'Time set to day' },
   'time-noon': { cmd: ['time', 'set', 'noon'], label: 'Time set to noon' },
   'time-night': { cmd: ['time', 'set', 'night'], label: 'Time set to night' },
@@ -75,14 +107,15 @@ const QUICK_ACTIONS = {
   'save-all': { cmd: ['save-all', 'flush'], label: 'World saved' },
 };
 
-const looksLikeError = (out) => /Incorrect argument|Unknown command|Can't find element|Expected|<--\[HERE\]/i.test(out);
+const looksLikeError = (out: string): boolean =>
+  /Incorrect argument|Unknown command|Can't find element|Expected|<--\[HERE\]/i.test(out);
 
-async function rcon(serverId, args) {
+async function rcon(serverId: string, args: string[]): Promise<string> {
   return cleanText(await execCapture(serverId, ['rcon-cli', ...args]));
 }
 
 /** Run modern args; fall back to legacy args when the syntax is rejected. */
-async function tryVariants(serverId, variants) {
+async function tryVariants(serverId: string, variants: string[][]): Promise<string> {
   let out = '';
   for (const args of variants) {
     out = await rcon(serverId, args);
@@ -91,16 +124,16 @@ async function tryVariants(serverId, variants) {
   return out;
 }
 
-async function queryGamerule(serverId, rule) {
+async function queryGamerule(serverId: string, rule: GameruleKey): Promise<boolean | null> {
   const out = await tryVariants(serverId, [
     ['gamerule', GAMERULES[rule]], // 26.x snake_case
     ['gamerule', rule], // legacy camelCase
   ]);
   const m = /(?:is currently set to|is):?\s*(true|false)/i.exec(out) || /\b(true|false)\s*$/i.exec(out.trim());
-  return m ? m[1].toLowerCase() === 'true' : null;
+  return m ? m[1]?.toLowerCase() === 'true' : null;
 }
 
-async function setGamerule(serverId, rule, value) {
+async function setGamerule(serverId: string, rule: GameruleKey, value: 'true' | 'false'): Promise<string> {
   return tryVariants(serverId, [
     ['gamerule', GAMERULES[rule], value],
     ['gamerule', rule, value],
@@ -108,20 +141,26 @@ async function setGamerule(serverId, rule, value) {
 }
 
 /** 0–23999 daytime ticks → "1:04 PM" (0 ticks = 6:00 AM in Minecraft). */
-function clockFromTicks(ticks) {
+function clockFromTicks(ticks: number): string {
   const h24 = Math.floor(ticks / 1000 + 6) % 24;
   const minutes = Math.floor(((ticks % 1000) / 1000) * 60);
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${String(minutes).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`;
 }
 
-async function queryTime(serverId) {
+interface TimeInfo {
+  ticks: number;
+  label: string;
+  clock: string;
+}
+
+async function queryTime(serverId: string): Promise<TimeInfo | null> {
   const out = await tryVariants(serverId, [
     ['time', 'query', 'daytime'], // ≤1.21: "The time is N"
     ['time', 'query', 'day'], // 26.x: "Timeline minecraft:day is at N tick(s)"
   ]);
   const m = /The time is (\d+)/i.exec(out) || /is at (\d+) tick/i.exec(out);
-  if (!m) return null;
+  if (!m || !m[1]) return null;
   const ticks = Number(m[1]) % 24000;
   const label =
     ticks < 6000
@@ -137,11 +176,11 @@ async function queryTime(serverId) {
 }
 
 /** World day counter from total game time (works on ≤1.21 and 26.x). */
-async function queryDay(serverId) {
+async function queryDay(serverId: string): Promise<number | null> {
   const out = await rcon(serverId, ['time', 'query', 'gametime']);
   // ≤1.21: "The time is N" · 26.x: "The game time is N tick(s)"
   const m = /(?:game time is|The time is)\s*(\d+)/i.exec(out) || /is at (\d+) tick/i.exec(out);
-  return m ? Math.floor(Number(m[1]) / 24000) + 1 : null;
+  return m && m[1] ? Math.floor(Number(m[1]) / 24000) + 1 : null;
 }
 
 // PvP isn't a gamerule — it's the server.properties `pvp` value, applied at
@@ -150,17 +189,17 @@ async function queryDay(serverId) {
 // property alone when its matching env var isn't set, so the edit persists.
 // Vanilla default is on (pvp=true). There is no vanilla live+permanent global
 // switch — that needs a server mod/plugin (e.g. Essential) with engine access.
-function readPvp(serverId) {
+function readPvp(serverId: string): boolean {
   try {
-    const text = fs.readFileSync(dataPath('servers', serverId, 'server.properties'), 'utf8');
+    const text: string = fs.readFileSync(dataPath('servers', serverId, 'server.properties'), 'utf8');
     const m = /^pvp=(.*)$/m.exec(text);
-    return m ? m[1].trim() !== 'false' : true;
+    return m && m[1] !== undefined ? m[1].trim() !== 'false' : true;
   } catch {
     return true; // fresh server — vanilla default
   }
 }
 
-function writePvp(serverId, on) {
+function writePvp(serverId: string, on: boolean): void {
   const file = dataPath('servers', serverId, 'server.properties');
   let text = '';
   try {
@@ -176,8 +215,17 @@ function writePvp(serverId, on) {
   fs.renameSync(tmp, file);
 }
 
-async function getState(serverId) {
-  const state = {};
+interface WorldState {
+  timeTicks?: number;
+  timeLabel?: string;
+  clock?: string;
+  day?: number | null;
+  pvp: boolean;
+  [rule: string]: boolean | number | string | null | undefined;
+}
+
+async function getState(serverId: string): Promise<WorldState> {
+  const state: WorldState = { pvp: true };
   const time = await queryTime(serverId);
   if (time) {
     state.timeTicks = time.ticks;
@@ -189,7 +237,7 @@ async function getState(serverId) {
       /* clock still works without a day count */
     }
   }
-  for (const rule of Object.keys(GAMERULES)) {
+  for (const rule of Object.keys(GAMERULES) as GameruleKey[]) {
     const value = await queryGamerule(serverId, rule);
     if (value !== null) state[rule] = value;
   }
@@ -197,23 +245,32 @@ async function getState(serverId) {
   return state;
 }
 
-async function runQuick(serverId, action, { actor = 'system' } = {}) {
+interface RunQuickResult {
+  label: string;
+  output: string;
+}
+
+async function runQuick(
+  serverId: string,
+  action: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<RunQuickResult> {
   const quick = QUICK_ACTIONS[action];
   if (!quick) {
-    const err = new Error(`Unknown quick action: ${action}`);
+    const err: Error = new Error(`Unknown quick action: ${action}`);
     err.status = 400;
     throw err;
   }
-  let out;
-  if (quick.prop === 'pvp') {
+  let out: string;
+  if ('prop' in quick) {
     writePvp(serverId, quick.value); // server.properties edit — takes effect on next restart
     out = '';
-  } else if (quick.variants) out = await tryVariants(serverId, quick.variants);
-  else if (quick.rule) out = await setGamerule(serverId, quick.rule, quick.value);
+  } else if ('variants' in quick) out = await tryVariants(serverId, quick.variants);
+  else if ('rule' in quick) out = await setGamerule(serverId, quick.rule, quick.value);
   else out = await rcon(serverId, quick.cmd);
   // A server.properties edit isn't an RCON command — skip the RCON error gate.
-  if (!quick.prop && looksLikeError(out)) {
-    const err = new Error(`The server rejected the command: ${out.split('\n')[0]}`);
+  if (!('prop' in quick) && looksLikeError(out)) {
+    const err: Error = new Error(`The server rejected the command: ${out.split('\n')[0]}`);
     err.status = 502;
     throw err;
   }
@@ -227,4 +284,4 @@ async function runQuick(serverId, action, { actor = 'system' } = {}) {
   return { label: quick.label, output: out.trim() };
 }
 
-module.exports = { getState, runQuick, QUICK_ACTIONS };
+export = { getState, runQuick, QUICK_ACTIONS };

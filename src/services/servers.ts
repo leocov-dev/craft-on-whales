@@ -1,45 +1,87 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Server orchestration: CRUD, env assembly, container lifecycle. The single
 // place that turns a DB server row into a running itzg container.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+import type { Server, ServerExtraPort, ServerExtraBind } from './types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
 const path = require('node:path');
 const { nanoid } = require('nanoid');
-const db = require('../db');
-const config = require('../config');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
+const db = require('../db') as typeof import('../db');
+const config = require('../config') as typeof import('../config');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
 const secrets = require('./secrets');
-const { pickJavaTag } = require('./javaMatrix');
-const { suggestPorts, isPortFree } = require('./ports');
-const containers = require('../docker/containers');
-const images = require('../docker/images');
-const { fetchLogs } = require('../docker/logs');
-const dockerSpec = require('./dockerSpec');
+const { pickJavaTag } = require('./javaMatrix') as typeof import('./javaMatrix');
+const { suggestPorts, isPortFree } = require('./ports') as typeof import('./ports');
+const containers = require('../docker/containers') as typeof import('../docker/containers');
+const images = require('../docker/images') as typeof import('../docker/images');
+const { fetchLogs } = require('../docker/logs') as typeof import('../docker/logs');
+const dockerSpec = require('./dockerSpec') as typeof import('./dockerSpec');
 const settings = require('./settings');
 
-function rowToServer(row) {
+function rowToServer(row: Row | undefined): Server | null {
   if (!row) return null;
   return {
-    ...row,
-    tags: JSON.parse(row.tags_json || '[]'),
-    env: JSON.parse(row.env_json || '{}'),
-    containerName: row.container_name || null,
-    networkName: row.network_name || null,
-    extraPorts: JSON.parse(row.extra_ports_json || '[]'),
-    extraBinds: JSON.parse(row.extra_binds_json || '[]'),
+    id: String(row.id),
+    display_name: String(row.display_name),
+    description: String(row.description ?? ''),
+    icon: String(row.icon ?? 'grass'),
+    accent: String(row.accent ?? '#3fa62b'),
+    tags: JSON.parse(String(row.tags_json || '[]')) as string[],
+    notes: String(row.notes ?? ''),
+    type: String(row.type),
+    mc_version: String(row.mc_version),
+    java_tag: String(row.java_tag ?? ''),
+    env: JSON.parse(String(row.env_json || '{}')) as Record<string, string>,
+    port_game: Number(row.port_game),
+    port_rcon: Number(row.port_rcon),
+    port_query: row.port_query == null ? null : Number(row.port_query),
+    port_bedrock: row.port_bedrock == null ? null : Number(row.port_bedrock),
+    rcon_password_cipher: String(row.rcon_password_cipher),
+    heap_mb: Number(row.heap_mb),
+    container_memory_mb: Number(row.container_memory_mb),
+    container_swap_mb: Number(row.container_swap_mb),
+    cpus: Number(row.cpus),
+    disk_quota_bytes: Number(row.disk_quota_bytes),
+    quota_strict: Number(row.quota_strict),
+    update_policy: String(row.update_policy) as Server['update_policy'],
+    auto_start: Number(row.auto_start),
+    auto_restart: Number(row.auto_restart),
+    container_id: row.container_id == null ? null : String(row.container_id),
+    pending_recreate: Number(row.pending_recreate),
+    status: String(row.status),
+    last_started_at: row.last_started_at == null ? null : String(row.last_started_at),
+    created_at: String(row.created_at),
+    deleted_at: row.deleted_at == null ? null : String(row.deleted_at),
+    console_label: row.console_label == null ? null : String(row.console_label),
+    container_name: row.container_name == null ? null : String(row.container_name),
+    network_name: row.network_name == null ? null : String(row.network_name),
+    containerName: row.container_name == null ? null : String(row.container_name),
+    networkName: row.network_name == null ? null : String(row.network_name),
+    extraPorts: JSON.parse(String(row.extra_ports_json || '[]')) as ServerExtraPort[],
+    extraBinds: JSON.parse(String(row.extra_binds_json || '[]')) as ServerExtraBind[],
   };
 }
 
-function listServers() {
-  return db.all('SELECT * FROM servers WHERE deleted_at IS NULL ORDER BY created_at').map(rowToServer);
+function listServers(): Server[] {
+  return (db.all('SELECT * FROM servers WHERE deleted_at IS NULL ORDER BY created_at') as Row[])
+    .map(rowToServer)
+    .filter((s): s is Server => s !== null);
 }
 
-function getServer(id) {
+function getServer(id: string): Server | null {
   return rowToServer(db.get('SELECT * FROM servers WHERE id = ? AND deleted_at IS NULL', id));
+}
+
+/** The host uid/gid the panel process runs as, or null where it doesn't apply
+ *  (Windows / macOS Docker Desktop don't have this bind-mount ownership problem). */
+function panelUidGid(): { uid: number; gid: number } | null {
+  if (process.platform === 'win32' || typeof process.getuid !== 'function') return null;
+  return { uid: process.getuid(), gid: process.getgid ? process.getgid() : 0 };
 }
 
 /**
@@ -47,21 +89,14 @@ function getServer(id) {
  * (EULA, RCON, memory, STOP_DURATION) are applied last so user env in
  * env_json can never break panel management.
  */
-/** The host uid/gid the panel process runs as, or null where it doesn't apply
- *  (Windows / macOS Docker Desktop don't have this bind-mount ownership problem). */
-function panelUidGid() {
-  if (process.platform === 'win32' || typeof process.getuid !== 'function') return null;
-  return { uid: process.getuid(), gid: process.getgid() };
-}
-
-function assembleEnv(server) {
-  const env = { ...server.env };
+function assembleEnv(server: Server): Record<string, string> {
+  const env: Record<string, string> = { ...server.env };
   env.EULA = 'TRUE';
   env.TYPE = server.type;
   if (server.mc_version && server.mc_version !== 'LATEST') env.VERSION = server.mc_version;
   env.MEMORY = `${server.heap_mb}M`;
   env.ENABLE_RCON = 'true';
-  let rconPassword = secrets.tryDecrypt(server.rcon_password_cipher);
+  let rconPassword: string | null = secrets.tryDecrypt(server.rcon_password_cipher);
   if (!rconPassword) {
     // SESSION_SECRET changed — self-heal: mint a fresh password and persist it.
     rconPassword = secrets.generatePassword();
@@ -73,7 +108,7 @@ function assembleEnv(server) {
         'Stored RCON password could not be decrypted (SESSION_SECRET changed) — a new one was generated automatically',
     });
   }
-  env.RCON_PASSWORD = rconPassword;
+  env.RCON_PASSWORD = rconPassword!;
   env.STOP_DURATION = env.STOP_DURATION || '60';
   // The itzg image defaults TZ to UTC, which makes the JVM's own console
   // timestamps disagree with every other time shown in the panel (which
@@ -110,6 +145,10 @@ function assembleEnv(server) {
   return env;
 }
 
+interface ResolveImageOptions {
+  javaTagHint?: string;
+}
+
 /**
  * javaTagHint: a non-persisted, create-time-only fallback (see createServerImpl).
  * At create time no server_packs row exists yet, so the pin lookup below always
@@ -119,17 +158,20 @@ function assembleEnv(server) {
  * it never overrides an explicit `server.java_tag` (that column means "the user
  * overrode auto" and must keep winning).
  */
-function resolveImage(server, { javaTagHint } = {}) {
+function resolveImage(server: Server, { javaTagHint }: ResolveImageOptions = {}): string {
   // GTNH's Java support is a property of the pinned pack version, not of the
   // Minecraft version. Read it straight from the pin: packs.js requires this
   // module, so requiring it back would need a lazy-require cycle-breaker that a
   // single-column read doesn't justify.
-  const pin =
-    server.type === 'GTNH' ? db.get('SELECT max_java_version FROM server_packs WHERE server_id = ?', server.id) : null;
+  const pin: Row | undefined =
+    server.type === 'GTNH'
+      ? db.get('SELECT max_java_version FROM server_packs WHERE server_id = ?', server.id)
+      : undefined;
+  const maxJavaVersion = pin?.max_java_version == null ? undefined : Number(pin.max_java_version);
   const tag =
     server.java_tag ||
-    (pin?.max_java_version == null && javaTagHint) ||
-    pickJavaTag(server.mc_version, server.type, { maxJavaVersion: pin?.max_java_version });
+    (maxJavaVersion == null && javaTagHint) ||
+    pickJavaTag(server.mc_version, server.type, { maxJavaVersion });
   return images.imageRef(tag);
 }
 
@@ -139,13 +181,50 @@ function resolveImage(server, { javaTagHint } = {}) {
  * expects. Lazily requires ./map — map.js requires this module (for
  * getServer), so a top-level require here would be circular.
  */
-function mergeExtraPorts(server) {
-  const bluemapPorts = require('./map').extraPortsFor(server.id);
+function mergeExtraPorts(server: Server): { container: string; host: number | string }[] {
+  const bluemapPorts = (require('./map') as typeof import('./map')).extraPortsFor(server.id);
   const userPorts = (server.extraPorts || []).map((p) => ({
     container: `${p.containerPort}/${p.protocol}`,
     host: p.hostPort,
   }));
   return [...bluemapPorts, ...userPorts];
+}
+
+interface PreviewCreateSpecInput {
+  javaTag?: string;
+  mcVersion?: string;
+  type?: string;
+  env?: Record<string, string>;
+  heapMb?: number;
+  containerName?: string | null;
+  networkName?: string | null;
+  containerMemoryMb?: number;
+  containerSwapMb?: number;
+  cpus?: number;
+  portGame?: number;
+  portRcon?: number;
+  withBedrock?: boolean;
+  portBedrock?: number;
+  extraPorts?: ServerExtraPort[];
+  extraBinds?: ServerExtraBind[];
+}
+
+interface PreviewSpec {
+  containerName: string | null;
+  network: string | null;
+  image: string;
+  resources: { memoryMb: number; swapMb: number; cpus: number };
+  ports: {
+    game: number | string;
+    rcon: number | string;
+    bedrock: number | string | null;
+    extra: ServerExtraPort[];
+  };
+  volumes: {
+    data: string;
+    extra: ServerExtraBind[];
+  };
+  env: Record<string, string>;
 }
 
 /**
@@ -154,11 +233,11 @@ function mergeExtraPorts(server) {
  * as a placeholder since the real ones aren't claimed until creation).
  * Feeds the wizard's "Advanced Docker Settings" YAML preview.
  */
-function previewCreateSpec(input) {
+function previewCreateSpec(input: PreviewCreateSpecInput): PreviewSpec {
   const javaTag = input.javaTag || pickJavaTag(input.mcVersion || 'LATEST', input.type || 'VANILLA');
   const image = images.imageRef(javaTag);
   const defaults = config.defaults;
-  const env = { ...(input.env || {}) };
+  const env: Record<string, string> = { ...(input.env || {}) };
   env.EULA = 'TRUE';
   env.TYPE = input.type || 'VANILLA';
   if (input.mcVersion && input.mcVersion !== 'LATEST') env.VERSION = input.mcVersion;
@@ -189,7 +268,7 @@ function previewCreateSpec(input) {
 }
 
 /** Same shape as previewCreateSpec, but from a real, already-created server. */
-function previewServerSpec(id) {
+function previewServerSpec(id: string): PreviewSpec {
   const server = mustGet(id);
   const env = assembleEnv(server);
   env.RCON_PASSWORD = '(hidden)';
@@ -217,9 +296,46 @@ function previewServerSpec(id) {
 // probe the same free port before either has inserted its row (port-allocation
 // TOCTOU → duplicate host ports → one un-startable server). Creates are rare, so
 // running them one-at-a-time is cheap insurance.
-let createChain = Promise.resolve();
+let createChain: Promise<unknown> = Promise.resolve();
 
-function createServer(input, opts = {}) {
+interface CreateServerInput {
+  name: string;
+  description?: string;
+  icon?: string;
+  accent?: string;
+  tags?: string[];
+  type: string;
+  mcVersion?: string;
+  javaTag?: string;
+  env?: Record<string, string>;
+  portGame?: number;
+  portRcon?: number;
+  portQuery?: number;
+  portBedrock?: number;
+  withBedrock?: boolean;
+  heapMb?: number;
+  containerMemoryMb?: number;
+  containerSwapMb?: number;
+  cpus?: number;
+  diskQuotaGb?: number;
+  quotaStrict?: boolean;
+  updatePolicy?: string;
+  autoStart?: boolean;
+  autoRestart?: boolean;
+  containerName?: string | null;
+  networkName?: string | null;
+  extraPorts?: ServerExtraPort[];
+  extraBinds?: ServerExtraBind[];
+}
+
+interface CreateServerOptions {
+  actor?: string;
+  start?: boolean;
+  onProgress?: (status: string) => void;
+  javaTagHint?: string;
+}
+
+function createServer(input: CreateServerInput, opts: CreateServerOptions = {}): Promise<Server> {
   const run = () => createServerImpl(input, opts);
   const result = createChain.then(run, run);
   createChain = result.then(
@@ -235,7 +351,10 @@ function createServer(input, opts = {}) {
  * On any failure before the container exists, the half-created row + data dirs
  * are rolled back so no ghost server holds ports.
  */
-async function createServerImpl(input, { actor = 'system', start = false, onProgress = () => {}, javaTagHint } = {}) {
+async function createServerImpl(
+  input: CreateServerInput,
+  { actor = 'system', start = false, onProgress = () => {}, javaTagHint }: CreateServerOptions = {}
+): Promise<Server> {
   // Fail fast instead of shipping a crash-looping container: anything
   // CurseForge needs the API key present in the panel's store.
   const inputEnv = input.env || {};
@@ -255,7 +374,7 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
   const id = `srv_${nanoid(8)}`;
 
   // Ports: honor explicit choices (validated), else auto-suggest.
-  let ports;
+  let ports: { game: number; rcon: number; bedrock: number | null };
   if (input.portGame) {
     // The RCON port is derived when not given explicitly — validate the
     // DERIVED value too, or an explicit game port skips collision checks.
@@ -318,7 +437,7 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
     JSON.stringify(input.extraBinds || [])
   );
 
-  const server = getServer(id);
+  const server = getServer(id) as Server;
 
   try {
     fs.mkdirSync(dataPath('servers', id), { recursive: true });
@@ -336,15 +455,15 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
       image,
       env: assembleEnv(server),
       dataDir: dataPath('servers', id),
-      ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock },
+      ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
       extraPorts: mergeExtraPorts(server),
       resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
-      containerName: server.containerName,
-      networkName: server.networkName,
+      containerName: server.containerName ?? undefined,
+      networkName: server.networkName ?? undefined,
       extraBinds: server.extraBinds,
     });
     db.run('UPDATE servers SET container_id = ? WHERE id = ?', containerId, id);
-  } catch (err) {
+  } catch (err: unknown) {
     // Roll back: remove any partial container, drop the row (frees its ports),
     // and delete the freshly-made data/log dirs. Then surface the original error.
     await containers.removeContainer(id).catch(() => {});
@@ -359,7 +478,7 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
     } catch {
       /* best effort */
     }
-    if (err.statusCode === 409 && input.containerName) {
+    if ((err as { statusCode?: number }).statusCode === 409 && input.containerName) {
       throw httpError(409, `Container name "${input.containerName}" is already in use by another Docker container`);
     }
     throw err;
@@ -377,7 +496,7 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
     onProgress('Starting server…');
     await startServer(id, { actor });
   }
-  return getServer(id);
+  return getServer(id) as Server;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,17 +504,27 @@ async function createServerImpl(input, { actor = 'system', start = false, onProg
 // other overlapping lifecycle op is rejected with 409 instead of racing into
 // container-name collisions and half-recreated states.
 
-const inFlightOps = new Map(); // serverId -> { op, promise }
+type LifecycleOp = 'start' | 'stop' | 'restart' | 'recreate';
 
-function guardOp(op, fn) {
-  return async function guarded(id, opts = {}) {
+interface InFlightEntry {
+  op: LifecycleOp;
+  promise: Promise<unknown>;
+}
+
+const inFlightOps = new Map<string, InFlightEntry>(); // serverId -> { op, promise }
+
+function guardOp<T>(
+  op: LifecycleOp,
+  fn: (id: string, opts: { actor?: string }) => Promise<T>
+): (id: string, opts?: { actor?: string }) => Promise<T> {
+  return async function guarded(id: string, opts: { actor?: string } = {}): Promise<T> {
     const existing = inFlightOps.get(id);
     if (existing) {
-      if (existing.op === op && op === 'start') return existing.promise; // piggyback on the same start
+      if (existing.op === op && op === 'start') return existing.promise as Promise<T>; // piggyback on the same start
       throw httpError(409, `Cannot ${op}: a ${existing.op} operation is already in progress for this server`);
     }
     const promise = fn(id, opts);
-    const entry = { op, promise };
+    const entry: InFlightEntry = { op, promise };
     inFlightOps.set(id, entry);
     try {
       return await promise;
@@ -411,7 +540,7 @@ function guardOp(op, fn) {
  * work once — migrating servers created before that, whose files the container
  * wrote as uid 1000. No-op when already aligned or on platforms without uids.
  */
-async function ensureOwnership(id) {
+async function ensureOwnership(id: string): Promise<void> {
   const ids = panelUidGid();
   if (!ids) return;
   const dir = dataPath('servers', id);
@@ -425,7 +554,7 @@ async function ensureOwnership(id) {
   await containers.chownDataDir(dir, resolveImage(mustGet(id)), ids.uid, ids.gid);
 }
 
-async function startServerImpl(id, { actor = 'system' } = {}) {
+async function startServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
   const server = mustGet(id);
   await ensureOwnership(id);
   const info = await containers.inspectStatus(id);
@@ -437,7 +566,7 @@ async function startServerImpl(id, { actor = 'system' } = {}) {
   recordEvent({ serverId: id, actor, type: 'started', summary: 'Server start requested' });
 }
 
-async function stopServerImpl(id, { actor = 'system' } = {}) {
+async function stopServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
   mustGet(id);
   recordEvent({ serverId: id, actor, type: 'stop-requested', summary: 'Graceful stop requested' });
   await containers.stopContainer(id);
@@ -452,7 +581,7 @@ async function stopServerImpl(id, { actor = 'system' } = {}) {
   });
 }
 
-async function restartServerImpl(id, { actor = 'system' } = {}) {
+async function restartServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
   recordEvent({ serverId: id, actor, type: 'restart-requested', summary: 'Restart requested' });
   await stopServerImpl(id, { actor });
   await startServerImpl(id, { actor });
@@ -463,7 +592,7 @@ const startServer = guardOp('start', startServerImpl);
 const stopServer = guardOp('stop', stopServerImpl);
 const restartServer = guardOp('restart', restartServerImpl);
 
-async function killServer(id, { actor = 'system' } = {}) {
+async function killServer(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
   mustGet(id);
   recordEvent({ serverId: id, actor, type: 'kill-requested', summary: 'Force kill requested' });
   await containers.killContainer(id);
@@ -471,8 +600,16 @@ async function killServer(id, { actor = 'system' } = {}) {
   recordEvent({ serverId: id, actor, type: 'killed', summary: 'Server force-killed (world may not have saved)' });
 }
 
+interface RecreateOptions {
+  actor?: string;
+  quiet?: boolean;
+}
+
 /** Recreate: remove + create with current env/resources. Applies pending changes. */
-async function recreateServerImpl(id, { actor = 'system', quiet = false } = {}) {
+async function recreateServerImpl(
+  id: string,
+  { actor = 'system', quiet = false }: RecreateOptions = {}
+): Promise<void> {
   const server = mustGet(id);
   await ensureOwnership(id);
   const info = await containers.inspectStatus(id);
@@ -482,22 +619,22 @@ async function recreateServerImpl(id, { actor = 'system', quiet = false } = {}) 
 
   const image = resolveImage(server);
   await images.ensureImage(image);
-  let containerId;
+  let containerId: string;
   try {
     containerId = await containers.createContainer({
       serverId: id,
       image,
       env: assembleEnv(server),
       dataDir: dataPath('servers', id),
-      ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock },
+      ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
       extraPorts: mergeExtraPorts(server),
       resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
-      containerName: server.containerName,
-      networkName: server.networkName,
+      containerName: server.containerName ?? undefined,
+      networkName: server.networkName ?? undefined,
       extraBinds: server.extraBinds,
     });
-  } catch (err) {
-    if (err.statusCode === 409 && server.containerName) {
+  } catch (err: unknown) {
+    if ((err as { statusCode?: number }).statusCode === 409 && server.containerName) {
       throw httpError(409, `Container name "${server.containerName}" is already in use by another Docker container`);
     }
     throw err;
@@ -510,10 +647,43 @@ async function recreateServerImpl(id, { actor = 'system', quiet = false } = {}) 
 
 const recreateServer = guardOp('recreate', recreateServerImpl);
 
+interface UpdateServerChanges {
+  name?: string;
+  description?: string;
+  icon?: string;
+  accent?: string;
+  notes?: string;
+  mcVersion?: string;
+  javaTag?: string;
+  heapMb?: number;
+  containerMemoryMb?: number;
+  cpus?: number;
+  updatePolicy?: string;
+  tags?: string[];
+  env?: Record<string, string>;
+  containerName?: string | null;
+  networkName?: string | null;
+  extraPorts?: ServerExtraPort[];
+  extraBinds?: ServerExtraBind[];
+  diskQuotaGb?: number;
+  autoStart?: boolean;
+  autoRestart?: boolean;
+  quotaStrict?: boolean;
+}
+
+interface UpdateServerResult {
+  server: Server;
+  needsRecreate: boolean;
+}
+
 /** Update config fields; computes a diff event and flags recreate needs. */
-function updateServer(id, changes, { actor = 'system' } = {}) {
+function updateServer(
+  id: string,
+  changes: UpdateServerChanges,
+  { actor = 'system' }: { actor?: string } = {}
+): UpdateServerResult {
   const before = mustGet(id);
-  const columns = {
+  const columns: Record<string, string> = {
     name: 'display_name',
     description: 'description',
     icon: 'icon',
@@ -526,19 +696,21 @@ function updateServer(id, changes, { actor = 'system' } = {}) {
     cpus: 'cpus',
     updatePolicy: 'update_policy',
   };
-  const diff = {};
-  const sets = [];
-  const params = [];
+  const diff: Record<string, unknown> = {};
+  const sets: string[] = [];
+  const params: unknown[] = [];
   const RECREATE_FIELDS = new Set(['mcVersion', 'javaTag', 'heapMb', 'containerMemoryMb', 'cpus']);
   let needsRecreate = false;
 
+  const changesRec = changes as Record<string, unknown>;
+  const beforeRec = before as unknown as Record<string, unknown>;
   for (const [key, col] of Object.entries(columns)) {
-    if (changes[key] === undefined) continue;
-    const beforeVal = key === 'name' ? before.display_name : before[col];
-    if (String(beforeVal) === String(changes[key])) continue;
-    diff[key] = [beforeVal, changes[key]];
+    if (changesRec[key] === undefined) continue;
+    const beforeVal = key === 'name' ? before.display_name : beforeRec[col];
+    if (String(beforeVal) === String(changesRec[key])) continue;
+    diff[key] = [beforeVal, changesRec[key]];
     sets.push(`${col} = ?`);
-    params.push(changes[key]);
+    params.push(changesRec[key]);
     if (RECREATE_FIELDS.has(key)) needsRecreate = true;
   }
   if (changes.tags) {
@@ -554,8 +726,8 @@ function updateServer(id, changes, { actor = 'system' } = {}) {
   }
   if (changes.containerName !== undefined) {
     const val = changes.containerName ? changes.containerName.trim() : null;
-    if (val !== (before.container_name || null)) {
-      diff.containerName = [before.container_name, val];
+    if (val !== (before.containerName || null)) {
+      diff.containerName = [before.containerName, val];
       sets.push('container_name = ?');
       params.push(val);
       needsRecreate = true;
@@ -563,8 +735,8 @@ function updateServer(id, changes, { actor = 'system' } = {}) {
   }
   if (changes.networkName !== undefined) {
     const val = changes.networkName ? changes.networkName.trim() : null;
-    if (val !== (before.network_name || null)) {
-      diff.networkName = [before.network_name, val];
+    if (val !== (before.networkName || null)) {
+      diff.networkName = [before.networkName, val];
       sets.push('network_name = ?');
       params.push(val);
       needsRecreate = true;
@@ -587,18 +759,18 @@ function updateServer(id, changes, { actor = 'system' } = {}) {
     sets.push('disk_quota_bytes = ?');
     params.push(changes.diskQuotaGb * 1024 ** 3);
   }
-  for (const flag of ['autoStart', 'autoRestart', 'quotaStrict']) {
-    if (changes[flag] === undefined) continue;
+  for (const flag of ['autoStart', 'autoRestart', 'quotaStrict'] as const) {
+    if (changesRec[flag] === undefined) continue;
     const col = { autoStart: 'auto_start', autoRestart: 'auto_restart', quotaStrict: 'quota_strict' }[flag];
-    if (Boolean(before[col]) === Boolean(changes[flag])) continue;
-    diff[flag] = [Boolean(before[col]), Boolean(changes[flag])];
+    if (Boolean(beforeRec[col]) === Boolean(changesRec[flag])) continue;
+    diff[flag] = [Boolean(beforeRec[col]), Boolean(changesRec[flag])];
     sets.push(`${col} = ?`);
-    params.push(changes[flag] ? 1 : 0);
+    params.push(changesRec[flag] ? 1 : 0);
   }
 
   if (!sets.length) return { server: before, needsRecreate: false };
   if (needsRecreate) sets.push('pending_recreate = 1');
-  db.run(`UPDATE servers SET ${sets.join(', ')} WHERE id = ?`, ...params, id);
+  db.run(`UPDATE servers SET ${sets.join(', ')} WHERE id = ?`, ...(params as never[]), id);
   recordEvent({
     serverId: id,
     actor,
@@ -606,11 +778,14 @@ function updateServer(id, changes, { actor = 'system' } = {}) {
     summary: `Configuration changed: ${Object.keys(diff).join(', ')}${needsRecreate ? ' (recreate required)' : ''}`,
     details: { diff, needsRecreate },
   });
-  return { server: getServer(id), needsRecreate };
+  return { server: getServer(id) as Server, needsRecreate };
 }
 
 /** Delete server: container, DB rows, and (optionally) its data directory. */
-async function deleteServer(id, { actor = 'system', keepWorld = false } = {}) {
+async function deleteServer(
+  id: string,
+  { actor = 'system', keepWorld = false }: { actor?: string; keepWorld?: boolean } = {}
+): Promise<{ freedBytes: number }> {
   const server = mustGet(id);
   await containers.stopContainer(id).catch(() => {});
   await containers.removeContainer(id);
@@ -620,11 +795,12 @@ async function deleteServer(id, { actor = 'system', keepWorld = false } = {}) {
     freedBytes = dirSize(dir);
     try {
       fs.rmSync(dir, { recursive: true, force: true });
-    } catch (err) {
+    } catch (err: unknown) {
       // The itzg container writes files as its own UID (default 1000). When the
       // panel runs as a different host user it can't delete them (EACCES/EPERM);
       // fall back to a root container that removes the directory for us.
-      if (err.code === 'EACCES' || err.code === 'EPERM') {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM') {
         await containers.removeDataDir(dir, resolveImage(server));
         fs.rmSync(dir, { recursive: true, force: true }); // no-op if the container cleared it
       } else {
@@ -637,18 +813,18 @@ async function deleteServer(id, { actor = 'system', keepWorld = false } = {}) {
   // and server_content rows block library deletions forever.
 
   // Schedules: disarm the live cron jobs, not just the rows.
-  const scheduler = require('./scheduler'); // lazy — avoids a require cycle
-  for (const sched of db.all('SELECT id FROM schedules WHERE server_id = ?', id)) {
+  const scheduler = require('./scheduler') as typeof import('./scheduler'); // lazy — avoids a require cycle
+  for (const sched of db.all('SELECT id FROM schedules WHERE server_id = ?', id) as Row[]) {
     try {
-      scheduler.deleteSchedule(sched.id, { actor });
-    } catch (err) {
-      console.error(`[delete] schedule ${sched.id}:`, err.message);
+      scheduler.deleteSchedule(String(sched.id), { actor });
+    } catch (err: unknown) {
+      console.error(`[delete] schedule ${sched.id}:`, (err as Error).message);
     }
   }
 
   // Backups: DB rows + the files directory.
-  const backupRows = db.all('SELECT size_bytes FROM backups WHERE server_id = ?', id);
-  freedBytes += backupRows.reduce((n, b) => n + (b.size_bytes || 0), 0);
+  const backupRows = db.all('SELECT size_bytes FROM backups WHERE server_id = ?', id) as Row[];
+  freedBytes += backupRows.reduce((n, b) => n + Number(b.size_bytes || 0), 0);
   db.run('DELETE FROM backups WHERE server_id = ?', id);
   const backupsDir = dataPath('backups', id);
   if (fs.existsSync(backupsDir)) fs.rmSync(backupsDir, { recursive: true, force: true });
@@ -660,7 +836,9 @@ async function deleteServer(id, { actor = 'system', keepWorld = false } = {}) {
   // All row cleanup + the soft-delete flag run in ONE transaction so a mid-cleanup
   // error can't leave a "live" (deleted_at IS NULL) server whose content/backups
   // are already gone — a zombie. Either everything is removed or nothing is.
-  const contentIds = db.all('SELECT id FROM server_content WHERE server_id = ?', id).map((r) => r.id);
+  const contentIds = (db.all('SELECT id FROM server_content WHERE server_id = ?', id) as Row[]).map((r) =>
+    String(r.id)
+  );
   db.transaction(() => {
     db.run("DELETE FROM update_checks WHERE subject_type = 'pack' AND subject_id = ?", id);
     for (const cid of contentIds) {
@@ -691,7 +869,7 @@ async function deleteServer(id, { actor = 'system', keepWorld = false } = {}) {
 }
 
 /** Refresh cached status for all servers from Docker (called on boot + 60s poll). */
-async function refreshStatuses() {
+async function refreshStatuses(): Promise<void> {
   for (const server of listServers()) {
     try {
       const info = await containers.inspectStatus(server.id);
@@ -716,7 +894,7 @@ async function refreshStatuses() {
   }
 }
 
-function dirSize(dir) {
+function dirSize(dir: string): number {
   let total = 0;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
@@ -730,7 +908,7 @@ function dirSize(dir) {
   return total;
 }
 
-function mustGet(id) {
+function mustGet(id: string): Server {
   const server = getServer(id);
   if (!server) throw httpError(404, 'Server not found');
   return server;
@@ -739,9 +917,9 @@ function mustGet(id) {
 /**
  * Set (or clear, when blank) the per-server console label used to prefix
  * panel-run console actions in-game. Strips control chars and § codes.
- * @returns {string} the sanitized label ('' when cleared)
+ * @returns the sanitized label ('' when cleared)
  */
-function setConsoleLabel(id, label) {
+function setConsoleLabel(id: string, label: unknown): string {
   const clean = String(label || '')
     .replace(/[\r\n\x00-\x1f\x7f§]/g, '')
     .trim()
@@ -750,7 +928,7 @@ function setConsoleLabel(id, label) {
   return clean;
 }
 
-module.exports = {
+export = {
   listServers,
   getServer,
   createServer,

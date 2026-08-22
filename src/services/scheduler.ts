@@ -11,23 +11,23 @@ const db = require('../db');
 const { recordEvent } = require('../events');
 const { getTimezone } = require('./settings');
 
-const jobs = new Map(); // schedule id -> Cron
+const jobs = new Map<string, InstanceType<typeof Cron>>();
 
-/**
- * A schedules row (see db/migrations/001_init.ts). Cast to this from the db
- * layer's generic `Record<string, SQLOutputValue>` row shape so property
- * access type-checks normally.
- * @typedef {{
- *   id: string,
- *   server_id: string|null,
- *   task_type: string,
- *   cron: string,
- *   payload_json: string,
- *   enabled: number,
- *   last_run_at: string|null,
- *   created_at: string
- * }} ScheduleRow
- */
+// A schedules row (see db/migrations/001_init.ts). Cast to this from the db
+// layer's generic `Record<string, SQLOutputValue>` row shape so property
+// access type-checks normally.
+interface ScheduleRow {
+  id: string;
+  server_id: string | null;
+  task_type: string;
+  cron: string;
+  payload_json: string;
+  enabled: number;
+  last_run_at: string | null;
+  created_at: string;
+}
+
+type TaskType = keyof typeof TASK_TYPES;
 
 const TASK_TYPES = {
   restart: { label: 'Restart server', serverScoped: true },
@@ -40,8 +40,8 @@ const TASK_TYPES = {
   'tmp-clean': { label: 'Purge tmp', serverScoped: false },
 };
 
-async function runTask(schedule) {
-  const payload = JSON.parse(schedule.payload_json || '{}');
+async function runTask(schedule: ScheduleRow): Promise<void> {
+  const payload: Record<string, unknown> = JSON.parse(schedule.payload_json || '{}');
   const actor = 'scheduler';
   const servers = require('./servers');
   switch (schedule.task_type) {
@@ -92,8 +92,7 @@ async function runTask(schedule) {
   }
 }
 
-/** @param {ScheduleRow} job */
-function schedule(job) {
+function schedule(job: ScheduleRow): void {
   stopJob(job.id);
   if (!job.enabled) return;
   try {
@@ -108,7 +107,7 @@ function schedule(job) {
         serverId: job.server_id || null,
         actor: 'scheduler',
         type: 'schedule-fired',
-        summary: `Scheduled task fired: ${TASK_TYPES[job.task_type]?.label || job.task_type}`,
+        summary: `Scheduled task fired: ${TASK_TYPES[job.task_type as TaskType]?.label || job.task_type}`,
       });
       try {
         await runTask(job);
@@ -117,17 +116,19 @@ function schedule(job) {
           serverId: job.server_id || null,
           actor: 'scheduler',
           type: 'schedule-failed',
-          summary: `Scheduled ${job.task_type} failed: ${err.message}`,
+          summary: `Scheduled ${job.task_type} failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
     });
     jobs.set(job.id, cron);
   } catch (err) {
-    console.error(`[scheduler] invalid cron "${job.cron}" for ${job.id}: ${err.message}`);
+    console.error(
+      `[scheduler] invalid cron "${job.cron}" for ${job.id}: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 }
 
-function stopJob(id) {
+function stopJob(id: string): void {
   const existing = jobs.get(id);
   if (existing) {
     existing.stop();
@@ -138,18 +139,18 @@ function stopJob(id) {
 /** Re-arm every schedule against the CURRENT timezone — call after it changes
  *  in Settings, or already-running jobs keep firing on the old one until the
  *  panel restarts. */
-function rearmAll() {
-  for (const job of /** @type {ScheduleRow[]} */ (db.all('SELECT * FROM schedules'))) schedule(job);
+function rearmAll(): void {
+  for (const job of db.all('SELECT * FROM schedules') as unknown as ScheduleRow[]) schedule(job);
 }
 
-function startScheduler() {
+function startScheduler(): void {
   seedGlobalDefaults();
-  for (const job of /** @type {ScheduleRow[]} */ (db.all('SELECT * FROM schedules'))) schedule(job);
+  for (const job of db.all('SELECT * FROM schedules') as unknown as ScheduleRow[]) schedule(job);
   console.log(`[scheduler] ${jobs.size} job(s) armed`);
 }
 
 /** Global maintenance tasks exist from first boot; user can disable/edit. */
-function seedGlobalDefaults() {
+function seedGlobalDefaults(): void {
   const defaults = [
     { task_type: 'update-check', cron: '0 3 * * *' },
     { task_type: 'storage-scan', cron: '0 */6 * * *' },
@@ -169,8 +170,19 @@ function seedGlobalDefaults() {
   }
 }
 
-function createSchedule({ serverId = null, taskType, cron, payload = {}, enabled = true }, { actor = 'system' } = {}) {
-  if (!TASK_TYPES[taskType]) throw httpError(400, `Unknown task type ${taskType}`);
+interface CreateScheduleInput {
+  serverId?: string | null;
+  taskType: string;
+  cron: string;
+  payload?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+function createSchedule(
+  { serverId = null, taskType, cron, payload = {}, enabled = true }: CreateScheduleInput,
+  { actor = 'system' }: { actor?: string } = {}
+) {
+  if (!TASK_TYPES[taskType as TaskType]) throw httpError(400, `Unknown task type ${taskType}`);
   new Cron(cron, { timezone: getTimezone() }); // validates; throws on bad expression
   const id = `sch_${nanoid(8)}`;
   db.run(
@@ -182,20 +194,20 @@ function createSchedule({ serverId = null, taskType, cron, payload = {}, enabled
     JSON.stringify(payload),
     enabled ? 1 : 0
   );
-  const job = /** @type {ScheduleRow} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
+  const job = db.get('SELECT * FROM schedules WHERE id = ?', id) as unknown as ScheduleRow;
   schedule(job);
   recordEvent({
     serverId,
     actor,
     type: 'schedule-created',
-    summary: `Schedule created: ${TASK_TYPES[taskType].label} (${cron})`,
+    summary: `Schedule created: ${TASK_TYPES[taskType as TaskType].label} (${cron})`,
   });
   return listSchedules().find((s) => s.id === id);
 }
 
-function setEnabled(id, enabled, { actor = 'system' } = {}) {
+function setEnabled(id: string, enabled: boolean, { actor = 'system' }: { actor?: string } = {}): void {
   db.run('UPDATE schedules SET enabled = ? WHERE id = ?', enabled ? 1 : 0, id);
-  const job = /** @type {ScheduleRow | undefined} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
+  const job = db.get('SELECT * FROM schedules WHERE id = ?', id) as unknown as ScheduleRow | undefined;
   if (job) schedule(job);
   recordEvent({
     serverId: job?.server_id || null,
@@ -205,8 +217,8 @@ function setEnabled(id, enabled, { actor = 'system' } = {}) {
   });
 }
 
-function deleteSchedule(id, { actor = 'system' } = {}) {
-  const job = /** @type {ScheduleRow | undefined} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
+function deleteSchedule(id: string, { actor = 'system' }: { actor?: string } = {}): void {
+  const job = db.get('SELECT * FROM schedules WHERE id = ?', id) as unknown as ScheduleRow | undefined;
   stopJob(id);
   db.run('DELETE FROM schedules WHERE id = ?', id);
   if (job)
@@ -219,11 +231,11 @@ function deleteSchedule(id, { actor = 'system' } = {}) {
 }
 
 function listSchedules() {
-  return /** @type {ScheduleRow[]} */ (
-    db.all('SELECT * FROM schedules ORDER BY server_id IS NULL, server_id, task_type')
+  return (
+    db.all('SELECT * FROM schedules ORDER BY server_id IS NULL, server_id, task_type') as unknown as ScheduleRow[]
   ).map((s) => {
-    let next = null;
-    let nextMs = null;
+    let next: string | null = null;
+    let nextMs: number | null = null;
     try {
       const nextRun = new Cron(s.cron, { timezone: getTimezone() }).nextRun();
       if (nextRun) {
@@ -235,12 +247,14 @@ function listSchedules() {
     }
     // last_run_at is SQLite datetime('now') — UTC without a zone marker.
     const lastRunMs = s.last_run_at ? Date.parse(s.last_run_at.replace(' ', 'T') + 'Z') : null;
-    const server = s.server_id ? db.get('SELECT display_name FROM servers WHERE id = ?', s.server_id) : null;
+    const server = s.server_id
+      ? (db.get('SELECT display_name FROM servers WHERE id = ?', s.server_id) as { display_name: string } | undefined)
+      : null;
     return {
       id: s.id,
       serverId: s.server_id,
       server: server ? server.display_name : '— global —',
-      task: TASK_TYPES[s.task_type]?.label || s.task_type,
+      task: TASK_TYPES[s.task_type as TaskType]?.label || s.task_type,
       taskType: s.task_type,
       cron: s.cron,
       payload: JSON.parse(s.payload_json || '{}'),
@@ -253,4 +267,4 @@ function listSchedules() {
   });
 }
 
-module.exports = { startScheduler, createSchedule, setEnabled, deleteSchedule, listSchedules, rearmAll, TASK_TYPES };
+export = { startScheduler, createSchedule, setEnabled, deleteSchedule, listSchedules, rearmAll, TASK_TYPES };
