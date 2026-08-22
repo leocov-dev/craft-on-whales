@@ -3,14 +3,17 @@
 // Custom chat commands API. Mounted at /api/servers/:id/chat-commands
 // (mergeParams carries :id down from the mount point).
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const servers = require('../../services/servers');
-const chatCommands = require('../../services/chatCommands');
-const { inspectStatus } = require('../../docker/containers');
-const { PLAYER_NAME_RE } = require('../../utils/playerName');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const chatCommands = require('../../services/chatCommands') as typeof import('../../services/chatCommands');
+const { inspectStatus } = require('../../docker/containers') as typeof import('../../docker/containers');
+const { PLAYER_NAME_RE } = require('../../utils/playerName') as typeof import('../../utils/playerName');
 
 const router = express.Router({ mergeParams: true });
 
@@ -50,9 +53,11 @@ const patchSchema = z
     msgSuccess: messageSchema.optional(),
     msgFailure: messageSchema.optional(),
   })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to change' });
+  .refine((v: Record<string, unknown>) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Nothing to change',
+  });
 
-function requireServer(id) {
+function requireServer(id: string) {
   const server = servers.getServer(id);
   if (!server) {
     const err = new Error('Server not found');
@@ -62,7 +67,7 @@ function requireServer(id) {
   return server;
 }
 
-async function isRunning(serverId) {
+async function isRunning(serverId: string): Promise<boolean> {
   try {
     const info = await inspectStatus(serverId);
     return info.exists && RUNNING_STATES.has(info.status);
@@ -73,7 +78,7 @@ async function isRunning(serverId) {
 
 router.get(
   '/',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
     const commands = chatCommands.listCommands(id);
@@ -92,39 +97,39 @@ router.get(
 
 router.post(
   '/',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
     const input = createSchema.parse(req.body);
     // zod's inferred output type marks defaulted fields as optional even though
     // .parse() always fills them — createCommand's stricter ValidateSpecInput
     // (shared with direct service callers) wants them required.
-    const command = chatCommands.createCommand(
-      id,
-      /** @type {Parameters<typeof chatCommands.createCommand>[1]} */ (input),
-      { actor: req.user.username }
-    );
+    const command = chatCommands.createCommand(id, input as Parameters<typeof chatCommands.createCommand>[1], {
+      actor: req.user!.username,
+    });
     res.status(201).json({ ok: true, command });
   })
 );
 
 router.patch(
   '/:cmdId',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
     const changes = patchSchema.parse(req.body);
-    const command = chatCommands.updateCommand(id, String(req.params.cmdId), changes, { actor: req.user.username });
+    const command = chatCommands.updateCommand(id, String(req.params.cmdId), changes, {
+      actor: req.user!.username,
+    });
     res.json({ ok: true, command });
   })
 );
 
 router.delete(
   '/:cmdId',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
-    chatCommands.deleteCommand(id, String(req.params.cmdId), { actor: req.user.username });
+    chatCommands.deleteCommand(id, String(req.params.cmdId), { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
@@ -132,7 +137,7 @@ router.delete(
 // Execute NOW as a named player — same path as chat, minus cooldown/permission.
 router.post(
   '/:cmdId/test',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
     const { player } = z
@@ -150,7 +155,7 @@ router.post(
       throw Object.assign(new Error('The server must be running to test a chat command'), { status: 409 });
     }
     const result = await chatCommands.testCommand(id, String(req.params.cmdId), player, {
-      actor: req.user.username,
+      actor: req.user!.username,
     });
     res.json({ ok: true, ...result });
   })
@@ -158,15 +163,15 @@ router.post(
 
 router.put(
   '/prefix',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     requireServer(id);
     const { prefix } = z.object({ prefix: z.string().trim().min(1).max(2) }).parse(req.body);
-    res.json({ ok: true, ...chatCommands.setPrefix(id, prefix, { actor: req.user.username }) });
+    res.json({ ok: true, ...chatCommands.setPrefix(id, prefix, { actor: req.user!.username }) });
   })
 );
 
 // JSON error handler for this subtree (mirrors routes/api.js)
 router.use(makeJsonErrorHandler('chat-commands-api'));
 
-module.exports = router;
+export = router;

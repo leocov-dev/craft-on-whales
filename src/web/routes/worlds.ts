@@ -4,30 +4,34 @@
 //   module.exports          → mount at /api/worlds        (global world library)
 //   module.exports.serverWorlds → mount at /api/servers/:id/worlds (mergeParams)
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction, Router } from 'express';
+import type { Row } from '../../db/types';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fsp = require('node:fs/promises');
 const express = require('express');
-const multer = require('multer');
+const multer = require('multer') as typeof import('multer');
 const { z } = require('zod');
-const worlds = require('../../services/worlds');
-const { dataPath } = require('../../storage/pathGuard');
-const db = require('../../db');
+const worlds = require('../../services/worlds') as typeof import('../../services/worlds');
+const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
+const db = require('../../db') as typeof import('../../db');
 
 // requireAuth guarantees req.user on every /api request.
-const actorOf = (req) => req.user.username;
+const actorOf = (req: Request) => req.user!.username;
 
 const upload = multer({
   dest: dataPath('tmp'),
   limits: { fileSize: 20 * 1024 ** 3 }, // worlds get big
 });
 
-const files = require('../../services/files');
+const files = require('../../services/files') as typeof import('../../services/files');
 const MAX_WORLD_UPLOAD_BYTES = 20 * 1024 ** 3;
 
 // Reject on the declared Content-Length before multer streams the whole world
 // archive into data/tmp (which would otherwise fill the disk regardless of quota).
-async function worldUploadPreflight(req, res, next) {
+async function worldUploadPreflight(req: Request, res: Response, next: NextFunction) {
   try {
     const declared = Number(req.headers['content-length'] || 0);
     if (declared > MAX_WORLD_UPLOAD_BYTES) {
@@ -51,40 +55,49 @@ const worldNameSchema = z
   .min(1)
   .max(64)
   .regex(/^[^\\/\0]+$/, 'World names cannot contain path separators')
-  .refine((v) => !v.startsWith('.'), { message: 'World names cannot start with a dot' });
+  .refine((v: string) => !v.startsWith('.'), { message: 'World names cannot start with a dot' });
 const modeSchema = z.enum(['replace', 'alongside']);
 
 // ---------------------------------------------------------------------------
 // Global library router (/api/worlds)
 
-const router = express.Router();
+// `router.serverWorlds` is a second, unrelated router bolted onto this one so
+// a single require('./worlds') gives web/routes/api.js both mount points (see
+// the export at the bottom); the type carries that extra property locally
+// rather than augmenting express's global Router type.
+const router: Router & { serverWorlds?: Router } = express.Router();
 
 router.get(
   '/',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, worlds: worlds.libraryWorlds() });
   })
 );
 
-router.post('/upload', worldUploadPreflight, upload.single('file'), async (req, res, next) => {
-  try {
-    if (!req.file) throw badRequest('Attach a world archive (zip, .mcworld, tar or tar.gz)');
-    const { name } = z.object({ name: z.string().trim().max(120).optional() }).parse(req.body || {});
-    const row = await worlds.importArchive(req.file.path, {
-      name,
-      originalName: req.file.originalname,
-      actor: actorOf(req),
-    });
-    res.status(201).json({ ok: true, world: libVM(row) });
-  } catch (err) {
-    if (req.file) await fsp.rm(req.file.path, { force: true }).catch(() => {});
-    next(err);
+router.post(
+  '/upload',
+  worldUploadPreflight,
+  upload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.file) throw badRequest('Attach a world archive (zip, .mcworld, tar or tar.gz)');
+      const { name } = z.object({ name: z.string().trim().max(120).optional() }).parse(req.body || {});
+      const row = await worlds.importArchive(req.file.path, {
+        name,
+        originalName: req.file.originalname,
+        actor: actorOf(req),
+      });
+      res.status(201).json({ ok: true, world: libVM(row) });
+    } catch (err) {
+      if (req.file) await fsp.rm(req.file.path, { force: true }).catch(() => {});
+      next(err);
+    }
   }
-});
+);
 
 router.post(
   '/extract',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { serverId, name } = z
       .object({
         serverId: z.string().trim().min(1).max(40),
@@ -98,7 +111,7 @@ router.post(
 
 router.post(
   '/:id/install',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { serverId, mode, newName, confirm } = z
       .object({
         serverId: z.string().trim().min(1).max(40),
@@ -121,7 +134,7 @@ router.post(
 
 router.get(
   '/:id/download',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const lib = db.get("SELECT * FROM library_files WHERE id = ? AND category = 'world'", String(req.params.id));
     if (!lib) throw notFound('World not found in the library');
     const filename = String(lib.filename);
@@ -132,12 +145,12 @@ router.get(
 // Rename a library world (display name only — the archive is untouched).
 router.patch(
   '/:id',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { name } = z.object({ name: z.string().trim().min(1).max(120) }).parse(req.body);
     const lib = db.get("SELECT * FROM library_files WHERE id = ? AND category = 'world'", String(req.params.id));
     if (!lib) throw notFound('World not found in the library');
-    db.run('UPDATE library_files SET name = ? WHERE id = ?', name, lib.id);
-    require('../../events').recordEvent({
+    db.run('UPDATE library_files SET name = ? WHERE id = ?', name, lib.id as string);
+    (require('../../events') as typeof import('../../events')).recordEvent({
       actor: actorOf(req),
       type: 'world-renamed',
       summary: `Library world renamed: "${lib.name}" → "${name}"`,
@@ -149,7 +162,7 @@ router.patch(
 
 router.delete(
   '/:id',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, ...(await worlds.deleteLibraryWorld(String(req.params.id), { actor: actorOf(req) })) });
   })
 );
@@ -161,14 +174,14 @@ const serverWorlds = express.Router({ mergeParams: true });
 
 serverWorlds.get(
   '/',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, worlds: await worlds.listServerWorlds(String(req.params.id)) });
   })
 );
 
 serverWorlds.post(
   '/copy-to',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const id = String(req.params.id);
     const { targetServerId, mode, newName, confirm } = z
       .object({
@@ -200,7 +213,7 @@ serverWorlds.post(
 
 serverWorlds.post(
   '/duplicate',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { world } = z.object({ world: worldNameSchema }).parse(req.body);
     res.json({ ok: true, ...(await worlds.duplicateWorld(String(req.params.id), world, { actor: actorOf(req) })) });
   })
@@ -208,7 +221,7 @@ serverWorlds.post(
 
 serverWorlds.post(
   '/rename',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { world, newName } = z.object({ world: worldNameSchema, newName: worldNameSchema }).parse(req.body);
     res.json({
       ok: true,
@@ -219,7 +232,7 @@ serverWorlds.post(
 
 serverWorlds.post(
   '/reset',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const opts = z
       .object({
         seedMode: z.enum(['keep', 'random', 'custom']).default('random'),
@@ -237,7 +250,7 @@ serverWorlds.post(
 
 serverWorlds.post(
   '/activate',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { world } = z.object({ world: worldNameSchema }).parse(req.body);
     res.json({ ok: true, ...(await worlds.activateWorld(String(req.params.id), world, { actor: actorOf(req) })) });
   })
@@ -245,7 +258,7 @@ serverWorlds.post(
 
 serverWorlds.get(
   '/:world/download',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const world = worldNameSchema.parse(req.params.world);
     const staged = await worlds.prepareWorldDownload(String(req.params.id), world, { actor: actorOf(req) });
     res.download(staged.absPath, staged.filename, () => {
@@ -256,7 +269,7 @@ serverWorlds.get(
 
 serverWorlds.delete(
   '/:world',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const world = worldNameSchema.parse(req.params.world);
     res.json({
       ok: true,
@@ -267,7 +280,7 @@ serverWorlds.delete(
 
 // ---------------------------------------------------------------------------
 
-function libVM(row) {
+function libVM(row: Row) {
   return {
     id: row.id,
     name: row.name,
@@ -280,13 +293,13 @@ function libVM(row) {
   };
 }
 
-function badRequest(message) {
+function badRequest(message: string): Error {
   const err = new Error(message);
   err.status = 400;
   return err;
 }
 
-function notFound(message) {
+function notFound(message: string): Error {
   const err = new Error(message);
   err.status = 404;
   return err;
@@ -298,5 +311,5 @@ for (const r of [router, serverWorlds]) {
 }
 
 // module.exports.serverWorlds → mount at /api/servers/:id/worlds (see app.js).
-/** @type {any} */ (router).serverWorlds = serverWorlds;
-module.exports = router;
+router.serverWorlds = serverWorlds;
+export = router;

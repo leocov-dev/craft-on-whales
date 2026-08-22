@@ -3,21 +3,25 @@
 // Player analytics API. Mounted at /api/servers/:id/analytics (mergeParams
 // carries :id down from the mount point).
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+import type { SQLInputValue } from '../../db/types';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const db = require('../../db');
-const servers = require('../../services/servers');
-const stats = require('../../analytics/stats');
-const { backfillFromLogs } = require('../../analytics/ingest');
+const db = require('../../db') as typeof import('../../db');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const stats = require('../../analytics/stats') as typeof import('../../analytics/stats');
+const { backfillFromLogs } = require('../../analytics/ingest') as typeof import('../../analytics/ingest');
 
 const router = express.Router({ mergeParams: true });
 
 const EVENT_TYPES = ['chat', 'join', 'leave', 'death', 'advancement', 'pvp', 'command'];
 
-function mustServer(req) {
-  const server = servers.getServer(req.params.id);
+function mustServer(req: Request) {
+  const server = servers.getServer(String(req.params.id));
   if (!server) {
     const err = new Error('Server not found');
     err.status = 404;
@@ -27,7 +31,7 @@ function mustServer(req) {
 }
 
 /** Escape LIKE wildcards so user input only ever matches literally. */
-function escapeLike(s) {
+function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (m) => '\\' + m);
 }
 
@@ -45,18 +49,17 @@ const timelineSchema = z.object({
 
 router.get(
   '/timeline',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const id = String(req.params.id);
     const query = timelineSchema.parse(req.query);
     const where = ['server_id = ?'];
-    /** @type {(string|number)[]} */
-    const params = [id];
+    const params: SQLInputValue[] = [id];
     if (query.type) {
       const types = query.type
         .split(',')
-        .map((t) => t.trim())
-        .filter((t) => EVENT_TYPES.includes(t));
+        .map((t: string) => t.trim())
+        .filter((t: string) => EVENT_TYPES.includes(t));
       if (types.length) {
         where.push(`type IN (${types.map(() => '?').join(', ')})`);
         params.push(...types);
@@ -84,14 +87,14 @@ router.get(
     res.json({
       ok: true,
       events,
-      nextBefore: events.length === query.limit ? events[events.length - 1].id : null,
+      nextBefore: events.length === query.limit ? events[events.length - 1]!.id : null,
     });
   })
 );
 
 router.get(
   '/sessions',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const id = String(req.params.id);
     const { player } = z
@@ -104,7 +107,7 @@ router.get(
       })
       .parse(req.query);
     const where = ['server_id = ?'];
-    const params = [id];
+    const params: SQLInputValue[] = [id];
     if (player) {
       where.push('player = ?');
       params.push(player);
@@ -134,7 +137,7 @@ router.get(
 
 router.get(
   '/scoreboard',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const { metric, window } = z
       .object({
@@ -165,7 +168,7 @@ router.get(
 
 router.get(
   '/profile/:uuid',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const uuid = z
       .string()
@@ -181,7 +184,7 @@ router.get(
 // Distinct players seen in the timeline plus everyone with stat snapshots.
 router.get(
   '/players',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const players = db.all(
       `SELECT player AS name, '' AS uuid FROM player_events
@@ -203,7 +206,7 @@ router.get(
 
 router.get(
   '/xray',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     res.json({ ok: true, report: stats.xrayReport(String(req.params.id)) });
   })
@@ -211,7 +214,7 @@ router.get(
 
 router.post(
   '/ingest-now',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     mustServer(req);
     const id = String(req.params.id);
     const backfill = await backfillFromLogs(id).catch(() => ({ inserted: 0 }));
@@ -223,4 +226,4 @@ router.post(
 // JSON error handler, same shape as the main API subtree.
 router.use(makeJsonErrorHandler('analytics'));
 
-module.exports = router;
+export = router;

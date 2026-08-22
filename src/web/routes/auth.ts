@@ -2,15 +2,18 @@
 
 // First-run setup, login, logout.
 
+import type { Request, Response } from 'express';
+
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const { z } = require('zod');
-const authService = require('../../services/auth');
-const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } = require('../middleware/auth');
-const { recordEvent } = require('../../events');
-const config = require('../../config');
-const { checkDocker } = require('../../docker/connect');
+const authService = require('../../services/auth') as typeof import('../../services/auth');
+const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } =
+  require('../middleware/auth') as typeof import('../middleware/auth');
+const { recordEvent } = require('../../events') as typeof import('../../events');
+const config = require('../../config') as typeof import('../../config');
+const { checkDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
 
 const router = express.Router();
 
@@ -56,13 +59,13 @@ async function buildSetupChecks() {
   };
 }
 
-router.get('/setup', (req, res) => {
+router.get('/setup', (req: Request, res: Response) => {
   if (!authService.firstRunNeeded()) return res.redirect('/login');
   res.render('setup', { title: 'Welcome', layout: 'bare' });
 });
 
 // First-run only, so it can't be used to fingerprint the host after setup.
-router.get('/setup/checks', async (req, res) => {
+router.get('/setup/checks', async (req: Request, res: Response) => {
   if (!authService.firstRunNeeded()) return res.status(403).json({ ok: false, error: 'Setup already complete' });
   try {
     res.json({ ok: true, checks: await buildSetupChecks() });
@@ -71,7 +74,7 @@ router.get('/setup/checks', async (req, res) => {
   }
 });
 
-router.post('/setup', (req, res) => {
+router.post('/setup', (req: Request, res: Response) => {
   const wantsJson = req.xhr || String(req.headers.accept || '').includes('application/json');
   try {
     if (!authService.firstRunNeeded()) {
@@ -83,7 +86,9 @@ router.post('/setup', (req, res) => {
         password: z.string().min(8).max(200),
       })
       .parse(req.body);
-    const user = authService.createUser({ username, password, role: 'admin' }, { actor: 'setup' });
+    // createUser only returns null when role/username conflicts are pre-checked
+    // elsewhere; firstRunNeeded() above guarantees a fresh admin account here.
+    const user = authService.createUser({ username, password, role: 'admin' }, { actor: 'setup' })!;
     // Rotate the session id on privilege establishment (anti-fixation), matching login.
     req.session.regenerate((err) => {
       if (err) {
@@ -100,12 +105,14 @@ router.post('/setup', (req, res) => {
       return wantsJson ? res.json({ ok: true, user: { username: user.username } }) : res.redirect('/');
     });
   } catch (err) {
-    if (wantsJson) return res.status(err.status || 400).json({ ok: false, error: firstIssue(err) });
-    res.status(err.status || 400).render('setup', { title: 'Welcome', layout: 'bare', error: firstIssue(err) });
+    if (wantsJson) return res.status((err as Error).status || 400).json({ ok: false, error: firstIssue(err) });
+    res
+      .status((err as Error).status || 400)
+      .render('setup', { title: 'Welcome', layout: 'bare', error: firstIssue(err) });
   }
 });
 
-router.get('/login', (req, res) => {
+router.get('/login', (req: Request, res: Response) => {
   if (authService.firstRunNeeded()) return res.redirect('/setup');
   if (req.session && req.session.userId) return res.redirect('/');
   // A fresh visit to /login abandons any in-progress 2FA challenge rather than
@@ -118,7 +125,7 @@ router.get('/login', (req, res) => {
   res.render('login', { title: 'Sign in', layout: 'bare', next: safeNext(req.query.next) });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', (req: Request, res: Response) => {
   try {
     const { username, password, next } = z
       .object({
@@ -160,16 +167,18 @@ router.post('/login', (req, res) => {
       res.redirect(safeNext(next) || '/');
     });
   } catch (err) {
-    res.status(err.status || 400).render('login', { title: 'Sign in', layout: 'bare', error: firstIssue(err) });
+    res
+      .status((err as Error).status || 400)
+      .render('login', { title: 'Sign in', layout: 'bare', error: firstIssue(err) });
   }
 });
 
-router.get('/login/2fa', (req, res) => {
+router.get('/login/2fa', (req: Request, res: Response) => {
   if (!req.session || !req.session.pendingTotpUserId) return res.redirect('/login');
   res.render('login-2fa', { title: 'Verify it’s you', layout: 'bare' });
 });
 
-router.post('/login/2fa', (req, res) => {
+router.post('/login/2fa', (req: Request, res: Response) => {
   const pendingId = req.session && req.session.pendingTotpUserId;
   const pendingUsername = req.session && req.session.pendingTotpUsername;
   if (!pendingId) return res.redirect('/login');
@@ -199,12 +208,12 @@ router.post('/login/2fa', (req, res) => {
     });
   } catch (err) {
     res
-      .status(err.status || 400)
+      .status((err as Error).status || 400)
       .render('login-2fa', { title: 'Verify it’s you', layout: 'bare', error: firstIssue(err) });
   }
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', (req: Request, res: Response) => {
   const name = req.user ? req.user.username : 'unknown';
   req.session.destroy(() => {
     recordEvent({ actor: name, type: 'logout', summary: `${name} signed out` });
@@ -212,7 +221,7 @@ router.post('/logout', (req, res) => {
   });
 });
 
-function safeNext(next) {
+function safeNext(next: unknown): string {
   if (typeof next !== 'string' || !next.startsWith('/')) return '';
   // Reject protocol-relative ("//host"), backslash tricks ("/\\host" — browsers
   // normalize \ to / making it "//host"), and any whitespace/control chars.
@@ -220,9 +229,11 @@ function safeNext(next) {
   return next;
 }
 
-function firstIssue(err) {
-  if (err && err.issues) return err.issues[0].message;
-  return err.message || 'Something went wrong';
+function firstIssue(err: unknown): string {
+  if (err && (err as { issues?: { message: string }[] }).issues) {
+    return (err as { issues: { message: string }[] }).issues[0]!.message;
+  }
+  return (err as Error)?.message || 'Something went wrong';
 }
 
-module.exports = router;
+export = router;

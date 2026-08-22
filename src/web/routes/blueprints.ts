@@ -5,17 +5,21 @@
 // + an uploadToken (the tmp filename); POST /import with that token (or a
 // library blueprintId) creates the server.
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const express = require('express');
-const multer = require('multer');
+const multer = require('multer') as typeof import('multer');
 const { z } = require('zod');
 const { nanoid } = require('nanoid');
-const blueprints = require('../../blueprints');
-const { dataPath } = require('../../storage/pathGuard');
-const { dockerOverridesSchema, requireAdminForOverrides } = require('./dockerOverridesSchema');
+const blueprints = require('../../blueprints') as typeof import('../../blueprints');
+const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
+const { dockerOverridesSchema, requireAdminForOverrides } =
+  require('./dockerOverridesSchema') as typeof import('./dockerOverridesSchema');
 
 const router = express.Router();
 
@@ -49,14 +53,14 @@ const overridesSchema = z.object({
 
 router.get(
   '/',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, blueprints: blueprints.listBlueprints().map(publicBlueprint) });
   })
 );
 
 router.post(
   '/export',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const input = z
       .object({
         serverId: z.string().trim().min(1).max(40),
@@ -68,9 +72,9 @@ router.post(
     const row = await blueprints.exportBlueprint(
       input.serverId,
       { includeConfig: input.includeConfig !== false, embedFiles: input.embedFiles, includeWorld: input.includeWorld },
-      { actor: req.user.username }
+      { actor: req.user!.username }
     );
-    res.status(201).json({ ok: true, blueprint: publicBlueprint(blueprints.getBlueprint(row.id)) });
+    res.status(201).json({ ok: true, blueprint: publicBlueprint(blueprints.getBlueprint(String(row!.id))) });
   })
 );
 
@@ -78,7 +82,7 @@ router.post(
 router.post(
   '/import-preview',
   upload.single('file'),
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     if (req.file) {
       let preview;
       try {
@@ -97,16 +101,19 @@ router.post(
 
 router.post(
   '/import',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const input = z
       .object({
         blueprintId: z.string().trim().min(1).max(40).optional(),
         uploadToken: uploadTokenSchema.optional(),
         overrides: overridesSchema.optional(),
       })
-      .refine((v) => Boolean(v.blueprintId) !== Boolean(v.uploadToken), {
-        message: 'Provide exactly one of blueprintId or uploadToken',
-      })
+      .refine(
+        (v: { blueprintId?: string; uploadToken?: string }) => Boolean(v.blueprintId) !== Boolean(v.uploadToken),
+        {
+          message: 'Provide exactly one of blueprintId or uploadToken',
+        }
+      )
       .parse(req.body);
 
     let zipRef = input.blueprintId;
@@ -117,17 +124,17 @@ router.post(
       }
     }
     if (input.overrides) requireAdminForOverrides(req, input.overrides);
-    const { server, report } = await blueprints.importBlueprint(zipRef, input.overrides || {}, {
-      actor: req.user.username,
+    const { server, report } = await blueprints.importBlueprint(zipRef as string, input.overrides || {}, {
+      actor: req.user!.username,
     });
-    if (input.uploadToken) await fsp.rm(zipRef, { force: true }).catch(() => {});
+    if (input.uploadToken) await fsp.rm(zipRef as string, { force: true }).catch(() => {});
     res.status(201).json({ ok: true, server: publicServer(server), report });
   })
 );
 
 router.post(
   '/clone',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const input = z
       .object({
         serverId: z.string().trim().min(1).max(40),
@@ -136,7 +143,7 @@ router.post(
       .parse(req.body);
     const { server, report, blueprint } = await blueprints.cloneServer(input.serverId, {
       includeWorld: input.includeWorld,
-      actor: req.user.username,
+      actor: req.user!.username,
     });
     res.status(201).json({
       ok: true,
@@ -149,7 +156,7 @@ router.post(
 
 router.get(
   '/:id/download',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const row = blueprints.getBlueprint(String(req.params.id));
     if (!row) return res.status(404).json({ ok: false, error: 'Blueprint not found' });
     res.download(dataPath(row.rel_path), row.filename);
@@ -158,21 +165,25 @@ router.get(
 
 router.delete(
   '/:id',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({
       ok: true,
-      ...(await blueprints.deleteBlueprint(String(req.params.id), { actor: req.user.username })),
+      ...(await blueprints.deleteBlueprint(String(req.params.id), { actor: req.user!.username })),
     });
   })
 );
 
-function publicBlueprint(b) {
+// blueprints.getBlueprint()/listBlueprints() decorate a raw DB row via a
+// `{ ...row, ... }` spread over an untyped param, which collapses their
+// return type to `any` — this helper mirrors that looseness rather than
+// inventing a narrower interface the underlying data doesn't actually honor.
+function publicBlueprint(b: any) {
   if (!b) return null;
   const { manifest_json, manifest, ...rest } = b;
   return rest;
 }
 
-function publicServer(s) {
+function publicServer(s: import('../../services/types').Server | null) {
   if (!s) return null;
   return { id: s.id, name: s.display_name, type: s.type, mcVersion: s.mc_version, portGame: s.port_game };
 }
@@ -180,4 +191,4 @@ function publicServer(s) {
 // JSON error handler for this subtree (mirrors routes/api.js).
 router.use(makeJsonErrorHandler('blueprints', { fileTooLarge: 'Upload is too large' }));
 
-module.exports = router;
+export = router;

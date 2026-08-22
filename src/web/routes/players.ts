@@ -3,15 +3,18 @@
 // Player management API. Mounted at /api/servers/:id/players (mergeParams
 // carries :id down from the mount point).
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const servers = require('../../services/servers');
-const players = require('../../services/players');
-const { inspectStatus } = require('../../docker/containers');
-const biomes = require('../../config/biomes');
-const { PLAYER_NAME_RE } = require('../../utils/playerName');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const players = require('../../services/players') as typeof import('../../services/players');
+const { inspectStatus } = require('../../docker/containers') as typeof import('../../docker/containers');
+const biomes = require('../../config/biomes') as typeof import('../../config/biomes');
+const { PLAYER_NAME_RE } = require('../../utils/playerName') as typeof import('../../utils/playerName');
 
 const router = express.Router({ mergeParams: true });
 
@@ -46,7 +49,7 @@ const teleportSchema = z.discriminatedUnion('mode', [
     x: z.coerce.number().finite(),
     // Y omitted/empty = land on the surface (spreadplayers) — never mid-air.
     y: z.preprocess(
-      (v) => (v === '' || v === null || v === undefined ? undefined : v),
+      (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v),
       z.coerce.number().finite().optional()
     ),
     z: z.coerce.number().finite(),
@@ -82,8 +85,8 @@ const teleportSchema = z.discriminatedUnion('mode', [
 ]);
 
 /** 404 unless the server exists; resolve whether rcon is available. */
-async function loadContext(req) {
-  const server = servers.getServer(req.params.id);
+async function loadContext(req: Request) {
+  const server = servers.getServer(String(req.params.id));
   if (!server) {
     const err = new Error('Server not found');
     err.status = 404;
@@ -96,12 +99,12 @@ async function loadContext(req) {
   } catch {
     /* docker down — fall back to file edits */
   }
-  return { server, ctx: { running, actor: req.user.username } };
+  return { server, ctx: { running, actor: req.user!.username } };
 }
 
 router.get(
   '/',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { server, ctx } = await loadContext(req);
     const onlineNames = ctx.running ? await players.listOnlineNames(server.id) : [];
     res.json({
@@ -114,27 +117,26 @@ router.get(
   })
 );
 
-router.get('/structures', async (req, res) => {
+router.get('/structures', async (req: Request, res: Response) => {
   try {
     const { ctx } = await loadContext(req);
-    // Express 5's route-literal param inference doesn't know about mergeParams
-    // inheriting :id from the parent router mount, so req.params types as {}.
-    const id = /** @type {any} */ (req.params).id;
+    // mergeParams carries :id down from the parent router mount.
+    const id = String(req.params.id);
     res.json({ ok: true, structures: await players.getServerStructures(id, { running: ctx.running }) });
   } catch {
     res.json({ ok: true, structures: [] });
   }
 });
 
-router.get('/biomes', async (req, res, next) => {
+router.get('/biomes', async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Server-derived registry when possible (modded packs add biomes the
     // bundled vanilla list can't know); bundled fallback otherwise. Each biome is
     // tagged with its "special" (non-overworld) home dimension for the UI prefix.
     const { ctx } = await loadContext(req);
-    const id = /** @type {any} */ (req.params).id;
+    const id = String(req.params.id);
     const registry = await players.getServerBiomes(id, { running: ctx.running });
-    const seen = new Map();
+    const seen = new Map<string, { id: string; dimension: string }>();
     for (const b of registry.biomes) {
       if (seen.has(b.id)) continue;
       const dims = registry.byId.get(b.id) || [b.dimension];
@@ -144,13 +146,17 @@ router.get('/biomes', async (req, res, next) => {
     const list = [...seen.values()];
     res.json({ ok: true, biomes: list, source: list.length > 70 ? 'server' : 'bundled' });
   } catch {
-    res.json({ ok: true, biomes: biomes.map((id) => ({ id, dimension: 'minecraft:overworld' })), source: 'bundled' });
+    res.json({
+      ok: true,
+      biomes: biomes.map((id) => ({ id, dimension: 'minecraft:overworld' })),
+      source: 'bundled',
+    });
   }
 });
 
 router.post(
   '/whitelist',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { name, on } = whitelistSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.setWhitelisted(server.id, name, on, ctx) });
@@ -159,7 +165,7 @@ router.post(
 
 router.post(
   '/whitelist-enforce',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { on } = enforceSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.setWhitelistEnforced(server.id, on, ctx) });
@@ -168,7 +174,7 @@ router.post(
 
 router.post(
   '/op',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { name, on, level } = opSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.setOp(server.id, name, on, level ?? 4, ctx) });
@@ -177,7 +183,7 @@ router.post(
 
 router.post(
   '/ban',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { name, reason } = banSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.banPlayer(server.id, name, reason, ctx) });
@@ -186,7 +192,7 @@ router.post(
 
 router.post(
   '/pardon',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { name } = pardonSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.pardonPlayer(server.id, name, ctx) });
@@ -195,7 +201,7 @@ router.post(
 
 router.post(
   '/ban-ip',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { ip, reason } = banIpSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.banIp(server.id, ip, reason, ctx) });
@@ -204,7 +210,7 @@ router.post(
 
 router.post(
   '/pardon-ip',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { ip } = pardonIpSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.pardonIp(server.id, ip, ctx) });
@@ -213,7 +219,7 @@ router.post(
 
 router.post(
   '/kick',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { name, message } = kickSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     res.json({ ok: true, result: await players.kickPlayer(server.id, name, message, ctx) });
@@ -222,7 +228,7 @@ router.post(
 
 router.post(
   '/teleport',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const body = teleportSchema.parse(req.body);
     const { server, ctx } = await loadContext(req);
     // One teleport at a time per server — parallel /locate searches stall the
@@ -265,4 +271,4 @@ router.post(
 // JSON error handler for this subtree (mirrors routes/api.js)
 router.use(makeJsonErrorHandler('players-api'));
 
-module.exports = router;
+export = router;

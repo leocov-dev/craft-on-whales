@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Inventory forensics API. Mounted at /api/servers/:id/inventory (mergeParams
@@ -6,17 +5,24 @@
 // `module.exports.globalSearch` — serves GET /api/inventory/search across all
 // servers.
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction, Router } from 'express';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const servers = require('../../services/servers');
-const inventory = require('../../services/inventory');
-const { inspectStatus } = require('../../docker/containers');
-const { PLAYER_NAME_RE } = require('../../utils/playerName');
-const itemRegistry = require('../../services/itemRegistry');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const inventory = require('../../services/inventory') as typeof import('../../services/inventory');
+const { inspectStatus } = require('../../docker/containers') as typeof import('../../docker/containers');
+const { PLAYER_NAME_RE } = require('../../utils/playerName') as typeof import('../../utils/playerName');
+const itemRegistry = require('../../services/itemRegistry') as typeof import('../../services/itemRegistry');
 
-const router = express.Router({ mergeParams: true });
+// `router.globalSearch` is a second, unrelated router bolted onto this one so
+// a single require('./inventory') gives web/routes/api.js both mount points
+// (see the export at the bottom); the type carries that extra property
+// locally rather than augmenting express's global Router type.
+const router: Router & { globalSearch?: Router } = express.Router({ mergeParams: true });
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -70,7 +76,7 @@ const slotEditSchema = z
     count: z.coerce.number().int().min(1).max(99).optional(),
     nested: nestedSchema.optional(),
   })
-  .superRefine((v, ctx) => {
+  .superRefine((v: { op: 'set' | 'delete' | 'count'; item?: string; count?: number }, ctx: any) => {
     if (v.op === 'set' && !v.item) ctx.addIssue({ code: 'custom', message: 'op "set" needs an item id' });
     if (v.op === 'count' && v.count === undefined)
       ctx.addIssue({ code: 'custom', message: 'op "count" needs a count' });
@@ -81,13 +87,13 @@ const addSchema = z.object({
   count: z.coerce.number().int().min(1).max(99).optional(),
 });
 
-function actorOf(req) {
+function actorOf(req: Request): string {
   return req.user ? req.user.username : 'admin';
 }
 
 /** 404 unless the server exists; resolve whether rcon is available. */
-async function loadContext(req) {
-  const server = servers.getServer(req.params.id);
+async function loadContext(req: Request) {
+  const server = servers.getServer(String(req.params.id));
   if (!server) {
     const err = new Error('Server not found');
     err.status = 404;
@@ -105,7 +111,7 @@ async function loadContext(req) {
 
 router.get(
   '/players',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { server, running } = await loadContext(req);
     res.json({ ok: true, running, players: await inventory.listPlayersWithData(server.id) });
   })
@@ -113,7 +119,7 @@ router.get(
 
 router.get(
   '/player/:uuid',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const { server, running } = await loadContext(req);
     // ?fresh=1 -> flush live player data to disk first, so the grid shows the
@@ -140,7 +146,7 @@ router.get(
 // sub-inventory (backpack) via `nested: {path, index}` (offline mechanism only).
 router.post(
   '/player/:uuid/slot',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const body = slotEditSchema.parse(req.body);
     const { server } = await loadContext(req);
@@ -151,7 +157,7 @@ router.post(
 // Move/swap between any two slots (main inventory <-> ender chest included).
 router.post(
   '/player/:uuid/move',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const { from, to } = moveSchema.parse(req.body);
     const { server } = await loadContext(req);
@@ -162,7 +168,7 @@ router.post(
 // Add to the first free slot — /give when online, .dat insert when offline.
 router.post(
   '/player/:uuid/add',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const { item, count } = addSchema.parse(req.body);
     const { server } = await loadContext(req);
@@ -172,7 +178,7 @@ router.post(
 
 router.get(
   '/player/:uuid/snapshots',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const { server } = await loadContext(req);
     res.json({ ok: true, snapshots: await inventory.listSnapshots(server.id, uuid) });
@@ -182,7 +188,7 @@ router.get(
 // Manual "take snapshot" (automatic ones ride on join/death events).
 router.post(
   '/player/:uuid/snapshot',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const uuid = uuidSchema.parse(req.params.uuid);
     const { server } = await loadContext(req);
     const snap = await inventory.snapshot(server.id, uuid, 'manual');
@@ -193,7 +199,7 @@ router.post(
 
 router.get(
   '/snapshot',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const file = snapshotFileSchema.parse(req.query.file);
     await loadContext(req); // 404 on unknown server; the service re-validates the path shape
     res.json({ ok: true, snapshot: inventory.getSnapshot(file) });
@@ -202,7 +208,7 @@ router.get(
 
 router.get(
   '/diff',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const a = snapshotFileSchema.parse(req.query.a);
     const b = snapshotFileSchema.parse(req.query.b);
     await loadContext(req);
@@ -212,7 +218,7 @@ router.get(
 
 router.get(
   '/search',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const q = querySchema.parse(req.query.q);
     const { server } = await loadContext(req);
     res.json({ ok: true, results: await inventory.searchItems(server.id, q) });
@@ -221,7 +227,7 @@ router.get(
 
 router.post(
   '/give',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { player, item, count } = giveSchema.parse(req.body);
     const { server } = await loadContext(req);
     res.json({
@@ -233,7 +239,7 @@ router.post(
 
 router.post(
   '/clear',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { player, item } = clearSchema.parse(req.body);
     const { server } = await loadContext(req);
     res.json({ ok: true, result: await inventory.clearItem(server.id, player, item || null, { actor: actorOf(req) }) });
@@ -247,7 +253,7 @@ const globalSearch = express.Router();
 
 globalSearch.get(
   '/search',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const q = querySchema.parse(req.query.q);
     res.json({ ok: true, results: await inventory.searchAllServers(q) });
   })
@@ -261,4 +267,4 @@ router.use(errorHandler);
 globalSearch.use(errorHandler);
 
 router.globalSearch = globalSearch;
-module.exports = router;
+export = router;
