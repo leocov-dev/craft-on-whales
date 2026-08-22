@@ -731,6 +731,16 @@ router.get(
   })
 );
 
+router.get('/mc-router', requireRole('admin'), (req: Request, res: Response) => {
+  const mcRouter = require('../../services/mcRouter') as typeof import('../../services/mcRouter');
+  res.render('mc-router', {
+    title: 'Router',
+    active: 'mc-router',
+    config: mcRouter.getConfig(),
+    routes: mcRouter.listRoutes(),
+  });
+});
+
 router.get('/settings', requireRole('admin'), (req: Request, res: Response) => {
   const apiKeys = require('../../services/apiKeys') as typeof import('../../services/apiKeys');
   const { config } = require('../../config') as typeof import('../../config');

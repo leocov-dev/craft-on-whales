@@ -43,6 +43,18 @@ function getDocker(): Dockerode {
   return client;
 }
 
+/**
+ * The host-side Docker socket path the panel itself connects through, for
+ * bind-mounting into a container that needs its own Docker API access (e.g.
+ * mc-router's auto-scale). Null when connecting via DOCKER_HOST (nothing to
+ * bind-mount) or on Windows (named-pipe mounting isn't supported here — v1
+ * mc-router auto-scale is Unix/Docker-Desktop-macOS only).
+ */
+function getSocketPath(): string | null {
+  if (process.env.DOCKER_HOST || process.platform === 'win32') return null;
+  return detectOptions().socketPath || null;
+}
+
 interface DockerStatus {
   available: boolean;
   installed: boolean | null;
@@ -89,4 +101,4 @@ async function checkDocker(): Promise<DockerStatus> {
   return status;
 }
 
-export { getDocker, checkDocker };
+export { getDocker, checkDocker, getSocketPath };

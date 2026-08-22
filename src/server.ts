@@ -134,6 +134,11 @@ function startBackgroundServices(httpServer: HttpServer): void {
       .catch((err: unknown) => console.error('[boot] analytics ingest failed:', err));
     (require('./analytics/stats') as typeof import('./analytics/stats')).startStatsIngest({});
     (require('./services/liveCache') as typeof import('./services/liveCache')).startLiveCache({});
+    (require('./services/mcRouter') as typeof import('./services/mcRouter'))
+      .bootReconcile()
+      .catch((err: unknown) =>
+        console.error('[boot] mc-router reconcile failed:', err instanceof Error ? err.message : String(err))
+      );
     // Honor "start on panel boot"
     for (const s of serversService.listServers()) {
       if (s.auto_start && s.status !== 'running' && s.status !== 'starting') {

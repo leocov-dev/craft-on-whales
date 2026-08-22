@@ -209,6 +209,7 @@ interface PanelConfig {
   cookieSecure: CookieSecure;
   mapProxyHost: string;
   mcImageRepo: string;
+  mcRouterImage: string;
   ports: {
     gameStart: number;
     rconOffset: number;
@@ -246,6 +247,9 @@ const config: PanelConfig = {
   // Docker image repository for Minecraft servers. Override for a private mirror
   // or air-gapped registry; the panel is otherwise an itzg/minecraft-server front-end.
   mcImageRepo: (process.env.MC_IMAGE_REPO || 'itzg/minecraft-server').trim(),
+
+  // Docker image for the mc-router integration. Override for a private mirror.
+  mcRouterImage: (process.env.MC_ROUTER_IMAGE || 'itzg/mc-router:latest').trim(),
 
   // Port allocation scheme: game ports first-free from PORT_GAME_START,
   // RCON host port = game + PORT_RCON_OFFSET, Bedrock/Geyser UDP from PORT_BEDROCK_START.

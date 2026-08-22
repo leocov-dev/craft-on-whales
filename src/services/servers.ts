@@ -18,6 +18,7 @@ const secrets = require('./secrets') as typeof import('./secrets');
 const { pickJavaTag } = require('./javaMatrix') as typeof import('./javaMatrix');
 const { suggestPorts, isPortFree } = require('./ports') as typeof import('./ports');
 const containers = require('../docker/containers') as typeof import('../docker/containers');
+const dockerNetworks = require('../docker/networks') as typeof import('../docker/networks');
 const images = require('../docker/images') as typeof import('../docker/images');
 const { fetchLogs } = require('../docker/logs') as typeof import('../docker/logs');
 const dockerSpec = require('./dockerSpec') as typeof import('./dockerSpec');
@@ -62,6 +63,10 @@ function rowToServer(row: Row | undefined): Server | null {
     network_name: row.network_name == null ? null : String(row.network_name),
     containerName: row.container_name == null ? null : String(row.container_name),
     networkName: row.network_name == null ? null : String(row.network_name),
+    router_hostname: row.router_hostname == null ? null : String(row.router_hostname),
+    router_auto_scale: row.router_auto_scale == null ? null : String(row.router_auto_scale),
+    routerHostname: row.router_hostname == null ? null : String(row.router_hostname),
+    routerAutoScale: row.router_auto_scale == null ? null : String(row.router_auto_scale),
     extraPorts: JSON.parse(String(row.extra_ports_json || '[]')) as ServerExtraPort[],
     extraBinds: JSON.parse(String(row.extra_binds_json || '[]')) as ServerExtraBind[],
   };
@@ -632,6 +637,8 @@ async function recreateServerImpl(
       containerName: server.containerName ?? undefined,
       networkName: server.networkName ?? undefined,
       extraBinds: server.extraBinds,
+      routerHostname: server.routerHostname ?? undefined,
+      routerAutoScale: server.routerAutoScale ?? undefined,
     });
   } catch (err: unknown) {
     if ((err as { statusCode?: number }).statusCode === 409 && server.containerName) {
@@ -665,6 +672,8 @@ interface UpdateServerChanges {
   networkName?: string | null;
   extraPorts?: ServerExtraPort[];
   extraBinds?: ServerExtraBind[];
+  routerHostname?: string | null;
+  routerAutoScale?: 'on' | 'off' | null;
   diskQuotaGb?: number;
   autoStart?: boolean;
   autoRestart?: boolean;
@@ -738,6 +747,32 @@ function updateServer(
     if (val !== (before.networkName || null)) {
       diff.networkName = [before.networkName, val];
       sets.push('network_name = ?');
+      params.push(val);
+      needsRecreate = true;
+    }
+  }
+  if (changes.routerHostname !== undefined) {
+    const val = changes.routerHostname ? changes.routerHostname.trim().toLowerCase() : null;
+    if (val !== (before.routerHostname || null)) {
+      diff.routerHostname = [before.routerHostname, val];
+      sets.push('router_hostname = ?');
+      params.push(val);
+      needsRecreate = true;
+      // Routing requires the container on the router's shared network — pin it
+      // there whenever a hostname is assigned, unless the caller already picked
+      // a network explicitly in this same update.
+      if (val && changes.networkName === undefined && before.networkName !== dockerNetworks.ROUTER_NETWORK_NAME) {
+        diff.networkName = [before.networkName, dockerNetworks.ROUTER_NETWORK_NAME];
+        sets.push('network_name = ?');
+        params.push(dockerNetworks.ROUTER_NETWORK_NAME);
+      }
+    }
+  }
+  if (changes.routerAutoScale !== undefined) {
+    const val = changes.routerAutoScale || null;
+    if (val !== (before.routerAutoScale || null)) {
+      diff.routerAutoScale = [before.routerAutoScale, val];
+      sets.push('router_auto_scale = ?');
       params.push(val);
       needsRecreate = true;
     }

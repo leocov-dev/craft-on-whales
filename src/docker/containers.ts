@@ -52,6 +52,10 @@ interface CreateContainerSpec {
   extraPorts?: ExtraPort[];
   /** RAW host paths, not re-rooted */
   extraBinds?: ExtraBind[];
+  /** mc-router hostname — sets the `mc-router.host` discovery label when present */
+  routerHostname?: string;
+  /** per-server override of the global mc-router auto-scale settings: 'on' | 'off' | undefined (inherit) */
+  routerAutoScale?: string | null;
 }
 
 /**
@@ -100,11 +104,24 @@ async function createContainer(spec: CreateContainerSpec): Promise<string> {
   };
   if (spec.networkName) hostConfig.NetworkMode = spec.networkName;
 
+  const labels: Record<string, string> = { [LABEL]: spec.serverId, 'msm.managed': 'true' };
+  if (spec.routerHostname) {
+    labels['mc-router.host'] = spec.routerHostname;
+    if (spec.routerAutoScale === 'on') {
+      labels['mc-router.auto-scale-up'] = 'true';
+      labels['mc-router.auto-scale-down'] = 'true';
+    } else if (spec.routerAutoScale === 'off') {
+      labels['mc-router.auto-scale-up'] = 'false';
+      labels['mc-router.auto-scale-down'] = 'false';
+    }
+    // else: unset — inherit the global mc-router auto-scale flags
+  }
+
   const container = await docker.createContainer({
     name: spec.containerName || containerName(spec.serverId),
     Image: spec.image,
     Env: Object.entries(spec.env).map(([k, v]) => `${k}=${v}`),
-    Labels: { [LABEL]: spec.serverId, 'msm.managed': 'true' },
+    Labels: labels,
     ExposedPorts: exposed,
     Tty: false,
     OpenStdin: false,

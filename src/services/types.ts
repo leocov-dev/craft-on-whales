@@ -185,6 +185,10 @@ export interface Server {
   network_name: string | null;
   containerName: string | null;
   networkName: string | null;
+  router_hostname: string | null;
+  router_auto_scale: string | null;
+  routerHostname: string | null;
+  routerAutoScale: string | null;
   extraPorts: ServerExtraPort[];
   extraBinds: ServerExtraBind[];
 }

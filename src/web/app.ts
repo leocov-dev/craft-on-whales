@@ -216,6 +216,7 @@ function createApp(): Express {
   app.use(requireWrite);
 
   app.use('/api', require('./routes/api').router);
+  app.use('/api/mc-router', require('./routes/mcRouter').router);
   app.use('/api/tasks', require('./routes/tasks').router);
   app.use('/api/solver', require('./routes/solver').router);
   app.use('/map', require('./routes/mapProxy').router);

@@ -138,6 +138,8 @@ router.patch(
         autoStart: z.coerce.boolean().optional(),
         autoRestart: z.coerce.boolean().optional(),
         env: z.record(z.string(), z.string()).optional(),
+        routerHostname: z.string().trim().max(253).optional(),
+        routerAutoScale: z.enum(['on', 'off']).nullable().optional(),
         ...dockerOverridesSchema,
       })
       .refine(
