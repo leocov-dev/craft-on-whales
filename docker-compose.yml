@@ -15,8 +15,8 @@
 # container-local ones.
 services:
   panel:
-    image: ghcr.io/anefzaoui/minecraft-server-manager:latest
-    container_name: minecraft-server-manager
+    image: ghcr.io/leocov-dev/craft-on-whales:latest
+    container_name: craft-on-whales
     restart: unless-stopped
     ports:
       # Web UI. Change the left side to move it; the panel itself listens on

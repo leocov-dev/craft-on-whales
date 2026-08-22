@@ -149,8 +149,8 @@ by host path).
 ## Quick start
 
 ```bash
-git clone https://github.com/anefzaoui/minecraft-server-manager.git minecraft-server-manager
-cd minecraft-server-manager
+git clone https://github.com/leocov-dev/craft-on-whales.git craft-on-whales
+cd craft-on-whales
 npm install               # installs deps and builds the Tailwind CSS (postinstall)
 cp .env.example .env      # optional — all values have sane defaults
 npm start                 # or: npm run dev (auto-restart + CSS watch)
@@ -168,7 +168,7 @@ yourself only if you want to control it (e.g. to share one across replicas).
 ### Run the panel itself in Docker
 
 A pre-built multi-arch image (amd64 + arm64) is published to GHCR on every release:
-`ghcr.io/anefzaoui/minecraft-server-manager:latest` (or pin a version tag, e.g. `:v0.9.0`).
+`ghcr.io/leocov-dev/craft-on-whales:latest` (or pin a version tag, e.g. `:v0.9.0`).
 Grab the [docker-compose.yml](docker-compose.yml) from the repo root, set **one** variable, and start:
 
 ```bash
@@ -344,7 +344,7 @@ with whatever Node version started the PM2 _daemon_, and later switching your sh
 Pin the interpreter per app:
 
 ```bash
-pm2 start src/server.js --name minecraft-server-manager --interpreter "$(nvm which 24)"
+pm2 start src/server.js --name craft-on-whales --interpreter "$(nvm which 24)"
 pm2 save
 ```
 
