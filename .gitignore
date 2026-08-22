@@ -12,3 +12,6 @@ public/css/app.css
 .idea/
 Thumbs.db
 .DS_Store
+
+# Local Claude Code project config
+.claude/
