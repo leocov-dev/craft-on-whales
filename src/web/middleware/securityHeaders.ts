@@ -12,6 +12,8 @@
 //    <script> data-islands and inline styles; it still constrains object-src,
 //    base-uri, and form-action. Moving to nonces is a future hardening step.
 
+import type { NextFunction, Request, Response } from 'express';
+
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -26,7 +28,7 @@ const CSP = [
   "font-src 'self'",
 ].join('; ');
 
-function securityHeaders(req, res, next) {
+function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -35,4 +37,4 @@ function securityHeaders(req, res, next) {
   next();
 }
 
-module.exports = { securityHeaders };
+export = { securityHeaders };

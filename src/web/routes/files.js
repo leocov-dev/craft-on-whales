@@ -38,7 +38,7 @@ function uploadPreflight(scope) {
       });
     }
     if (declared > 0) {
-      if (scope === 'server') files.assertRoom(req.params.id, declared); // per-server quota
+      if (scope === 'server') files.assertRoom(String(req.params.id), declared); // per-server quota
       await files.assertDiskFree(declared); // free disk space
     }
     next();
@@ -60,7 +60,7 @@ function makeRouter(scope) {
   // Server scope: 404 unless the server exists (also blocks probing arbitrary dirs).
   if (scope === 'server') {
     router.use((req, res, next) => {
-      if (!servers.getServer(req.params.id)) {
+      if (!servers.getServer(String(req.params.id))) {
         return res.status(404).json({ ok: false, error: 'Server not found' });
       }
       next();
@@ -148,15 +148,19 @@ function makeRouter(scope) {
   router.post('/upload', uploadPreflight(scope), upload.array('files', 20), async (req, res, next) => {
     try {
       const rel = pathSchema.parse(req.query.path ?? '');
-      if (!req.files || !req.files.length) throw Object.assign(new Error('No files attached'), { status: 400 });
+      // upload.array() (above) always populates req.files as a plain array, never
+      // the per-fieldname object shape multer.fields() would produce.
+      const uploadedFiles = /** @type {Express.Multer.File[] | undefined} */ (req.files);
+      if (!uploadedFiles || !uploadedFiles.length) throw Object.assign(new Error('No files attached'), { status: 400 });
       const uploaded = [];
-      for (const f of req.files) {
+      for (const f of uploadedFiles) {
         uploaded.push(await files.acceptUpload(sid(req), rel, f.path, f.originalname, { actor: actorOf(req) }));
       }
       res.status(201).json({ ok: true, uploaded });
     } catch (err) {
       if (req.files) {
-        for (const f of req.files) await fsp.rm(f.path, { force: true }).catch(() => {});
+        for (const f of /** @type {Express.Multer.File[]} */ (req.files))
+          await fsp.rm(f.path, { force: true }).catch(() => {});
       }
       next(err);
     }

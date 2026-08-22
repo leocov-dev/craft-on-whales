@@ -47,9 +47,11 @@ router.get(
   '/timeline',
   asyncHandler((req, res, next) => {
     mustServer(req);
+    const id = String(req.params.id);
     const query = timelineSchema.parse(req.query);
     const where = ['server_id = ?'];
-    const params = [req.params.id];
+    /** @type {(string|number)[]} */
+    const params = [id];
     if (query.type) {
       const types = query.type
         .split(',')
@@ -91,6 +93,7 @@ router.get(
   '/sessions',
   asyncHandler((req, res, next) => {
     mustServer(req);
+    const id = String(req.params.id);
     const { player } = z
       .object({
         player: z
@@ -101,7 +104,7 @@ router.get(
       })
       .parse(req.query);
     const where = ['server_id = ?'];
-    const params = [req.params.id];
+    const params = [id];
     if (player) {
       where.push('player = ?');
       params.push(player);
@@ -156,7 +159,7 @@ router.get(
         window: z.enum(['all', '7d', '24h']).default('all'),
       })
       .parse(req.query);
-    res.json({ ok: true, metric, window, rows: stats.scoreboard(req.params.id, { metric, window }) });
+    res.json({ ok: true, metric, window, rows: stats.scoreboard(String(req.params.id), { metric, window }) });
   })
 );
 
@@ -169,7 +172,7 @@ router.get(
       .trim()
       .regex(/^[0-9a-fA-F-]{32,36}$/)
       .parse(req.params.uuid);
-    const data = stats.profile(req.params.id, uuid);
+    const data = stats.profile(String(req.params.id), uuid);
     if (!data) return res.status(404).json({ ok: false, error: 'No stats recorded for this player yet' });
     res.json({ ok: true, profile: data });
   })
@@ -186,8 +189,8 @@ router.get(
        UNION
        SELECT name, uuid FROM player_stat_snapshots WHERE server_id = ? AND name != ''
        ORDER BY name COLLATE NOCASE`,
-      req.params.id,
-      req.params.id
+      String(req.params.id),
+      String(req.params.id)
     );
     // Collapse duplicate names, preferring rows that carry a uuid.
     const byName = new Map();
@@ -202,7 +205,7 @@ router.get(
   '/xray',
   asyncHandler((req, res, next) => {
     mustServer(req);
-    res.json({ ok: true, report: stats.xrayReport(req.params.id) });
+    res.json({ ok: true, report: stats.xrayReport(String(req.params.id)) });
   })
 );
 
@@ -210,8 +213,9 @@ router.post(
   '/ingest-now',
   asyncHandler(async (req, res, next) => {
     mustServer(req);
-    const backfill = await backfillFromLogs(req.params.id).catch(() => ({ inserted: 0 }));
-    const statResult = stats.ingestStats(req.params.id);
+    const id = String(req.params.id);
+    const backfill = await backfillFromLogs(id).catch(() => ({ inserted: 0 }));
+    const statResult = stats.ingestStats(id);
     res.json({ ok: true, events: backfill.inserted, ...statResult });
   })
 );

@@ -150,7 +150,7 @@ router.post(
 router.get(
   '/:id/download',
   asyncHandler((req, res, next) => {
-    const row = blueprints.getBlueprint(req.params.id);
+    const row = blueprints.getBlueprint(String(req.params.id));
     if (!row) return res.status(404).json({ ok: false, error: 'Blueprint not found' });
     res.download(dataPath(row.rel_path), row.filename);
   })
@@ -159,7 +159,10 @@ router.get(
 router.delete(
   '/:id',
   asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, ...(await blueprints.deleteBlueprint(req.params.id, { actor: req.user.username })) });
+    res.json({
+      ok: true,
+      ...(await blueprints.deleteBlueprint(String(req.params.id), { actor: req.user.username })),
+    });
   })
 );
 

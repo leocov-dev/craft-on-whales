@@ -117,7 +117,10 @@ router.get(
 router.get('/structures', async (req, res) => {
   try {
     const { ctx } = await loadContext(req);
-    res.json({ ok: true, structures: await players.getServerStructures(req.params.id, { running: ctx.running }) });
+    // Express 5's route-literal param inference doesn't know about mergeParams
+    // inheriting :id from the parent router mount, so req.params types as {}.
+    const id = /** @type {any} */ (req.params).id;
+    res.json({ ok: true, structures: await players.getServerStructures(id, { running: ctx.running }) });
   } catch {
     res.json({ ok: true, structures: [] });
   }
@@ -129,7 +132,8 @@ router.get('/biomes', async (req, res, next) => {
     // bundled vanilla list can't know); bundled fallback otherwise. Each biome is
     // tagged with its "special" (non-overworld) home dimension for the UI prefix.
     const { ctx } = await loadContext(req);
-    const registry = await players.getServerBiomes(req.params.id, { running: ctx.running });
+    const id = /** @type {any} */ (req.params).id;
+    const registry = await players.getServerBiomes(id, { running: ctx.running });
     const seen = new Map();
     for (const b of registry.biomes) {
       if (seen.has(b.id)) continue;

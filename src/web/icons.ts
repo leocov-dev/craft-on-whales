@@ -8,14 +8,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ICON_DIR = path.join(__dirname, '..', '..', 'node_modules', 'lucide-static', 'icons');
-const cache = new Map();
+const cache = new Map<string, string>();
 
 const FALLBACK = 'circle-help';
 
-function load(name) {
-  if (cache.has(name)) return cache.get(name);
+function load(name: string): string {
+  const cached = cache.get(name);
+  if (cached !== undefined) return cached;
   const file = path.join(ICON_DIR, `${name}.svg`);
-  let svg = null;
+  let svg: string;
   try {
     svg = fs.readFileSync(file, 'utf8');
   } catch {
@@ -34,9 +35,9 @@ function load(name) {
  * Render an icon with CSS classes applied to the root <svg>.
  * Usage in views: {{{icon 'play' 'size-4'}}}
  */
-function icon(name, classes) {
+function icon(name: string, classes?: unknown): string {
   const cls = typeof classes === 'string' ? classes : 'size-4';
   return load(name).replace('<svg', `<svg class="icon shrink-0 ${cls}" aria-hidden="true" focusable="false"`);
 }
 
-module.exports = { icon };
+export = { icon };

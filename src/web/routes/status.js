@@ -15,7 +15,7 @@ const router = express.Router();
 router.get(
   '/:slug',
   asyncHandler(async (req, res, next) => {
-    const serverId = statusPage.findBySlug(req.params.slug);
+    const serverId = statusPage.findBySlug(String(req.params.slug));
     const row = serverId ? serversService.getServer(serverId) : null;
     if (!row) {
       return res.status(404).render('status', { layout: 'bare', title: 'Not found', notFound: true });

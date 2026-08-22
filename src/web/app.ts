@@ -1,16 +1,18 @@
 'use strict';
 
+import type { Express, NextFunction, Request, Response } from 'express';
+
 const path = require('node:path');
 const express = require('express');
 const { engine } = require('express-handlebars');
 
-const config = require('../config');
+const config = require('../config') as typeof import('../config');
 const routes = require('./routes');
-const { icon } = require('./icons');
+const { icon } = require('./icons') as typeof import('./icons');
 const { marked } = require('marked');
 const sanitizeHtml = require('sanitize-html');
 
-function markdown(text) {
+function markdown(text: unknown): string {
   if (!text) return '';
   return sanitizeHtml(marked.parse(String(text), { async: false }), {
     allowedTags: ['p', 'b', 'strong', 'i', 'em', 'code', 'pre', 'a', 'ul', 'ol', 'li', 'br', 'blockquote', 'h3', 'h4'],
@@ -19,7 +21,23 @@ function markdown(text) {
   });
 }
 
-const STATUS_META = {
+type StatusColor = 'grass' | 'gold' | 'diamond' | 'redstone' | 'stone';
+
+interface StatusMeta {
+  label: string;
+  color: StatusColor;
+  pulse: boolean;
+}
+
+// `stopped` is declared as a required explicit property (rather than folded
+// into the index signature) so `STATUS_META.stopped` — used as the fallback
+// for an unrecognized status everywhere below — always types as StatusMeta,
+// not StatusMeta | undefined.
+interface StatusMetaMap extends Record<string, StatusMeta | undefined> {
+  stopped: StatusMeta;
+}
+
+const STATUS_META: StatusMetaMap = {
   running: { label: 'Running', color: 'grass', pulse: true },
   starting: { label: 'Starting', color: 'gold', pulse: true },
   unhealthy: { label: 'Unhealthy', color: 'gold', pulse: true },
@@ -28,7 +46,7 @@ const STATUS_META = {
   crashed: { label: 'Crashed', color: 'redstone', pulse: false },
   'over-quota': { label: 'Over quota', color: 'redstone', pulse: false },
 };
-const STATUS_TEXT = {
+const STATUS_TEXT: Record<StatusColor, string> = {
   grass: 'text-ok',
   gold: 'text-warn',
   diamond: 'text-link',
@@ -39,7 +57,7 @@ const STATUS_TEXT = {
 // it can see verbatim in source. Assembling `bg-${color}-500` in a template
 // produces a class the build never emits (bg-gold-500 was missing for exactly
 // this reason, rendering the Starting/Unhealthy dot invisible).
-const STATUS_DOT = {
+const STATUS_DOT: Record<StatusColor, string> = {
   grass: 'bg-grass-500',
   gold: 'bg-gold-500',
   diamond: 'bg-diamond-500',
@@ -51,14 +69,14 @@ const STATUS_DOT = {
 // schemas, so anything unknown falls back to grass instead of a broken image.
 const BUNDLED_ICONS = new Set(['chest', 'creeper', 'diamond', 'grass', 'portal', 'potion', 'sword', 'tnt']);
 
-function iconSrc(name) {
+function iconSrc(name: unknown): string {
   if (typeof name === 'string' && name.startsWith('custom:')) {
     return `/api/icons/custom/${encodeURIComponent(name.slice('custom:'.length))}`;
   }
-  return `/icons/servers/${BUNDLED_ICONS.has(name) ? name : 'grass'}.png`;
+  return `/icons/servers/${typeof name === 'string' && BUNDLED_ICONS.has(name) ? name : 'grass'}.png`;
 }
 
-function formatBytes(bytes) {
+function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   if (!Number.isFinite(bytes)) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -71,14 +89,14 @@ function formatBytes(bytes) {
 // NOT escape <, >, & or the JS line separators U+2028/U+2029, so a string field
 // containing "</script>" would break out of the tag (stored XSS). Escape those
 // code points to \uXXXX — still valid JSON and valid JS.
-function jsonForScript(v) {
+function jsonForScript(v: unknown): string {
   return (JSON.stringify(v) ?? 'null').replace(
     /[<>&\u2028\u2029]/g,
     (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')
   );
 }
 
-function createApp() {
+function createApp(): Express {
   const app = express();
 
   // Package version, exposed to every template (footer) so it never goes stale.
@@ -88,7 +106,7 @@ function createApp() {
   // (login rate-limiting) and secure-cookie 'auto' see the real client + scheme.
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
 
-  app.use(require('./middleware/securityHeaders').securityHeaders);
+  app.use((require('./middleware/securityHeaders') as typeof import('./middleware/securityHeaders')).securityHeaders);
 
   app.engine(
     'hbs',
@@ -100,44 +118,49 @@ function createApp() {
       helpers: {
         icon,
         markdown,
-        eq: (a, b) => a === b,
-        startsWith: (s, p) => typeof s === 'string' && s.startsWith(p),
-        ne: (a, b) => a !== b,
-        gt: (a, b) => a > b,
-        and: (a, b) => a && b,
-        or: (a, b) => a || b,
-        not: (a) => !a,
+        eq: (a: unknown, b: unknown) => a === b,
+        startsWith: (s: unknown, p: string) => typeof s === 'string' && s.startsWith(p),
+        ne: (a: unknown, b: unknown) => a !== b,
+        gt: (a: number, b: number) => a > b,
+        and: (a: unknown, b: unknown) => a && b,
+        or: (a: unknown, b: unknown) => a || b,
+        not: (a: unknown) => !a,
         json: jsonForScript,
-        urlq: (s) => encodeURIComponent(s ?? ''),
+        urlq: (s: unknown) => encodeURIComponent(String(s ?? '')),
         iconSrc,
         bytes: formatBytes,
-        pct: (used, total) => (total ? Math.min(100, Math.round((used / total) * 100)) : 0),
-        statusLabel: (s) => (STATUS_META[s] || STATUS_META.stopped).label,
-        statusDot: (s) => STATUS_DOT[(STATUS_META[s] || STATUS_META.stopped).color],
-        statusPulse: (s) => (STATUS_META[s] || STATUS_META.stopped).pulse,
+        pct: (used: number, total: number) => (total ? Math.min(100, Math.round((used / total) * 100)) : 0),
+        statusLabel: (s: string) => (STATUS_META[s] || STATUS_META.stopped).label,
+        statusDot: (s: string) => STATUS_DOT[(STATUS_META[s] || STATUS_META.stopped).color],
+        statusPulse: (s: string) => (STATUS_META[s] || STATUS_META.stopped).pulse,
         // Status *text* goes through the theme-aware semantic tokens (the raw
         // 400-step palette classes fail contrast on the light canvas).
-        statusText: (s) => STATUS_TEXT[(STATUS_META[s] || STATUS_META.stopped).color],
+        statusText: (s: string) => STATUS_TEXT[(STATUS_META[s] || STATUS_META.stopped).color],
         // Quota bar color by usage percentage against the configured thresholds.
-        meterColor: (used, total) => {
+        meterColor: (used: number, total: number) => {
           if (!total) return 'bg-diamond-400';
           const p = (used / total) * 100;
           if (p >= config.defaults.quotaCriticalPct) return 'bg-redstone-500';
           if (p >= config.defaults.quotaWarnPct) return 'bg-gold-400';
           return 'bg-grass-500';
         },
-        capitalize: (s) => (typeof s === 'string' && s ? s[0].toUpperCase() + s.slice(1) : s),
-        initial: (s) => (typeof s === 'string' && s ? s[0].toUpperCase() : '?'),
-        default: (v, fallback) => (v === undefined || v === null || v === '' ? fallback : v),
-        concat: (...args) => args.slice(0, -1).join(''),
-        inc: (v) => Number(v) + 1,
-        mul: (a, b) => Number(a) * Number(b),
-        plural: (n, one, many) => (Number(n) === 1 ? one : many),
-        platformName: (p) =>
-          ({ modrinth: 'Modrinth', curseforge: 'CurseForge', gtnh: 'GT New Horizons', ftb: 'FTB' })[p] || p,
+        capitalize: (s: unknown) => (typeof s === 'string' && s ? s.charAt(0).toUpperCase() + s.slice(1) : s),
+        initial: (s: unknown) => (typeof s === 'string' && s ? s.charAt(0).toUpperCase() : '?'),
+        default: (v: unknown, fallback: unknown) => (v === undefined || v === null || v === '' ? fallback : v),
+        concat: (...args: unknown[]) => args.slice(0, -1).join(''),
+        inc: (v: unknown) => Number(v) + 1,
+        mul: (a: unknown, b: unknown) => Number(a) * Number(b),
+        plural: (n: unknown, one: string, many: string) => (Number(n) === 1 ? one : many),
+        platformName: (p: string) =>
+          (
+            ({ modrinth: 'Modrinth', curseforge: 'CurseForge', gtnh: 'GT New Horizons', ftb: 'FTB' }) as Record<
+              string,
+              string
+            >
+          )[p] || p,
         // Handlebars {{#if}} treats 0 as falsy, which silently drops min="0"
         // attributes and zero defaults — this helper exists for those tests.
-        isDefined: (v) => v !== undefined && v !== null && v !== '',
+        isDefined: (v: unknown) => v !== undefined && v !== null && v !== '',
       },
     })
   );
@@ -151,7 +174,7 @@ function createApp() {
   // cleared their cache. `no-cache` forces a revalidation round-trip (still
   // 304s when nothing changed — this isn't `no-store`) on every request, so a
   // new deploy is guaranteed visible on the very next page load.
-  app.use((req, res, next) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     next();
   });
@@ -160,8 +183,8 @@ function createApp() {
   app.use(express.json());
 
   const session = require('express-session');
-  const { SqliteSessionStore } = require('./sessionStore');
-  const { requireAuth, originGuard, requireWrite } = require('./middleware/auth');
+  const { SqliteSessionStore } = require('./sessionStore') as typeof import('./sessionStore');
+  const { requireAuth, originGuard, requireWrite } = require('./middleware/auth') as typeof import('./middleware/auth');
   const sessionMiddleware = session({
     store: new SqliteSessionStore(),
     secret: config.sessionSecret,
@@ -199,11 +222,11 @@ function createApp() {
   app.use(routes);
 
   // 404 + error pages (kept friendly; detailed errors go to the server log only)
-  app.use((req, res) =>
+  app.use((req: Request, res: Response) =>
     res.status(404).render('error', { title: 'Not found', code: 404, message: 'That page does not exist.' })
   );
 
-  app.use((err, req, res, next) => {
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err);
     res.status(500).render('error', {
       title: 'Something broke',
@@ -215,4 +238,4 @@ function createApp() {
   return app;
 }
 
-module.exports = { createApp };
+export = { createApp };

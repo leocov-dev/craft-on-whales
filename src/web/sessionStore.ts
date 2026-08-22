@@ -2,11 +2,13 @@
 
 // express-session Store backed by the panel's SQLite (sessions table).
 
+import type { SessionData } from 'express-session';
+
 const { Store } = require('express-session');
-const db = require('../db');
+const db = require('../db') as typeof import('../db');
 
 class SqliteSessionStore extends Store {
-  get(sid, cb) {
+  get(sid: string, cb: (err: unknown, session?: SessionData | null) => void): void {
     try {
       const row = db.get('SELECT data_json, expires_at FROM sessions WHERE sid = ?', sid);
       if (!row) return cb(null, null);
@@ -20,7 +22,7 @@ class SqliteSessionStore extends Store {
     }
   }
 
-  set(sid, session, cb) {
+  set(sid: string, session: SessionData, cb: (err?: unknown) => void): void {
     try {
       const expires =
         session.cookie && session.cookie.expires
@@ -39,7 +41,7 @@ class SqliteSessionStore extends Store {
     }
   }
 
-  destroy(sid, cb) {
+  destroy(sid: string, cb: (err?: unknown) => void): void {
     try {
       db.run('DELETE FROM sessions WHERE sid = ?', sid);
       cb(null);
@@ -48,9 +50,9 @@ class SqliteSessionStore extends Store {
     }
   }
 
-  touch(sid, session, cb) {
+  touch(sid: string, session: SessionData, cb: (err?: unknown) => void): void {
     this.set(sid, session, cb);
   }
 }
 
-module.exports = { SqliteSessionStore };
+export = { SqliteSessionStore };
