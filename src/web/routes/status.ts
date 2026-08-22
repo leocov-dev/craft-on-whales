@@ -4,17 +4,19 @@
 // everything rendered here must be safe for the open internet: no admin data,
 // no panel links, only what the server owner opted to share.
 
-const asyncHandler = require('../middleware/asyncHandler');
+import type { Request, Response, NextFunction } from 'express';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const express = require('express');
-const serversService = require('../../services/servers');
-const statusPage = require('../../integrations/statusPage');
-const { serverVM } = require('../viewModels');
+const serversService = require('../../services/servers') as typeof import('../../services/servers');
+const statusPage = require('../../integrations/statusPage') as typeof import('../../integrations/statusPage');
+const { serverVM } = require('../viewModels') as typeof import('../viewModels');
 
 const router = express.Router();
 
 router.get(
   '/:slug',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     const serverId = statusPage.findBySlug(String(req.params.slug));
     const row = serverId ? serversService.getServer(serverId) : null;
     if (!row) {
@@ -43,4 +45,4 @@ router.get(
   })
 );
 
-module.exports = router;
+export = router;

@@ -4,13 +4,17 @@
 // requireWrite (see web/app.js) so every role, including viewer, can protect
 // their OWN account; nothing here ever reads or writes another user's row.
 
+import type { Request, Response } from 'express';
+
 const express = require('express');
 const QRCode = require('qrcode');
 const { z } = require('zod');
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
-const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } = require('../middleware/auth');
-const authService = require('../../services/auth');
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
+const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } =
+  require('../middleware/auth') as typeof import('../middleware/auth');
+const authService = require('../../services/auth') as typeof import('../../services/auth');
 
 const router = express.Router();
 
@@ -18,13 +22,13 @@ const router = express.Router();
 // nothing — so throttle it per account. Without a cap, any authenticated session
 // (a read-only viewer included) could loop it to pin the event loop on a small
 // self-hosted box. A handful a minute is plenty for a real enrollment.
-const setupHits = new Map(); // userId -> timestamps (ms) within the window
+const setupHits = new Map<string, number[]>(); // userId -> timestamps (ms) within the window
 const SETUP_WINDOW_MS = 60_000;
 // Generous for a human fumbling enrollment (scan, cancel, switch app, retry),
 // but any per-minute cap defeats the event-loop DoS this guards against — a
 // tight abuse loop would need orders of magnitude more than this.
 const SETUP_MAX = 20;
-function throttleSetup(userId, nowMs) {
+function throttleSetup(userId: string, nowMs: number): boolean {
   const recent = (setupHits.get(userId) || []).filter((t) => nowMs - t < SETUP_WINDOW_MS);
   recent.push(nowMs);
   setupHits.set(userId, recent);
@@ -33,11 +37,11 @@ function throttleSetup(userId, nowMs) {
 
 router.post(
   '/totp/setup',
-  asyncHandler(async (req, res) => {
-    if (!throttleSetup(req.user.id, Date.now())) {
+  asyncHandler(async (req: Request, res: Response) => {
+    if (!throttleSetup(req.user!.id, Date.now())) {
       return res.status(429).json({ ok: false, error: 'Too many 2FA setup attempts — wait a minute and try again.' });
     }
-    const { secret, otpauthUrl } = authService.beginTotpEnrollment(req.user.id);
+    const { secret, otpauthUrl } = authService.beginTotpEnrollment(req.user!.id);
     const qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 220 });
     res.json({ ok: true, secret, otpauthUrl, qrDataUrl });
   })
@@ -48,7 +52,7 @@ router.post(
 // the password-compare here as an unthrottled brute-force oracle.
 router.post(
   '/totp/confirm',
-  asyncHandler((req, res) => {
+  asyncHandler((req: Request, res: Response) => {
     const { secret, code, password } = z
       .object({
         secret: z.string().min(16).max(64),
@@ -56,15 +60,15 @@ router.post(
         password: z.string().min(1).max(200),
       })
       .parse(req.body);
-    checkLoginAllowed(req.user.username, req.ip);
+    checkLoginAllowed(req.user!.username, req.ip);
     let result;
     try {
-      result = authService.confirmTotp(req.user.id, secret, code, password, { actor: req.user.username });
+      result = authService.confirmTotp(req.user!.id, secret, code, password, { actor: req.user!.username });
     } catch (err) {
-      if (err.status === 401) recordLoginFailure(req.user.username, req.ip);
+      if ((err as Error).status === 401) recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
-    clearLoginFailures(req.user.username, req.ip);
+    clearLoginFailures(req.user!.username, req.ip);
     res.json({ ok: true, backupCodes: result.backupCodes });
   })
 );
@@ -76,37 +80,37 @@ router.post(
 
 router.post(
   '/totp/disable',
-  asyncHandler((req, res) => {
+  asyncHandler((req: Request, res: Response) => {
     const { password } = z.object({ password: z.string().min(1).max(200) }).parse(req.body);
-    checkLoginAllowed(req.user.username, req.ip);
+    checkLoginAllowed(req.user!.username, req.ip);
     try {
-      authService.disableTotp(req.user.id, password, { actor: req.user.username });
+      authService.disableTotp(req.user!.id, password, { actor: req.user!.username });
     } catch (err) {
-      if (err.status === 401) recordLoginFailure(req.user.username, req.ip);
+      if ((err as Error).status === 401) recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
-    clearLoginFailures(req.user.username, req.ip);
+    clearLoginFailures(req.user!.username, req.ip);
     res.json({ ok: true });
   })
 );
 
 router.post(
   '/totp/backup-codes/regenerate',
-  asyncHandler((req, res) => {
+  asyncHandler((req: Request, res: Response) => {
     const { password } = z.object({ password: z.string().min(1).max(200) }).parse(req.body);
-    checkLoginAllowed(req.user.username, req.ip);
+    checkLoginAllowed(req.user!.username, req.ip);
     let result;
     try {
-      result = authService.regenerateBackupCodes(req.user.id, password, { actor: req.user.username });
+      result = authService.regenerateBackupCodes(req.user!.id, password, { actor: req.user!.username });
     } catch (err) {
-      if (err.status === 401) recordLoginFailure(req.user.username, req.ip);
+      if ((err as Error).status === 401) recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
-    clearLoginFailures(req.user.username, req.ip);
+    clearLoginFailures(req.user!.username, req.ip);
     res.json({ ok: true, backupCodes: result.backupCodes });
   })
 );
 
 router.use(makeJsonErrorHandler('account'));
 
-module.exports = router;
+export = router;

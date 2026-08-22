@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Storage maintenance helpers shared by the /api/storage/cleanup endpoint and
@@ -7,15 +6,23 @@
 
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const db = require('../../db');
-const { dataPath } = require('../../storage/pathGuard');
-const { recordEvent } = require('../../events');
+const db = require('../../db') as typeof import('../../db');
+const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
+const { recordEvent } = require('../../events') as typeof import('../../events');
 
 const TMP_MIN_AGE_MS = 60 * 60 * 1000; // never touch in-flight transfers
 const DEFAULT_DAYS = 30;
 
+type CleanupAction = 'tmp' | 'orphans' | 'old-logs' | 'old-crashes';
+
+interface RunCleanupOptions {
+  olderThanDays?: number;
+  dryRun?: boolean;
+  actor?: string;
+}
+
 /** Recursive size of a file or directory (symlinks skipped). */
-async function entrySize(abs) {
+async function entrySize(abs: string): Promise<number> {
   const st = await fsp.lstat(abs).catch(() => null);
   if (!st || st.isSymbolicLink()) return 0;
   if (st.isFile()) return st.size;
@@ -31,7 +38,10 @@ async function entrySize(abs) {
  * Actions: 'tmp' | 'orphans' | 'old-logs' | 'old-crashes'.
  * Returns { freedBytes, removed }.
  */
-async function runCleanup(action, { olderThanDays, dryRun = false, actor = 'system' } = {}) {
+async function runCleanup(
+  action: CleanupAction,
+  { olderThanDays, dryRun = false, actor = 'system' }: RunCleanupOptions = {}
+): Promise<{ freedBytes: number; removed: number }> {
   const days = olderThanDays || DEFAULT_DAYS;
   let freedBytes = 0;
   let removed = 0;
@@ -48,7 +58,7 @@ async function runCleanup(action, { olderThanDays, dryRun = false, actor = 'syst
       if (!dryRun) await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
     }
   } else if (action === 'orphans') {
-    const library = require('../../services/library');
+    const library = require('../../services/library') as typeof import('../../services/library');
     for (const row of library.orphans()) {
       freedBytes += row.size_bytes || 0;
       removed += 1;
@@ -81,13 +91,13 @@ async function runCleanup(action, { olderThanDays, dryRun = false, actor = 'syst
         'SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS s FROM crash_reports WHERE file_mtime < ?',
         cutoffIso
       );
-      removed = row.n;
-      freedBytes = row.s;
+      removed = Number(row?.n) || 0;
+      freedBytes = Number(row?.s) || 0;
     } else {
-      const crashes = require('../../crashes');
+      const crashes = require('../../crashes') as typeof import('../../crashes');
       const owners = db.all('SELECT DISTINCT server_id FROM crash_reports WHERE file_mtime < ?', cutoffIso);
       for (const { server_id: sid } of owners) {
-        const result = crashes.deleteOlderThan(sid, days, { actor });
+        const result = crashes.deleteOlderThan(String(sid), days, { actor });
         removed += result.deleted;
         freedBytes += result.freedBytes;
       }
@@ -105,23 +115,31 @@ async function runCleanup(action, { olderThanDays, dryRun = false, actor = 'syst
       summary: `Storage cleanup (${action}): ${removed} item(s) removed, ${(freedBytes / 1024 ** 2).toFixed(1)} MB freed`,
       details: { action, removed, freedBytes, olderThanDays: days },
     });
-    require('../../storage/indexer')
-      .scan()
-      .catch(() => {});
+    (require('../../storage/indexer') as typeof import('../../storage/indexer')).scan().catch(() => {});
   }
   return { freedBytes, removed };
+}
+
+interface LargestFilesOptions {
+  top?: number;
+  maxScan?: number;
+}
+
+interface LargestFileEntry {
+  path: string;
+  size: number;
 }
 
 /**
  * Breadth-first walk of ./data collecting the largest files. Bounded by a
  * file-scan cap so a huge tree can never stall a page render.
  */
-async function largestFiles({ top = 15, maxScan = 3000 } = {}) {
-  const best = [];
-  const queue = [''];
+async function largestFiles({ top = 15, maxScan = 3000 }: LargestFilesOptions = {}): Promise<LargestFileEntry[]> {
+  const best: LargestFileEntry[] = [];
+  const queue: string[] = [''];
   let scanned = 0;
   while (queue.length && scanned < maxScan) {
-    const rel = queue.shift();
+    const rel = queue.shift() as string;
     const entries = await fsp.readdir(dataPath(rel || '.'), { withFileTypes: true }).catch(() => []);
     for (const e of entries) {
       if (e.isSymbolicLink()) continue;
@@ -145,4 +163,4 @@ async function largestFiles({ top = 15, maxScan = 3000 } = {}) {
   return best.slice(0, top);
 }
 
-module.exports = { runCleanup, largestFiles, DEFAULT_DAYS };
+export = { runCleanup, largestFiles, DEFAULT_DAYS };

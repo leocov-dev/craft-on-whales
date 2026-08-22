@@ -18,14 +18,16 @@
 // the cached one stops working (a fresh probe on every tile/asset request
 // would be far too slow).
 
+import type { Request, Response } from 'express';
+
 const http = require('node:http');
 const net = require('node:net');
 const express = require('express');
-const config = require('../../config');
-const { getDocker } = require('../../docker/connect');
-const containers = require('../../docker/containers');
-const { getMapConfig, BLUEMAP_CONTAINER_PORT } = require('../../services/map');
-const { getServer } = require('../../services/servers');
+const config = require('../../config') as typeof import('../../config');
+const { getDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
+const containers = require('../../docker/containers') as typeof import('../../docker/containers');
+const { getMapConfig, BLUEMAP_CONTAINER_PORT } = require('../../services/map') as typeof import('../../services/map');
+const { getServer } = require('../../services/servers') as typeof import('../../services/servers');
 
 const router = express.Router();
 
@@ -33,12 +35,17 @@ const CONTAINER_PORT = parseInt(BLUEMAP_CONTAINER_PORT, 10); // '8100/tcp' -> 81
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const PROBE_TIMEOUT_MS = 1500;
 
+interface Target {
+  host: string;
+  port: number | null;
+}
+
 // serverId -> { target: {host, port}, expiresAt }
-const targetCache = new Map();
+const targetCache = new Map<string, { target: Target; expiresAt: number }>();
 
 /** Every network IP the sibling container has, on its own CONTAINER port — no
  *  host-port-publish or host-gateway routing needed if the panel can reach it. */
-async function containerNetworkTargets(server) {
+async function containerNetworkTargets(server: import('../../services/types').Server): Promise<Target[]> {
   const name = server.containerName || containers.containerName(server.id);
   try {
     const info = await getDocker().getContainer(name).inspect();
@@ -46,7 +53,7 @@ async function containerNetworkTargets(server) {
     return Object.values(nets)
       .map((n) => n.IPAddress)
       .filter(Boolean)
-      .map((ip) => ({ host: ip, port: CONTAINER_PORT }));
+      .map((ip) => ({ host: ip as string, port: CONTAINER_PORT }));
   } catch {
     return []; // container gone/uninspectable — fall through to the host-port candidate
   }
@@ -54,7 +61,7 @@ async function containerNetworkTargets(server) {
 
 /** Raw TCP connect probe — cheap, and sidesteps whether BlueMap's bundled
  *  webserver implements any particular HTTP method correctly. */
-function probeConnect(target, timeoutMs = PROBE_TIMEOUT_MS) {
+function probeConnect(target: Target, timeoutMs: number = PROBE_TIMEOUT_MS): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect({ host: target.host, port: target.port });
     const timer = setTimeout(() => {
@@ -73,11 +80,17 @@ function probeConnect(target, timeoutMs = PROBE_TIMEOUT_MS) {
   });
 }
 
-async function resolveTarget(server, cfg) {
+async function resolveTarget(
+  server: import('../../services/types').Server,
+  cfg: { enabled: boolean; hostPort: number | null }
+): Promise<Target> {
   const cached = targetCache.get(server.id);
   if (cached && cached.expiresAt > Date.now()) return cached.target;
 
-  const candidates = [...(await containerNetworkTargets(server)), { host: config.mapProxyHost, port: cfg.hostPort }];
+  const candidates: Target[] = [
+    ...(await containerNetworkTargets(server)),
+    { host: config.mapProxyHost, port: cfg.hostPort },
+  ];
   for (const target of candidates) {
     if (await probeConnect(target)) {
       targetCache.set(server.id, { target, expiresAt: Date.now() + CACHE_TTL_MS });
@@ -88,14 +101,14 @@ async function resolveTarget(server, cfg) {
   // message below at least reflects the "final" attempt, uncached (so the
   // very next request re-probes everything instead of being stuck on a dead
   // target for the full TTL).
-  return candidates[candidates.length - 1];
+  return candidates[candidates.length - 1] as Target;
 }
 
-router.use('/:id', async (req, res) => {
+router.use('/:id', async (req: Request, res: Response) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return res.status(405).send('Method not allowed');
   }
-  const server = getServer(req.params.id);
+  const server = getServer(req.params.id as string);
   const cfg = server ? getMapConfig(server.id) : { enabled: false, hostPort: null };
   if (!server || !cfg.enabled || !cfg.hostPort) {
     return res.status(404).send('Live map is not enabled for this server');
@@ -118,16 +131,16 @@ router.use('/:id', async (req, res) => {
       headers: { ...forwardHeaders, host: `${target.host}:${target.port}` },
       timeout: 20000,
     },
-    (up) => {
+    (up: import('node:http').IncomingMessage) => {
       res.status(up.statusCode || 502);
       for (const [k, v] of Object.entries(up.headers)) {
-        if (!['transfer-encoding', 'connection'].includes(k.toLowerCase())) res.setHeader(k, v);
+        if (v !== undefined && !['transfer-encoding', 'connection'].includes(k.toLowerCase())) res.setHeader(k, v);
       }
       up.pipe(res);
     }
   );
   upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
-  upstream.on('error', (err) => {
+  upstream.on('error', (err: NodeJS.ErrnoException) => {
     targetCache.delete(server.id); // stale — the next request re-probes every candidate
     if (res.headersSent) return res.end();
     if (err.code === 'ENOTFOUND') {
@@ -148,4 +161,4 @@ router.use('/:id', async (req, res) => {
   req.pipe(upstream);
 });
 
-module.exports = router;
+export = router;

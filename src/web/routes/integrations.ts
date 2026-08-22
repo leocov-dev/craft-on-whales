@@ -3,22 +3,26 @@
 // Integrations API. Mounted at /api/servers/:id/integrations (mergeParams
 // gives this router access to :id).
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+import type { Server } from '../../services/types';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const fs = require('node:fs');
 const { z } = require('zod');
-const discord = require('../../integrations/discord');
-const invites = require('../../integrations/invites');
-const statusPage = require('../../integrations/statusPage');
-const serversService = require('../../services/servers');
-const { recordEvent } = require('../../events');
+const discord = require('../../integrations/discord') as typeof import('../../integrations/discord');
+const invites = require('../../integrations/invites') as typeof import('../../integrations/invites');
+const statusPage = require('../../integrations/statusPage') as typeof import('../../integrations/statusPage');
+const serversService = require('../../services/servers') as typeof import('../../services/servers');
+const { recordEvent } = require('../../events') as typeof import('../../events');
 
 const router = express.Router({ mergeParams: true });
 
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
-function mustGet(req) {
+function mustGet(req: Request): Server {
   const serverId = serverIdSchema.parse(req.params.id);
   const server = serversService.getServer(serverId);
   if (!server) {
@@ -31,7 +35,7 @@ function mustGet(req) {
 
 router.get(
   '/',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     res.json({
       ok: true,
@@ -67,7 +71,7 @@ const discordSchema = z.object({
 
 router.post(
   '/discord',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     const input = discordSchema.parse(req.body);
     const config = discord.setConfig(server.id, input);
@@ -83,7 +87,7 @@ router.post(
 
 router.post(
   '/discord/test',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     res.json(await discord.testWebhook(server.id));
   })
@@ -91,7 +95,7 @@ router.post(
 
 router.get(
   '/invite',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     res.json({ ok: true, invite: await invites.inviteInfo(server.id) });
   })
@@ -99,7 +103,7 @@ router.get(
 
 router.get(
   '/invite/modpack.mrpack',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     const host = req.query.host ? z.string().trim().max(260).parse(req.query.host) : undefined;
     const pack = await invites.generateMrpack(server.id, { host });
@@ -113,7 +117,7 @@ router.get(
 
 router.post(
   '/status-page',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, _next: NextFunction) => {
     const server = mustGet(req);
     const { enabled, slug } = z
       .object({
@@ -126,9 +130,11 @@ router.post(
           .regex(/^[a-z0-9-]{3,40}$/, 'Slug must be 3–40 chars of lowercase letters, digits, or dashes')
           .optional(),
       })
-      .refine((v) => !v.enabled || v.slug, { message: 'A slug is required to enable the status page' })
+      .refine((v: { enabled: boolean; slug?: string }) => !v.enabled || v.slug, {
+        message: 'A slug is required to enable the status page',
+      })
       .parse(req.body);
-    const config = statusPage.setStatusPage(server.id, { enabled, slug: slug || null });
+    const config = statusPage.setStatusPage(server.id, { enabled, slug: slug || undefined });
     recordEvent({
       serverId: server.id,
       actor: req.user ? req.user.username : 'admin',
@@ -142,4 +148,4 @@ router.post(
 // JSON error handler, same shape as routes/api.js
 router.use(makeJsonErrorHandler('integrations'));
 
-module.exports = router;
+export = router;

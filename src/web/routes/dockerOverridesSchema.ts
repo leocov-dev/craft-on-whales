@@ -7,8 +7,10 @@
 // services/dockerSpec.js#validateOverrides, since those need async Docker/DB
 // calls a zod schema can't make.
 
+import type { Request } from 'express';
+
 const { z } = require('zod');
-const httpError = require('../../utils/httpError');
+const httpError = require('../../utils/httpError') as typeof import('../../utils/httpError');
 
 const dockerOverridesSchema = {
   // '' is accepted (and only meaningful in a PATCH) as "clear it, go back to msm-<id>".
@@ -53,7 +55,14 @@ const dockerOverridesSchema = {
  * (who keep every other server control) must not reach these. The UI omits
  * untouched fields, so a non-admin request never trips this by accident.
  */
-function overridesPresent(input) {
+interface OverridesInput {
+  containerName?: string;
+  networkName?: string;
+  extraPorts?: unknown;
+  extraBinds?: unknown;
+}
+
+function overridesPresent(input: OverridesInput): boolean {
   return (
     input.containerName !== undefined ||
     input.networkName !== undefined ||
@@ -63,8 +72,8 @@ function overridesPresent(input) {
 }
 
 /** Throw 403 unless override-carrying input comes from an admin. Call after zod parse at EVERY entry point. */
-function requireAdminForOverrides(req, input) {
-  if (overridesPresent(input) && req.user.role !== 'admin') {
+function requireAdminForOverrides(req: Request, input: OverridesInput): void {
+  if (overridesPresent(input) && req.user?.role !== 'admin') {
     throw httpError(
       403,
       'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.'
@@ -72,4 +81,4 @@ function requireAdminForOverrides(req, input) {
   }
 }
 
-module.exports = { dockerOverridesSchema, overridesPresent, requireAdminForOverrides };
+export = { dockerOverridesSchema, overridesPresent, requireAdminForOverrides };

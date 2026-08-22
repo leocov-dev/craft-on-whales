@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Item registry API (JEI-style browser). Mounted at /api/servers/:id/items
@@ -7,13 +6,17 @@
 //   GET  /          search — q / mod / kind / limit / offset
 //   POST /rebuild   force a full re-scan (task-wrapped; poll /api/tasks/:id)
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+import type { Server } from '../../services/types';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const servers = require('../../services/servers');
-const itemRegistry = require('../../services/itemRegistry');
-const tasks = require('../../services/tasks');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const itemRegistry = require('../../services/itemRegistry') as typeof import('../../services/itemRegistry');
+const tasks = require('../../services/tasks') as typeof import('../../services/tasks');
 
 const router = express.Router({ mergeParams: true });
 
@@ -25,7 +28,7 @@ const searchSchema = z.object({
   offset: z.coerce.number().int().min(0).max(1000000).default(0),
 });
 
-function requireServer(id) {
+function requireServer(id: string): Server {
   const server = servers.getServer(id);
   if (!server) {
     const err = new Error('Server not found');
@@ -37,8 +40,8 @@ function requireServer(id) {
 
 router.get(
   '/',
-  asyncHandler(async (req, res, next) => {
-    const server = requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, _next: NextFunction) => {
+    const server = requireServer(req.params.id as string);
     const params = searchSchema.parse({
       q: req.query.q || undefined,
       mod: req.query.mod || undefined,
@@ -62,8 +65,8 @@ router.get(
 // Long operation on big packs — returns {ok, taskId}; poll /api/tasks/:id.
 router.post(
   '/rebuild',
-  asyncHandler((req, res, next) => {
-    const server = requireServer(req.params.id);
+  asyncHandler((req: Request, res: Response, _next: NextFunction) => {
+    const server = requireServer(req.params.id as string);
     const actor = req.user ? req.user.username : 'admin';
     const taskId = tasks.run(
       `Rebuilding item registry for ${server.display_name}`,
@@ -72,7 +75,7 @@ router.post(
         t.step('Scanning mod jars & the server jar for item names');
         const registry = await itemRegistry.getRegistry(server.id, {
           force: true,
-          onProgress: (done, total, label) => {
+          onProgress: (done: number, total: number, label?: string) => {
             t.progress(done, total);
             if (label) t.log(label);
           },
@@ -87,4 +90,4 @@ router.post(
 // JSON error handler (mirrors routes/api.js)
 router.use(makeJsonErrorHandler('items-api'));
 
-module.exports = router;
+export = router;
