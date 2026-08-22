@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, '..');
 // toHostPath reads config at require time, so each case loads it in a clean
 // child process with a controlled DATA_DIR / DATA_DIR_HOST pair.
 function translate(extraEnv, script) {
-  return spawnSync(process.execPath, ['-e', script], {
+  return spawnSync(process.execPath, ['-r', 'tsx/cjs', '-e', script], {
     cwd: ROOT,
     env: {
       ...process.env,

@@ -3,7 +3,9 @@
 // Logs & maintenance: shutdown behavior, logging toggles, and
 // server.properties management switches.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'STOP_DURATION',
     scope: 'env',
@@ -108,3 +110,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

@@ -3,7 +3,9 @@
 // Server flavor & version: TYPE, VERSION, loader/build pins, plus a few
 // container-level advanced knobs (timezone, UID/GID, setup-only mode).
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'TYPE',
     scope: 'env',
@@ -281,3 +283,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

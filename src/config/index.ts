@@ -7,17 +7,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 const crypto = require('node:crypto');
 
-const root = path.resolve(__dirname, '..', '..');
-const dataDir = path.resolve(root, process.env.DATA_DIR || './data');
+const root: string = path.resolve(__dirname, '..', '..');
+const dataDir: string = path.resolve(root, process.env.DATA_DIR || './data');
 
 const MB = 1024 * 1024;
+
+interface NumFromEnvOptions {
+  min?: number;
+  max?: number;
+}
 
 /**
  * Read a numeric env var, validating it when set. An unset/blank var falls back
  * to the default; a set-but-invalid var (typo, out of range) throws a clear
  * error instead of silently becoming the default — which would mask the mistake.
  */
-function numFromEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+function numFromEnv(
+  name: string,
+  fallback: number,
+  { min = 0, max = Number.MAX_SAFE_INTEGER }: NumFromEnvOptions = {}
+): number {
   const raw = process.env[name];
   if (raw === undefined || String(raw).trim() === '') return fallback;
   const n = Number(raw);
@@ -37,7 +46,7 @@ function numFromEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } =
  * This makes a fresh `npm start` secure with zero configuration, while still
  * letting operators pin the value via .env (e.g. to share across replicas).
  */
-function resolveSessionSecret() {
+function resolveSessionSecret(): string {
   const fromEnv = process.env.SESSION_SECRET;
   if (fromEnv && fromEnv.trim().length > 0) {
     if (fromEnv.trim().length < 16) {
@@ -55,13 +64,14 @@ function resolveSessionSecret() {
     /* not created yet — fall through and generate */
   }
 
-  const generated = crypto.randomBytes(48).toString('base64url');
+  const generated: string = crypto.randomBytes(48).toString('base64url');
   try {
     fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(secretFile, generated + '\n', { mode: 0o600 });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Could not write the panel secret to ${secretFile}: ${err.message}. ` +
+      `Could not write the panel secret to ${secretFile}: ${message}. ` +
         `Check that DATA_DIR (${dataDir}) exists and is writable, or set SESSION_SECRET in your .env.`
     );
   }
@@ -71,12 +81,23 @@ function resolveSessionSecret() {
   return generated;
 }
 
+/** Starting per-instance resource defaults, computed by {@link resolveDefaults}. */
+interface ResourceDefaults {
+  heapMb: number;
+  containerMemoryMb: number;
+  /** 0 = unlimited. */
+  cpus: number;
+  diskQuotaGb: number;
+  quotaWarnPct: number;
+  quotaCriticalPct: number;
+}
+
 /**
  * Starting per-instance resource defaults. Each is env-overridable; when unset,
  * heap/container scale to a fraction of detected host RAM so the out-of-the-box
  * defaults fit a modest VPS as well as a big workstation.
  */
-function resolveDefaults() {
+function resolveDefaults(): ResourceDefaults {
   const envHeap = numFromEnv('DEFAULT_HEAP_MB', 0, { min: 0, max: 1024 * 1024 });
   const envContainer = numFromEnv('DEFAULT_CONTAINER_MEMORY_MB', 0, { min: 0, max: 1024 * 1024 });
   const envQuota = numFromEnv('DEFAULT_DISK_QUOTA_GB', 0, { min: 0, max: 1024 * 1024 });
@@ -98,13 +119,16 @@ function resolveDefaults() {
   };
 }
 
+/** Value Express's `trust proxy` setting accepts. */
+type TrustProxy = boolean | number | string;
+
 /**
  * Parse the `trust proxy` setting for Express. Accepts a hop count (`1`), a
  * boolean (`true`/`false`), or any value Express understands (`loopback`, a
  * comma-separated IP/subnet list). Unset → false (trust nothing), the safe
  * default for a directly-exposed panel.
  */
-function resolveTrustProxy() {
+function resolveTrustProxy(): TrustProxy {
   const raw = (process.env.TRUST_PROXY || '').trim();
   if (!raw) return false;
   if (/^\d+$/.test(raw)) return Number(raw);
@@ -113,13 +137,16 @@ function resolveTrustProxy() {
   return raw; // 'loopback' | 'uniquelocal' | comma-list of IPs — Express parses these
 }
 
+/** Value Express's session-cookie `secure` option accepts. */
+type CookieSecure = boolean | 'auto';
+
 /**
  * Whether the session cookie should carry the Secure flag. `true` when served
  * over HTTPS (directly or behind a TLS-terminating proxy); `'auto'` lets Express
  * decide from the connection/`X-Forwarded-Proto` (needs trust proxy set).
  * Default false so a plain-HTTP LAN/localhost session still works.
  */
-function resolveCookieSecure() {
+function resolveCookieSecure(): CookieSecure {
   const raw = (process.env.COOKIE_SECURE || '').trim().toLowerCase();
   if (raw === 'true') return true;
   if (raw === 'auto') return 'auto';
@@ -134,7 +161,7 @@ function resolveCookieSecure() {
  * server containers. Unset — the bare-metal case — it equals dataDir and the
  * translation is a no-op.
  */
-function resolveDataDirHost() {
+function resolveDataDirHost(): string {
   const raw = (process.env.DATA_DIR_HOST || '').trim();
   if (!raw) return dataDir;
   const isAbsolute = raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw);
@@ -160,20 +187,42 @@ function resolveDataDirHost() {
  * see docker-compose.yml — Docker Desktop resolves it natively, but
  * containerized-panel deployment targets Linux).
  */
-function resolveMapProxyHost() {
+function resolveMapProxyHost(): string {
   const raw = (process.env.MAP_PROXY_HOST || '').trim();
   if (raw) return raw;
   return resolveDataDirHost() === dataDir ? '127.0.0.1' : 'host.docker.internal';
 }
 
-const host = process.env.PANEL_HOST || '127.0.0.1';
+const host: string = process.env.PANEL_HOST || '127.0.0.1';
+
+/** Central panel configuration, as returned by this module. */
+interface PanelConfig {
+  root: string;
+  dataDir: string;
+  dataDirHost: string;
+  host: string;
+  port: number;
+  isExposedBind: boolean;
+  sessionSecret: string;
+  cfApiKeySeed: string;
+  trustProxy: TrustProxy;
+  cookieSecure: CookieSecure;
+  mapProxyHost: string;
+  mcImageRepo: string;
+  ports: {
+    gameStart: number;
+    rconOffset: number;
+    bedrockStart: number;
+  };
+  defaults: ResourceDefaults;
+}
 
 /**
  * Central panel configuration. Every value has a sane default; .env overrides.
  * DATA_DIR is resolved to an absolute path once, here — all storage code must
  * import it from this module and never re-derive it.
  */
-const config = {
+const config: PanelConfig = {
   root,
   dataDir,
   dataDirHost: resolveDataDirHost(),
@@ -216,4 +265,4 @@ if (!config.sessionSecret || config.sessionSecret.length < 16) {
   throw new Error('Failed to resolve a session secret.');
 }
 
-module.exports = config;
+export = config;

@@ -2,7 +2,9 @@
 
 // Gameplay rules: difficulty, game mode, player limits, and resource packs.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'DIFFICULTY',
     scope: 'env',
@@ -168,3 +170,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

@@ -2,7 +2,9 @@
 
 // Players: whitelist and operator provisioning.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'WHITELIST',
     scope: 'env',
@@ -112,3 +114,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

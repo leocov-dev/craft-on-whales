@@ -3,7 +3,7 @@
 // Vanilla biome registry (1.21-era) used by the "teleport to nearest biome"
 // feature. IDs match what `/locate biome` accepts.
 
-module.exports = [
+const biomes: string[] = [
   // Overworld — temperate & lush
   'minecraft:plains',
   'minecraft:sunflower_plains',
@@ -79,3 +79,5 @@ module.exports = [
   // Misc
   'minecraft:the_void',
 ];
+
+export = biomes;

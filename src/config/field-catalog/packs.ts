@@ -4,7 +4,9 @@
 // mods and plugins, generic packs, and datapacks. Pack selection vars are
 // hidden — the panel's modpack installer UI manages them.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   // --- CurseForge (AUTO_CURSEFORGE) ---
   {
     key: 'CF_API_KEY',
@@ -445,3 +447,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

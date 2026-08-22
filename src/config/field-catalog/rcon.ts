@@ -3,7 +3,9 @@
 // RCON & console: the remote-console protocol the panel depends on, plus
 // automatic command hooks.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'ENABLE_RCON',
     scope: 'env',
@@ -111,3 +113,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

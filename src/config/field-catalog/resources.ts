@@ -2,7 +2,9 @@
 
 // Resources: the two memory layers, CPU, and the panel-enforced disk quota.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'MEMORY',
     scope: 'env',
@@ -110,3 +112,5 @@ module.exports = [
     section: 'resources',
   },
 ];
+
+export = fields;

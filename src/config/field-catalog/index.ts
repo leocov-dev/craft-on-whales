@@ -6,7 +6,8 @@
 // derived from it; nothing anywhere shows a raw env var without its friendly
 // label and help text.
 //
-// Entry schema (all sections use it):
+// Entry schema (all sections use it) — see the Field type below for the
+// authoritative shape:
 // {
 //   key:      'MEMORY'                    // env var name, or property key for scope 'properties'
 //   scope:    'env' | 'docker' | 'properties' | 'panel'
@@ -25,7 +26,12 @@
 //   note:     short 'recommended' hint or warning shown as a badge (optional)
 // }
 
-const SECTIONS = [
+// Types live in ./types (not here) — tsx/esbuild's single-file `export =`
+// transform breaks when the same file also has ordinary `export`
+// declarations. See the comment at the top of types.ts.
+import type { Field, FieldMode, FieldScope, SectionId, Section } from './types';
+
+const SECTIONS: Section[] = [
   { id: 'identity', label: 'Identity', icon: 'tag' },
   { id: 'flavor', label: 'Flavor & version', icon: 'box' },
   { id: 'resources', label: 'Resources', icon: 'gauge' },
@@ -41,28 +47,30 @@ const SECTIONS = [
   { id: 'advanced', label: 'Advanced & experimental', icon: 'flask-conical' },
 ];
 
-const fields = [
-  ...require('./resources'),
-  ...require('./jvm'),
-  ...require('./general'),
-  ...require('./world'),
-  ...require('./gameplay'),
-  ...require('./players'),
-  ...require('./network'),
-  ...require('./rcon'),
-  ...require('./packs'),
-  ...require('./autopause'),
-  ...require('./maintenance'),
+const fields: Field[] = [
+  ...(require('./resources') as Field[]),
+  ...(require('./jvm') as Field[]),
+  ...(require('./general') as Field[]),
+  ...(require('./world') as Field[]),
+  ...(require('./gameplay') as Field[]),
+  ...(require('./players') as Field[]),
+  ...(require('./network') as Field[]),
+  ...(require('./rcon') as Field[]),
+  ...(require('./packs') as Field[]),
+  ...(require('./autopause') as Field[]),
+  ...(require('./maintenance') as Field[]),
 ];
 
-const byKey = new Map(fields.map((f) => [`${f.scope}:${f.key}`, f]));
+const byKey = new Map<string, Field>(fields.map((f) => [`${f.scope}:${f.key}`, f]));
 
-function forSection(sectionId, mode = 'advanced') {
+function forSection(sectionId: SectionId, mode: FieldMode = 'advanced'): Field[] {
   return fields.filter((f) => f.section === sectionId && !f.hidden && (mode === 'advanced' || f.mode === 'simple'));
 }
 
-function getField(scope, key) {
+function getField(scope: FieldScope, key: string): Field | null {
   return byKey.get(`${scope}:${key}`) || null;
 }
 
-module.exports = { SECTIONS, fields, forSection, getField };
+const catalog = { SECTIONS, fields, forSection, getField };
+
+export = catalog;

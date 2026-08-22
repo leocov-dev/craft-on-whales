@@ -3,7 +3,9 @@
 // Auto-pause / auto-stop: freeze or shut down the server when nobody is
 // online. The two features are mutually exclusive.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'ENABLE_AUTOPAUSE',
     scope: 'env',
@@ -200,3 +202,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

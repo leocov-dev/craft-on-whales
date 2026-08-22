@@ -2,7 +2,9 @@
 
 // World: save selection, generation, distances, and world-level toggles.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'LEVEL',
     scope: 'env',
@@ -194,3 +196,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

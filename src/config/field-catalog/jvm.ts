@@ -2,7 +2,9 @@
 
 // Java / JVM tuning flags.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'USE_AIKAR_FLAGS',
     scope: 'env',
@@ -68,3 +70,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

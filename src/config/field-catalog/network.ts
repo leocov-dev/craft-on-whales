@@ -4,7 +4,9 @@
 // connection-level tuning. In-container ports stay at their defaults;
 // the panel maps them to free host ports.
 
-module.exports = [
+import type { Field } from './types';
+
+const fields: Field[] = [
   {
     key: 'SERVER_PORT',
     scope: 'env',
@@ -110,3 +112,5 @@ module.exports = [
     requiresRestart: true,
   },
 ];
+
+export = fields;

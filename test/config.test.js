@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, '..');
 // Load config in a clean child process with a controlled env, so we can assert
 // on the fail-fast behavior without contaminating this process's module cache.
 function loadConfig(extraEnv) {
-  return spawnSync(process.execPath, ['-e', "require('./src/config')"], {
+  return spawnSync(process.execPath, ['-r', 'tsx/cjs', '-e', "require('./src/config')"], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -54,19 +54,23 @@ test('a too-short SESSION_SECRET fails fast', () => {
 });
 
 function loadMapProxyHost(extraEnv) {
-  const res = spawnSync(process.execPath, ['-e', "process.stdout.write(require('./src/config').mapProxyHost)"], {
-    cwd: ROOT,
-    env: {
-      ...process.env,
-      DATA_DIR: process.env.DATA_DIR,
-      SESSION_SECRET: 'valid-session-secret-abcdef123456',
-      PANEL_PORT: '',
-      DATA_DIR_HOST: '',
-      MAP_PROXY_HOST: '',
-      ...extraEnv,
-    },
-    encoding: 'utf8',
-  });
+  const res = spawnSync(
+    process.execPath,
+    ['-r', 'tsx/cjs', '-e', "process.stdout.write(require('./src/config').mapProxyHost)"],
+    {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        DATA_DIR: process.env.DATA_DIR,
+        SESSION_SECRET: 'valid-session-secret-abcdef123456',
+        PANEL_PORT: '',
+        DATA_DIR_HOST: '',
+        MAP_PROXY_HOST: '',
+        ...extraEnv,
+      },
+      encoding: 'utf8',
+    }
+  );
   assert.equal(res.status, 0, res.stderr);
   return res.stdout;
 }
@@ -88,6 +92,8 @@ test('TRUST_PROXY / COOKIE_SECURE resolve to usable values', () => {
   const res = spawnSync(
     process.execPath,
     [
+      '-r',
+      'tsx/cjs',
       '-e',
       "const c=require('./src/config'); process.stdout.write(JSON.stringify({tp:c.trustProxy,cs:c.cookieSecure,exposed:c.isExposedBind}))",
     ],
