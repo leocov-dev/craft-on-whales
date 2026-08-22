@@ -27,7 +27,7 @@ function run(name, cmd, args) {
 }
 
 const css = run('css', npx, ['@tailwindcss/cli', '-i', 'assets/css/input.css', '-o', 'public/css/app.css', '--watch']);
-const app = run('app', process.execPath, ['-r', 'tsx/cjs', '--watch', 'src/server.js']);
+const app = run('app', process.execPath, ['-r', 'tsx/cjs', '--watch', 'src/server.ts']);
 
 function shutdown() {
   css.kill();

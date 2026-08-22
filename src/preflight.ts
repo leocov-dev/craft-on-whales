@@ -12,20 +12,20 @@
 
 const MIN_MAJOR = 24;
 
-function fail(message) {
+function fail(message: string): never {
   // Written straight to stderr so it survives even if logging isn't set up yet.
   process.stderr.write('\n' + message + '\n\n');
   process.exit(1);
 }
 
 const nodeVersion = process.versions.node;
-const major = Number(nodeVersion.split('.')[0]);
+const major = Number(nodeVersion.split('.')[0] || 0);
 
 try {
   // Probe the one built-in that gates the whole app.
   require('node:sqlite');
 } catch (err) {
-  if (err && err.code === 'ERR_UNKNOWN_BUILTIN_MODULE') {
+  if (err && (err as { code?: string }).code === 'ERR_UNKNOWN_BUILTIN_MODULE') {
     fail(
       `Minecraft Server Manager needs Node.js ${MIN_MAJOR} or newer.\n` +
         `  You are running Node ${nodeVersion}, where the built-in \`node:sqlite\` module\n` +
@@ -46,4 +46,4 @@ if (major < MIN_MAJOR) {
   );
 }
 
-module.exports = { MIN_MAJOR };
+export = { MIN_MAJOR };

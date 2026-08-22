@@ -7,8 +7,9 @@ module.exports = [
   { ignores: ['node_modules/', 'data/', 'data-*/', 'public/css/', 'docker-minecraft-server/', 'discovery/'] },
   js.configs.recommended,
   {
-    // Node.js server code + build/QA scripts + tests (CommonJS).
-    files: ['src/**/*.js', 'scripts/**/*.js', 'test/**/*.js', 'eslint.config.js'],
+    // Build/QA scripts + tests (CommonJS). src/ is now all TypeScript — tsc is
+    // its type/lint gate until typescript-eslint supports TypeScript 7.x.
+    files: ['scripts/**/*.js', 'test/**/*.js', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
