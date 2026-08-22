@@ -4,32 +4,42 @@
 // this matrix implements the rules from docs/versions/java.md.
 // Users can always override per server (servers.java_tag).
 
-function parseVersion(v) {
+interface ParsedVersion {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+function parseVersion(v: string): ParsedVersion | null {
   const m = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(v);
   if (!m) return null; // snapshots like 26w02a → latest
-  return { major: +m[1], minor: +m[2], patch: +(m[3] || 0) };
+  return { major: +m[1]!, minor: +m[2]!, patch: +(m[3] || 0) };
 }
 
 // GTNH is a 1.7.10 pack that also runs on modern Java via its bundled lwjgl3ify
 // patches, and its release index states the highest Java each version supports.
 // Ladder down to the newest tag the panel actually ships that fits under the cap.
-const GTNH_JAVA_LADDER = [
+const GTNH_JAVA_LADDER: { min: number; tag: string }[] = [
   { min: 25, tag: 'java25' },
   { min: 21, tag: 'java21' },
   { min: 17, tag: 'java17' },
 ];
 
 /**
- * @param {string} mcVersion 'LATEST' | 'SNAPSHOT' | '1.20.4' | '26w02a'…
- * @param {string} type      itzg TYPE (FORGE needs java8 below 1.18)
- * @param {{ maxJavaVersion?: number|null }} options   { maxJavaVersion } — GTNH-specific cap
+ * @param mcVersion 'LATEST' | 'SNAPSHOT' | '1.20.4' | '26w02a'…
+ * @param type      itzg TYPE (FORGE needs java8 below 1.18)
+ * @param options   { maxJavaVersion } — GTNH-specific cap
  */
-function pickJavaTag(mcVersion, type = 'VANILLA', { maxJavaVersion = null } = {}) {
+function pickJavaTag(
+  mcVersion: string | null | undefined,
+  type: string = 'VANILLA',
+  { maxJavaVersion = null }: { maxJavaVersion?: number | null } = {}
+): string {
   // GTNH: the pinned pack version decides, not the 1.7.10 → java8 rule below.
   // Unknown cap (no pin yet, or the index was unreachable) → java17, which every
   // version in the GTNH index supports.
   if (type === 'GTNH') {
-    const cap = Number.isInteger(maxJavaVersion) ? maxJavaVersion : 17;
+    const cap = Number.isInteger(maxJavaVersion) ? (maxJavaVersion as number) : 17;
     if (cap < 17) return 'java8';
     return (GTNH_JAVA_LADDER.find((step) => cap >= step.min) || { tag: 'java17' }).tag;
   }
@@ -59,4 +69,4 @@ function pickJavaTag(mcVersion, type = 'VANILLA', { maxJavaVersion = null } = {}
   return 'java21';
 }
 
-module.exports = { pickJavaTag, parseVersion };
+export = { pickJavaTag, parseVersion };

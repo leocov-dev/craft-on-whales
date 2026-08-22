@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Inventory forensics + god-mode editing. Offline NBT inspection of playerdata
@@ -15,16 +14,19 @@
 // like every other log artifact, and every path resolves through the path
 // guard so nothing escapes ./data.
 
-const httpError = require('../utils/httpError');
+import type { NormalizedItem } from './inventory/types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const nbt = require('prismarine-nbt');
-const db = require('../db');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const { execCapture, inspectStatus } = require('../docker/containers');
+const nbt = require('prismarine-nbt') as typeof import('prismarine-nbt');
+const db = require('../db') as typeof import('../db');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const containers = require('../docker/containers') as typeof import('../docker/containers');
+const { execCapture, inspectStatus } = containers;
 const {
   assertUuid,
   assertName,
@@ -37,29 +39,38 @@ const {
   NAME_RE,
   NESTED_MAX_PATH,
   NESTED_KEY_RE,
-} = require('./inventory/nbt');
+} = require('./inventory/nbt') as typeof import('./inventory/nbt');
+
+type InspectStatusResult = Awaited<ReturnType<typeof inspectStatus>>;
 
 const SNAPSHOT_FILE_RE =
   /^logs\/([A-Za-z0-9_-]{1,40})\/inventories\/([0-9a-f-]{36})\/(\d{10,16})-([a-z0-9_-]{1,32})\.json$/;
 const RUNNING_STATES = new Set(['running', 'unhealthy']); // rcon answers while unhealthy
 
 // Vanilla armor slot numbers inside the playerdata Inventory list.
-const ARMOR_SLOTS = { 100: 'feet', 101: 'legs', 102: 'chest', 103: 'head' };
+const ARMOR_SLOTS: Record<number, string> = { 100: 'feet', 101: 'legs', 102: 'chest', 103: 'head' };
 const OFFHAND_SLOT = -106;
 
 // ---------------------------------------------------------------------------
 // Playerdata read — resolve the active world's playerdata directory, parse the
 // .dat NBT, and shape it into the panel's inventory view.
 
-function playerdataDir(serverId) {
-  const server = require('./servers').getServer(serverId);
+/** Minimal server-row shape used here. The full row type lives in
+ *  src/services/servers.js (not yet converted). */
+interface ServerLike {
+  id: string;
+  env?: Record<string, string>;
+}
+
+function playerdataDir(serverId: string): string {
+  const server: ServerLike | null | undefined = require('./servers').getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
-  const level = require('./worlds').activeLevelName(server);
+  const level: string = require('./worlds').activeLevelName(server);
   const modern = dataPath('servers', serverId, level, 'players', 'data');
   const legacy = dataPath('servers', serverId, level, 'playerdata');
-  const has = (dir) => {
+  const has = (dir: string): boolean => {
     try {
-      return fs.readdirSync(dir).some((f) => f.endsWith('.dat'));
+      return fs.readdirSync(dir).some((f: string) => f.endsWith('.dat'));
     } catch {
       return false;
     }
@@ -70,9 +81,9 @@ function playerdataDir(serverId) {
 }
 
 /** usercache.json → Map(lowercased uuid → name) plus Map(lowercased name → uuid). */
-function usercacheMaps(serverId) {
-  const byUuid = new Map();
-  const byName = new Map();
+function usercacheMaps(serverId: string): { byUuid: Map<string, string>; byName: Map<string, string> } {
+  const byUuid = new Map<string, string>();
+  const byName = new Map<string, string>();
   try {
     const raw = fs.readFileSync(dataPath('servers', serverId, 'usercache.json'), 'utf8');
     const parsed = JSON.parse(raw);
@@ -89,38 +100,66 @@ function usercacheMaps(serverId) {
   return { byUuid, byName };
 }
 
-/**
- * Parse <world>/playerdata/<uuid>.dat.
- * @returns {{uuid, name, inventory:[], enderChest:[], armor:[], offhand,
- *            pos:{x,y,z,dimension}|null, health, xpLevel, lastModified}}
- */
-async function readPlayerData(serverId, uuid) {
-  uuid = assertUuid(uuid);
+/** 'minecraft:overworld' | numeric legacy ids (-1 nether, 1 end) | unknown as-is. */
+function normalizeDimension(dim: unknown): string | null {
+  if (typeof dim === 'string') return dim;
+  if (typeof dim === 'number' || typeof dim === 'bigint') {
+    const n = Number(dim);
+    if (n === -1) return 'minecraft:the_nether';
+    if (n === 1) return 'minecraft:the_end';
+    return 'minecraft:overworld';
+  }
+  return null;
+}
+
+interface PlayerPosition {
+  x: number;
+  y: number;
+  z: number;
+  dimension: string | null;
+}
+
+interface PlayerInventoryData {
+  uuid: string;
+  name: string | null;
+  inventory: NormalizedItem[];
+  enderChest: NormalizedItem[];
+  armor: (NormalizedItem & { piece: string })[];
+  offhand: NormalizedItem | null;
+  pos: PlayerPosition | null;
+  health: number | null;
+  xpLevel: number | null;
+  lastModified: number;
+}
+
+/** Parse <world>/playerdata/<uuid>.dat. */
+async function readPlayerData(serverId: string, uuidInput: string): Promise<PlayerInventoryData> {
+  const uuid = assertUuid(uuidInput);
   const file = path.join(playerdataDir(serverId), `${uuid}.dat`);
-  let stat;
+  let stat: import('node:fs').Stats;
   try {
     stat = await fsp.stat(file);
   } catch {
     throw httpError(404, 'No saved data for this player yet — they need to have joined the server at least once');
   }
 
-  let data;
+  let data: any;
   try {
     const buf = await fsp.readFile(file);
     const { parsed } = await nbt.parse(buf); // handles gzip + endianness detection
     data = nbt.simplify(parsed);
   } catch (err) {
-    throw httpError(422, `Could not parse the player data file: ${err.message}`);
+    throw httpError(422, `Could not parse the player data file: ${(err as Error).message}`);
   }
 
-  const inventory = [];
-  const armor = [];
-  let offhand = null;
+  const inventory: NormalizedItem[] = [];
+  const armor: (NormalizedItem & { piece: string })[] = [];
+  let offhand: NormalizedItem | null = null;
   for (const raw of Array.isArray(data.Inventory) ? data.Inventory : []) {
     const item = normalizeItemDeep(raw);
     if (!item) continue;
     if (item.slot !== null && ARMOR_SLOTS[item.slot]) {
-      armor.push({ ...item, piece: ARMOR_SLOTS[item.slot] });
+      armor.push({ ...item, piece: ARMOR_SLOTS[item.slot]! });
     } else if (item.slot === OFFHAND_SLOT) {
       offhand = item;
     } else {
@@ -139,9 +178,11 @@ async function readPlayerData(serverId, uuid) {
   if (!offhand && eq.offhand && eq.offhand.id !== undefined) {
     offhand = normalizeItemDeep(eq.offhand);
   }
-  const enderChest = (Array.isArray(data.EnderItems) ? data.EnderItems : []).map(normalizeItemDeep).filter(Boolean);
+  const enderChest: NormalizedItem[] = (Array.isArray(data.EnderItems) ? data.EnderItems : [])
+    .map(normalizeItemDeep)
+    .filter((x: NormalizedItem | null): x is NormalizedItem => Boolean(x));
 
-  let pos = null;
+  let pos: PlayerPosition | null = null;
   if (Array.isArray(data.Pos) && data.Pos.length === 3) {
     pos = {
       x: Math.round(Number(data.Pos[0]) * 10) / 10,
@@ -166,34 +207,28 @@ async function readPlayerData(serverId, uuid) {
   };
 }
 
-/** 'minecraft:overworld' | numeric legacy ids (-1 nether, 1 end) | unknown as-is. */
-function normalizeDimension(dim) {
-  if (typeof dim === 'string') return dim;
-  if (typeof dim === 'number' || typeof dim === 'bigint') {
-    const n = Number(dim);
-    if (n === -1) return 'minecraft:the_nether';
-    if (n === 1) return 'minecraft:the_end';
-    return 'minecraft:overworld';
-  }
-  return null;
+interface PlayerWithData {
+  uuid: string;
+  name: string | null;
+  lastModified: number;
 }
 
 /** Every player with a playerdata file: [{uuid, name, lastModified}], newest first. */
-async function listPlayersWithData(serverId) {
+async function listPlayersWithData(serverId: string): Promise<PlayerWithData[]> {
   const dir = playerdataDir(serverId);
-  let entries = [];
+  let entries: import('node:fs').Dirent[] = [];
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
   } catch {
     return []; // world not generated yet — nobody has joined
   }
   const { byUuid } = usercacheMaps(serverId);
-  const players = [];
+  const players: PlayerWithData[] = [];
   for (const e of entries) {
     if (!e.isFile() || !e.name.endsWith('.dat')) continue; // skips .dat_old backups
     const uuid = e.name.slice(0, -4).toLowerCase();
     if (!UUID_RE.test(uuid)) continue;
-    let stat;
+    let stat: import('node:fs').Stats;
     try {
       stat = await fsp.stat(path.join(dir, e.name));
     } catch {
@@ -209,25 +244,38 @@ async function listPlayersWithData(serverId) {
 // Item search
 
 /** All sections of a parsed playerdata as [where, item] pairs. */
-function* iterateItems(data) {
+function* iterateItems(data: PlayerInventoryData): Generator<[string, NormalizedItem]> {
   for (const item of data.inventory) yield ['inventory', item];
   for (const item of data.armor) yield ['armor', item];
   if (data.offhand) yield ['offhand', data.offhand];
   for (const item of data.enderChest) yield ['enderChest', item];
 }
 
+interface ItemSearchHit {
+  player: { uuid: string; name: string | null };
+  where: string;
+  slot: number | null;
+  id: string;
+  count: number;
+  displayName: string | null;
+}
+
 /**
  * Scan every playerdata file for items whose id or display name contains
  * `query` (case-insensitive). Unreadable files are skipped, never fatal.
  */
-async function searchItems(serverId, query, { limit = 500 } = {}) {
+async function searchItems(
+  serverId: string,
+  query: string | null | undefined,
+  { limit = 500 }: { limit?: number } = {}
+): Promise<ItemSearchHit[]> {
   const q = String(query || '')
     .trim()
     .toLowerCase();
   if (!q) return [];
-  const results = [];
+  const results: ItemSearchHit[] = [];
   for (const player of await listPlayersWithData(serverId)) {
-    let data;
+    let data: PlayerInventoryData;
     try {
       data = await readPlayerData(serverId, player.uuid);
     } catch {
@@ -252,11 +300,14 @@ async function searchItems(serverId, query, { limit = 500 } = {}) {
 }
 
 /** searchItems across every server: [{serverId, serverName, ...hit}]. */
-async function searchAllServers(query, { limit = 500 } = {}) {
-  const results = [];
+async function searchAllServers(
+  query: string | null | undefined,
+  { limit = 500 }: { limit?: number } = {}
+): Promise<(ItemSearchHit & { serverId: string; serverName: string })[]> {
+  const results: (ItemSearchHit & { serverId: string; serverName: string })[] = [];
   for (const server of require('./servers').listServers()) {
     if (results.length >= limit) break;
-    let hits = [];
+    let hits: ItemSearchHit[] = [];
     try {
       hits = await searchItems(server.id, query, { limit: limit - results.length });
     } catch {
@@ -272,11 +323,11 @@ async function searchAllServers(query, { limit = 500 } = {}) {
 // ---------------------------------------------------------------------------
 // Snapshots (JSON files under data/logs/<serverId>/inventories/<uuid>/)
 
-function snapshotDir(serverId, uuid) {
+function snapshotDir(serverId: string, uuid: string): string {
   return dataPath('logs', serverId, 'inventories', assertUuid(uuid));
 }
 
-function cleanReason(reason) {
+function cleanReason(reason: string | null | undefined): string {
   const r = String(reason || 'manual')
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '-')
@@ -284,8 +335,18 @@ function cleanReason(reason) {
   return r || 'manual';
 }
 
+interface SnapshotMeta {
+  file: string;
+  ts: number;
+  reason: string;
+}
+
+interface SnapshotMetaWithSize extends SnapshotMeta {
+  size: number;
+}
+
 /** Write the current readPlayerData result to a timestamped snapshot file. */
-async function snapshot(serverId, uuid, reason = 'manual') {
+async function snapshot(serverId: string, uuid: string, reason: string = 'manual'): Promise<SnapshotMeta> {
   const data = await readPlayerData(serverId, uuid);
   const dir = snapshotDir(serverId, uuid);
   await fsp.mkdir(dir, { recursive: true });
@@ -304,16 +365,16 @@ async function snapshot(serverId, uuid, reason = 'manual') {
 }
 
 /** Snapshots for one player, newest first (metadata parsed from filenames). */
-async function listSnapshots(serverId, uuid) {
-  uuid = assertUuid(uuid);
+async function listSnapshots(serverId: string, uuidInput: string): Promise<SnapshotMetaWithSize[]> {
+  const uuid = assertUuid(uuidInput);
   const dir = snapshotDir(serverId, uuid);
-  let entries = [];
+  let entries: import('node:fs').Dirent[] = [];
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
   } catch {
     return [];
   }
-  const snapshots = [];
+  const snapshots: SnapshotMetaWithSize[] = [];
   for (const e of entries) {
     const m = /^(\d{10,16})-([a-z0-9_-]{1,32})\.json$/.exec(e.isFile() ? e.name : '');
     if (!m) continue;
@@ -326,7 +387,7 @@ async function listSnapshots(serverId, uuid) {
     snapshots.push({
       file: path.posix.join('logs', serverId, 'inventories', uuid, e.name),
       ts: Number(m[1]),
-      reason: m[2],
+      reason: m[2]!,
       size,
     });
   }
@@ -334,11 +395,16 @@ async function listSnapshots(serverId, uuid) {
   return snapshots;
 }
 
+interface LoadedSnapshot extends SnapshotMeta {
+  uuid: string;
+  data: PlayerInventoryData;
+}
+
 /** Load one snapshot by its rel path (strict shape check + path guard). */
-function getSnapshot(relFile) {
+function getSnapshot(relFile: string): LoadedSnapshot {
   const m = SNAPSHOT_FILE_RE.exec(String(relFile || ''));
   if (!m) throw httpError(400, 'Invalid snapshot file reference');
-  let raw;
+  let raw: string;
   try {
     raw = fs.readFileSync(dataPath(relFile), 'utf8'); // dataPath re-guards containment
   } catch {
@@ -346,17 +412,23 @@ function getSnapshot(relFile) {
   }
   try {
     const parsed = JSON.parse(raw);
-    return { file: relFile, ts: Number(m[3]), reason: m[4], uuid: m[2], data: parsed.data || parsed };
+    return { file: relFile, ts: Number(m[3]), reason: m[4]!, uuid: m[2]!, data: parsed.data || parsed };
   } catch {
     throw httpError(422, 'Snapshot file is corrupt');
   }
 }
 
+interface TallyEntry {
+  id: string;
+  displayName: string | null;
+  count: number;
+}
+
 /** Aggregate item counts across all sections, keyed by id + display name. */
-function tallyItems(data) {
-  const tally = new Map();
+function tallyItems(data: PlayerInventoryData): Map<string, TallyEntry> {
+  const tally = new Map<string, TallyEntry>();
   for (const [, item] of iterateItems(data)) {
-    const key = `${item.id}\u0000${item.displayName || ''}`;
+    const key = `${item.id} ${item.displayName || ''}`;
     const cur = tally.get(key);
     if (cur) cur.count += item.count;
     else tally.set(key, { id: item.id, displayName: item.displayName || null, count: item.count });
@@ -364,20 +436,27 @@ function tallyItems(data) {
   return tally;
 }
 
+interface SnapshotDiff {
+  a: SnapshotMeta;
+  b: SnapshotMeta;
+  added: TallyEntry[];
+  removed: TallyEntry[];
+  changed: { id: string; displayName: string | null; from: number; to: number }[];
+}
+
 /**
  * Diff two snapshots (rel paths). Items are keyed by id + displayName so a
  * renamed item counts as its own line.
- * @returns {{a, b, added:[], removed:[], changed:[{id,displayName,from,to}]}}
  */
-function diffSnapshots(aFile, bFile) {
+function diffSnapshots(aFile: string, bFile: string): SnapshotDiff {
   const a = getSnapshot(aFile);
   const b = getSnapshot(bFile);
   const before = tallyItems(a.data);
   const after = tallyItems(b.data);
 
-  const added = [];
-  const removed = [];
-  const changed = [];
+  const added: TallyEntry[] = [];
+  const removed: TallyEntry[] = [];
+  const changed: SnapshotDiff['changed'] = [];
   for (const [key, item] of after) {
     const prev = before.get(key);
     if (!prev) added.push(item);
@@ -388,18 +467,18 @@ function diffSnapshots(aFile, bFile) {
   for (const [key, item] of before) {
     if (!after.has(key)) removed.push(item);
   }
-  const meta = (s) => ({ file: s.file, ts: s.ts, reason: s.reason });
+  const meta = (s: LoadedSnapshot): SnapshotMeta => ({ file: s.file, ts: s.ts, reason: s.reason });
   return { a: meta(a), b: meta(b), added, removed, changed };
 }
 
 /** Keep only the newest `keepPerPlayer` snapshots for every player of a server. */
-async function pruneSnapshots(serverId, keepPerPlayer = 50) {
+async function pruneSnapshots(serverId: string, keepPerPlayer: number = 50): Promise<{ pruned: number }> {
   const base = dataPath('logs', serverId, 'inventories');
-  let uuids = [];
+  let uuids: string[] = [];
   try {
     uuids = (await fsp.readdir(base, { withFileTypes: true }))
-      .filter((e) => e.isDirectory() && UUID_RE.test(e.name))
-      .map((e) => e.name);
+      .filter((e: import('node:fs').Dirent) => e.isDirectory() && UUID_RE.test(e.name))
+      .map((e: import('node:fs').Dirent) => e.name);
   } catch {
     return { pruned: 0 };
   }
@@ -421,7 +500,7 @@ async function pruneSnapshots(serverId, keepPerPlayer = 50) {
 // ---------------------------------------------------------------------------
 // Automatic snapshots on join/death (rides on the player_events parser)
 
-let watcherTimer = null;
+let watcherTimer: NodeJS.Timeout | null = null;
 let lastEventId = 0;
 
 /**
@@ -429,36 +508,38 @@ let lastEventId = 0;
  * that player's inventory. Starts from MAX(id) so old history is never
  * replayed. All errors are contained — the watcher can never crash the panel.
  */
-function startSnapshotWatcher({ intervalMs = 20000 } = {}) {
+function startSnapshotWatcher({ intervalMs = 20000 }: { intervalMs?: number } = {}): void {
   if (watcherTimer) return;
   try {
     const row = db.get('SELECT MAX(id) AS maxId FROM player_events');
     lastEventId = Number(row && row.maxId) || 0;
   } catch (err) {
-    console.error('[inventory] snapshot watcher init failed:', err.message);
+    console.error('[inventory] snapshot watcher init failed:', (err as Error).message);
     lastEventId = 0;
   }
   watcherTimer = setInterval(() => {
-    pollPlayerEvents().catch((err) => console.error('[inventory] snapshot watcher:', err.message));
+    pollPlayerEvents().catch((err: Error) => console.error('[inventory] snapshot watcher:', err.message));
   }, intervalMs);
   watcherTimer.unref();
 }
 
-async function pollPlayerEvents() {
+async function pollPlayerEvents(): Promise<void> {
   const rows = db.all(
     "SELECT id, server_id, type, player FROM player_events WHERE id > ? AND type IN ('join', 'death') ORDER BY id LIMIT 200",
     lastEventId
   );
   for (const row of rows) {
     lastEventId = Math.max(lastEventId, Number(row.id));
-    if (!row.player || !NAME_RE.test(row.player)) continue;
+    const player = row.player == null ? null : String(row.player);
+    if (!player || !NAME_RE.test(player)) continue;
     try {
-      const { byName } = usercacheMaps(row.server_id);
-      const uuid = byName.get(row.player.toLowerCase());
+      const serverId = String(row.server_id);
+      const { byName } = usercacheMaps(serverId);
+      const uuid = byName.get(player.toLowerCase());
       if (!uuid) continue; // never joined far enough to be cached
-      if (!fs.existsSync(path.join(playerdataDir(row.server_id), `${uuid}.dat`))) continue; // no .dat yet
-      await snapshot(row.server_id, uuid, row.type);
-      await pruneSnapshots(row.server_id);
+      if (!fs.existsSync(path.join(playerdataDir(serverId), `${uuid}.dat`))) continue; // no .dat yet
+      await snapshot(serverId, uuid, String(row.type));
+      await pruneSnapshots(serverId);
     } catch {
       // One failed snapshot (corrupt file, deleted server, …) must not stop the sweep.
     }
@@ -468,8 +549,8 @@ async function pollPlayerEvents() {
 // ---------------------------------------------------------------------------
 // RCON give/clear (running servers only)
 
-async function assertRunning(serverId, what) {
-  let info;
+async function assertRunning(serverId: string, what: string): Promise<void> {
+  let info: InspectStatusResult;
   try {
     info = await inspectStatus(serverId);
   } catch {
@@ -483,16 +564,14 @@ async function assertRunning(serverId, what) {
   }
 }
 
-async function rcon(serverId, ...args) {
+async function rcon(serverId: string, ...args: unknown[]): Promise<string> {
   // '--' terminates flag parsing so args like '-106' can never become flags.
   const out = await execCapture(serverId, ['rcon-cli', '--', ...args.map(String)]);
-  return require('../utils/ansi')
-    .cleanText(String(out || ''))
-    .trim();
+  return (require('../utils/ansi') as typeof import('../utils/ansi')).cleanText(String(out || '')).trim();
 }
 
 /** Surface the server's own error text on command failures. */
-function assertRconOk(out, playerName) {
+function assertRconOk(out: string, playerName: string): void {
   if (/No player was found|No entity was found/i.test(out)) throw httpError(404, out || `${playerName} is not online`);
   if (
     /Unknown item|Unknown slot|Unknown or incomplete command|Incorrect argument|Expected |The target inventory/i.test(
@@ -503,8 +582,21 @@ function assertRconOk(out, playerName) {
   }
 }
 
+interface GiveResult {
+  player: string;
+  item: string;
+  count: number;
+  output: string;
+}
+
 /** `/give <player> <item> <count>` via RCON. */
-async function giveItem(serverId, playerName, itemId, count = 1, { actor = 'system' } = {}) {
+async function giveItem(
+  serverId: string,
+  playerName: string,
+  itemId: string,
+  count: number = 1,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<GiveResult> {
   assertName(playerName);
   const item = assertItemId(itemId);
   const n = Math.min(6400, Math.max(1, Math.trunc(Number(count) || 1)));
@@ -521,8 +613,20 @@ async function giveItem(serverId, playerName, itemId, count = 1, { actor = 'syst
   return { player: playerName, item, count: n, output: out };
 }
 
+interface ClearResult {
+  player: string;
+  item: string | null;
+  output: string;
+  nothingRemoved: boolean;
+}
+
 /** `/clear <player> [item]` via RCON (no item = clear everything). */
-async function clearItem(serverId, playerName, itemId = null, { actor = 'system' } = {}) {
+async function clearItem(
+  serverId: string,
+  playerName: string,
+  itemId: string | null = null,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<ClearResult> {
   assertName(playerName);
   const item = itemId ? assertItemId(itemId) : null;
   await assertRunning(serverId, 'clear items');
@@ -560,7 +664,19 @@ const ARMOR_PIECES = ['head', 'chest', 'legs', 'feet'];
 const EQUIPMENT_DATAVERSION = 4325;
 const MAX_STACK = 99; // `item replace` count argument limit — mirrored offline
 
-const SLOT_CONTAINERS = {
+type ContainerName = 'hotbar' | 'inventory' | 'enderchest' | 'armor' | 'offhand';
+
+interface SlotContainerDef {
+  size: number;
+  kind: 'list' | 'equipment';
+  list?: string;
+  base?: number;
+  pieces?: string[];
+  legacy?: number[];
+  rcon: (n: number) => string;
+}
+
+const SLOT_CONTAINERS: Record<ContainerName, SlotContainerDef> = {
   hotbar: { size: 9, kind: 'list', list: 'Inventory', base: 0, rcon: (n) => `hotbar.${n}` },
   inventory: { size: 27, kind: 'list', list: 'Inventory', base: 9, rcon: (n) => `inventory.${n}` },
   enderchest: { size: 27, kind: 'list', list: 'EnderItems', base: 0, rcon: (n) => `enderchest.${n}` },
@@ -574,32 +690,51 @@ const SLOT_CONTAINERS = {
   offhand: { size: 1, kind: 'equipment', pieces: ['offhand'], legacy: [OFFHAND_SLOT], rcon: () => 'weapon.offhand' },
 };
 
+interface SlotSpec {
+  container: ContainerName;
+  slot: number;
+  kind: 'list' | 'equipment';
+  list: string | null;
+  nbtSlot: number;
+  piece: string | null;
+  rconSlot: string;
+}
+
 /** Validate container + slot; resolve every addressing scheme at once. */
-function resolveSlot(container, slot) {
-  const def = SLOT_CONTAINERS[container];
+function resolveSlot(container: string, slot: number | string): SlotSpec {
+  const def = SLOT_CONTAINERS[container as ContainerName];
   if (!def) throw httpError(400, `Unknown container "${container}"`);
   const n = Math.trunc(Number(slot));
   if (!Number.isInteger(n) || n < 0 || n >= def.size) {
     throw httpError(400, `Slot ${slot} is out of range for ${container} (0-${def.size - 1})`);
   }
   return {
-    container,
+    container: container as ContainerName,
     slot: n,
     kind: def.kind,
-    list: def.kind === 'list' ? def.list : null,
-    nbtSlot: def.kind === 'list' ? def.base + n : def.legacy[n],
-    piece: def.kind === 'equipment' ? def.pieces[n] : null,
+    list: def.kind === 'list' ? def.list! : null,
+    nbtSlot: def.kind === 'list' ? def.base! + n : def.legacy![n]!,
+    piece: def.kind === 'equipment' ? def.pieces![n]! : null,
     rconSlot: def.rcon(n),
   };
 }
 
-function clampCount(count) {
+function clampCount(count: number): number {
   return Math.min(MAX_STACK, Math.max(1, Math.trunc(Number(count) || 1)));
 }
 
+interface EditContext {
+  uuid: string;
+  name: string | null;
+  running: boolean;
+  online: boolean;
+  onlineKnown: boolean;
+  mechanism: 'rcon' | 'file';
+}
+
 /** Who/where/how for an edit: player name, server state, chosen mechanism. */
-async function editContext(serverId, uuid) {
-  uuid = assertUuid(uuid);
+async function editContext(serverId: string, uuidInput: string): Promise<EditContext> {
+  const uuid = assertUuid(uuidInput);
   const { byUuid } = usercacheMaps(serverId);
   const name = byUuid.get(uuid) || null;
   let running = false;
@@ -613,7 +748,7 @@ async function editContext(serverId, uuid) {
   let onlineKnown = true;
   if (running && name) {
     try {
-      const names = await require('./players').listOnlineNames(serverId, { throwOnError: true });
+      const names: string[] = await require('./players').listOnlineNames(serverId, { throwOnError: true });
       online = names.some((n) => n.toLowerCase() === name.toLowerCase());
     } catch {
       // RCON hiccup: we do NOT know whether they're online. Mark it so withDatFile
@@ -630,7 +765,7 @@ async function editContext(serverId, uuid) {
  * `save-all flush` — forces the server to rewrite every online player's .dat
  * with their LIVE state. Best-effort; the short wait lets the write land.
  */
-async function flushPlayerData(serverId) {
+async function flushPlayerData(serverId: string): Promise<boolean> {
   try {
     await rcon(serverId, 'save-all', 'flush');
     await new Promise((r) => setTimeout(r, 1200));
@@ -640,11 +775,18 @@ async function flushPlayerData(serverId) {
   }
 }
 
+interface DatSlotRead {
+  exists: boolean;
+  id?: string | null;
+  count?: number;
+  hasComponents?: boolean;
+}
+
 /** Read one slot straight from the .dat on disk (raw tree, no simplify). */
-async function readDatSlot(serverId, uuid, spec) {
+async function readDatSlot(serverId: string, uuid: string, spec: SlotSpec): Promise<DatSlotRead> {
   const file = path.join(playerdataDir(serverId), `${uuid}.dat`);
   const { parsed } = await nbt.parse(await fsp.readFile(file));
-  const cur = offlineSlotRef(parsed.value, spec).get();
+  const cur = offlineSlotRef(parsed.value as any, spec).get();
   if (!cur) return { exists: false };
   return {
     exists: true,
@@ -661,7 +803,7 @@ async function readDatSlot(serverId, uuid, spec) {
  * live on 26.1.2) — in that case flush the live state to disk with
  * `save-all flush` and read the freshly written .dat instead.
  */
-async function readSlotOnline(serverId, ctx, spec) {
+async function readSlotOnline(serverId: string, ctx: EditContext, spec: SlotSpec): Promise<DatSlotRead> {
   const nbtPath = spec.kind === 'equipment' ? `equipment.${spec.piece}` : `${spec.list}[{Slot:${spec.nbtSlot}b}]`;
   const out = await rcon(serverId, 'data', 'get', 'entity', ctx.name, nbtPath);
   if (/No entity was found|No player was found/i.test(out)) {
@@ -693,14 +835,25 @@ async function readSlotOnline(serverId, ctx, spec) {
   };
 }
 
-async function editSlotOnline(serverId, ctx, spec, { op, item, count }) {
-  const name = ctx.name;
+interface SlotEditResult {
+  item: string | null;
+  count: number;
+  note?: string | null;
+}
+
+async function editSlotOnline(
+  serverId: string,
+  ctx: EditContext,
+  spec: SlotSpec,
+  { op, item, count }: { op: 'set' | 'delete' | 'count'; item: string | null; count: number }
+): Promise<SlotEditResult> {
+  const name = ctx.name!;
   if (op === 'delete') {
     const prev = await readSlotOnline(serverId, ctx, spec);
     if (!prev.exists) throw httpError(404, `${spec.rconSlot} is already empty`);
     const out = await rcon(serverId, 'item', 'replace', 'entity', name, spec.rconSlot, 'with', 'minecraft:air');
     assertRconOk(out, name);
-    return { item: prev.id, count: prev.count, note: null };
+    return { item: prev.id ?? null, count: prev.count ?? 0, note: null };
   }
   if (op === 'set') {
     const out = await rcon(serverId, 'item', 'replace', 'entity', name, spec.rconSlot, 'with', item, count);
@@ -714,7 +867,7 @@ async function editSlotOnline(serverId, ctx, spec, { op, item, count }) {
   const out = await rcon(serverId, 'item', 'replace', 'entity', name, spec.rconSlot, 'with', cur.id, count);
   assertRconOk(out, name);
   return {
-    item: cur.id,
+    item: cur.id ?? null,
     count,
     note: cur.hasComponents
       ? 'This item carried custom data (enchantments, contents, …) which a live count change resets — change counts while the player is offline to keep it.'
@@ -722,8 +875,19 @@ async function editSlotOnline(serverId, ctx, spec, { op, item, count }) {
   };
 }
 
-async function moveSlotOnline(serverId, ctx, fromSpec, toSpec) {
-  const name = ctx.name;
+interface MoveResult {
+  item: string | null;
+  count: number;
+  swapped: boolean;
+}
+
+async function moveSlotOnline(
+  serverId: string,
+  ctx: EditContext,
+  fromSpec: SlotSpec,
+  toSpec: SlotSpec
+): Promise<MoveResult> {
+  const name = ctx.name!;
   const src = await readSlotOnline(serverId, ctx, fromSpec);
   if (!src.exists) throw httpError(404, `${fromSpec.rconSlot} is empty — nothing to move`);
   const dst = await readSlotOnline(serverId, ctx, toSpec);
@@ -749,37 +913,39 @@ async function moveSlotOnline(serverId, ctx, fromSpec, toSpec) {
   assertRconOk(out, name);
   out = await rcon(serverId, 'item', 'replace', 'entity', name, fromSpec.rconSlot, 'with', 'minecraft:air');
   assertRconOk(out, name);
-  return { item: src.id, count: src.count, swapped: false };
+  return { item: src.id ?? null, count: src.count ?? 0, swapped: false };
 }
 
 // -------------------------------------------------------------- offline path
 // All mutation happens on the RAW prismarine-nbt tree ({type, value} tags), so
-// every unknown field — modded components included — survives untouched.
+// every unknown field — modded components included — survives untouched. The
+// raw tree is genuinely dynamic (arbitrary modded NBT), so it's typed `any`
+// here rather than forced through prismarine-nbt's Tags union.
 
 const tag = {
-  byte: (v) => ({ type: 'byte', value: v }),
-  int: (v) => ({ type: 'int', value: v }),
-  string: (v) => ({ type: 'string', value: v }),
+  byte: (v: number) => ({ type: 'byte', value: v }),
+  int: (v: number) => ({ type: 'int', value: v }),
+  string: (v: string) => ({ type: 'string', value: v }),
 };
 
 /** Fresh 1.20.5+ item stack (no components). */
-function makeRawItem(id, count) {
+function makeRawItem(id: string, count: number): any {
   return { id: tag.string(id), count: tag.int(count) };
 }
 
 /** Set an item's count, preserving the field flavor (modern int / legacy byte). */
-function setRawCount(itemValue, count) {
+function setRawCount(itemValue: any, count: number): void {
   if (itemValue.count) itemValue.count.value = count;
   else if (itemValue.Count) itemValue.Count.value = count;
   else itemValue.count = tag.int(count);
 }
 
-function rawId(itemValue) {
+function rawId(itemValue: any): string | null {
   return itemValue && itemValue.id ? String(itemValue.id.value) : null;
 }
 
 /** Inventory/EnderItems as a mutable array of compound values (created on demand). */
-function rawItemList(root, name, { create = false } = {}) {
+function rawItemList(root: any, name: string, { create = false }: { create?: boolean } = {}): any[] | null {
   let list = root[name];
   if (!list) {
     if (!create) return null;
@@ -796,17 +962,23 @@ function rawItemList(root, name, { create = false } = {}) {
 }
 
 /** Modern layout: `equipment` present, or DataVersion >= 1.21.5. */
-function usesEquipmentCompound(root) {
+function usesEquipmentCompound(root: any): boolean {
   if (root.equipment && root.equipment.type === 'compound') return true;
   const dv = root.DataVersion ? Number(root.DataVersion.value) : 0;
   return dv >= EQUIPMENT_DATAVERSION;
+}
+
+interface OfflineSlotRef {
+  get(): any | null;
+  set(itemValue: any): void;
+  remove(): void;
 }
 
 /**
  * Uniform accessor for one slot in the raw tree. get/set/remove re-scan on
  * every call so interleaved removals can never act on stale indexes.
  */
-function offlineSlotRef(root, spec) {
+function offlineSlotRef(root: any, spec: SlotSpec): OfflineSlotRef {
   if (spec.kind === 'equipment' && usesEquipmentCompound(root)) {
     const eq = () => {
       if (!root.equipment || root.equipment.type !== 'compound') {
@@ -816,22 +988,22 @@ function offlineSlotRef(root, spec) {
     };
     return {
       get() {
-        const piece = eq()[spec.piece];
+        const piece = eq()[spec.piece!];
         return piece && piece.type === 'compound' && piece.value.id ? piece.value : null;
       },
-      set(itemValue) {
+      set(itemValue: any) {
         delete itemValue.Slot; // equipment entries carry no Slot field
-        eq()[spec.piece] = { type: 'compound', value: itemValue };
+        eq()[spec.piece!] = { type: 'compound', value: itemValue };
       },
       remove() {
-        delete eq()[spec.piece];
+        delete eq()[spec.piece!];
       },
     };
   }
   // List-backed (Inventory / EnderItems) — armor/offhand fall through here on
   // pre-1.21.5 saves via their legacy slot numbers.
-  const listName = spec.kind === 'equipment' ? 'Inventory' : spec.list;
-  const find = (entries) => entries.findIndex((e) => e && e.Slot && Number(e.Slot.value) === spec.nbtSlot);
+  const listName = spec.kind === 'equipment' ? 'Inventory' : spec.list!;
+  const find = (entries: any[]) => entries.findIndex((e) => e && e.Slot && Number(e.Slot.value) === spec.nbtSlot);
   return {
     get() {
       const entries = rawItemList(root, listName);
@@ -839,8 +1011,8 @@ function offlineSlotRef(root, spec) {
       const i = find(entries);
       return i === -1 ? null : entries[i];
     },
-    set(itemValue) {
-      const entries = rawItemList(root, listName, { create: true });
+    set(itemValue: any) {
+      const entries = rawItemList(root, listName, { create: true })!;
       itemValue.Slot = tag.byte(spec.nbtSlot);
       const i = find(entries);
       if (i === -1) entries.push(itemValue);
@@ -856,10 +1028,14 @@ function offlineSlotRef(root, spec) {
 }
 
 /** Pure slot edit on a raw root (exported for tests). Returns edit metadata. */
-function applyOfflineSlotEdit(root, spec, { op, item, count }) {
+function applyOfflineSlotEdit(
+  root: any,
+  spec: SlotSpec,
+  { op, item, count }: { op: 'set' | 'delete' | 'count'; item: string | null; count: number }
+): SlotEditResult {
   const ref = offlineSlotRef(root, spec);
   if (op === 'set') {
-    ref.set(makeRawItem(item, count));
+    ref.set(makeRawItem(item!, count));
     return { item, count };
   }
   const cur = ref.get();
@@ -874,7 +1050,7 @@ function applyOfflineSlotEdit(root, spec, { op, item, count }) {
 }
 
 /** Pure move/swap on a raw root (exported for tests). */
-function applyOfflineMove(root, fromSpec, toSpec) {
+function applyOfflineMove(root: any, fromSpec: SlotSpec, toSpec: SlotSpec): MoveResult {
   const fromRef = offlineSlotRef(root, fromSpec);
   const toRef = offlineSlotRef(root, toSpec);
   const src = fromRef.get();
@@ -891,7 +1067,7 @@ function applyOfflineMove(root, fromSpec, toSpec) {
 // path detectNestedInventories reported on the simplified view (the shapes
 // map 1:1: compound key <-> string segment, list index <-> number segment).
 
-function assertNestedPath(pathSegs) {
+function assertNestedPath(pathSegs: unknown): (string | number)[] {
   if (!Array.isArray(pathSegs) || !pathSegs.length || pathSegs.length > NESTED_MAX_PATH) {
     throw httpError(400, 'Invalid nested inventory path');
   }
@@ -904,7 +1080,7 @@ function assertNestedPath(pathSegs) {
 }
 
 /** Follow path segments through raw tags; returns the tag at the end. */
-function walkRaw(startTag, pathSegs) {
+function walkRaw(startTag: any, pathSegs: (string | number)[]): any {
   let cur = startTag;
   for (const seg of pathSegs) {
     if (cur.type === 'compound') {
@@ -912,10 +1088,10 @@ function walkRaw(startTag, pathSegs) {
         throw httpError(404, 'That nested inventory no longer exists — reload');
       cur = cur.value[seg];
     } else if (cur.type === 'list') {
-      if (!Number.isInteger(seg) || !Array.isArray(cur.value.value) || seg >= cur.value.value.length) {
+      if (!Number.isInteger(seg) || !Array.isArray(cur.value.value) || (seg as number) >= cur.value.value.length) {
         throw httpError(404, 'That nested inventory no longer exists — reload');
       }
-      cur = { type: cur.value.type, value: cur.value.value[seg] };
+      cur = { type: cur.value.type, value: cur.value.value[seg as number] };
     } else {
       throw httpError(404, 'That nested inventory no longer exists — reload');
     }
@@ -924,11 +1100,21 @@ function walkRaw(startTag, pathSegs) {
 }
 
 /** Pure nested edit on a raw root (exported for tests). */
-function applyOfflineNestedEdit(root, spec, { path: pathSegs, index, op, item, count }) {
-  assertNestedPath(pathSegs);
+function applyOfflineNestedEdit(
+  root: any,
+  spec: SlotSpec,
+  {
+    path: pathSegs,
+    index,
+    op,
+    item,
+    count,
+  }: { path: unknown; index: number; op: 'set' | 'delete' | 'count'; item: string | null; count: number }
+): SlotEditResult {
+  const segs = assertNestedPath(pathSegs);
   const holder = offlineSlotRef(root, spec).get();
   if (!holder) throw httpError(404, `${spec.rconSlot} is empty — the backpack is gone. Reload.`);
-  const listTag = walkRaw({ type: 'compound', value: holder }, pathSegs);
+  const listTag = walkRaw({ type: 'compound', value: holder }, segs);
   if (listTag.type !== 'list' || listTag.value.type !== 'compound' || !Array.isArray(listTag.value.value)) {
     throw httpError(400, 'That path does not point at an item list');
   }
@@ -952,7 +1138,7 @@ function applyOfflineNestedEdit(root, spec, { path: pathSegs, index, op, item, c
     return { item: rawId(inner), count };
   }
   // op === 'set' — replace with a fresh stack, keeping the element's slot marker.
-  const fresh = makeRawItem(item, count);
+  const fresh = makeRawItem(item!, count);
   if (wrapped) {
     el.item = { type: 'compound', value: fresh };
   } else {
@@ -967,19 +1153,19 @@ function applyOfflineNestedEdit(root, spec, { path: pathSegs, index, op, item, c
 const BAK_SUFFIX = '.msm-bak-';
 const BAK_KEEP = 3;
 
-async function backupDat(file) {
+async function backupDat(file: string): Promise<string> {
   const bak = `${file}${BAK_SUFFIX}${Date.now()}`;
   await fsp.copyFile(file, bak);
   const dir = path.dirname(file);
   const prefix = path.basename(file) + BAK_SUFFIX;
-  let names = [];
+  let names: string[] = [];
   try {
     names = await fsp.readdir(dir);
   } catch {
     return bak;
   }
   const baks = names
-    .filter((n) => n.startsWith(prefix))
+    .filter((n: string) => n.startsWith(prefix))
     .sort()
     .reverse();
   for (const old of baks.slice(BAK_KEEP)) {
@@ -992,7 +1178,7 @@ async function backupDat(file) {
  * Read → mutate(rawRootValue) → backup → gzip → atomic write.
  * Refused while the player is online (their live state would overwrite it).
  */
-async function withDatFile(serverId, ctx, mutate) {
+async function withDatFile<T>(serverId: string, ctx: EditContext, mutate: (root: any) => T): Promise<T> {
   if (ctx.running && ctx.onlineKnown === false) {
     throw httpError(
       409,
@@ -1009,19 +1195,19 @@ async function withDatFile(serverId, ctx, mutate) {
   // Serialize edits to the same .dat: two concurrent slot edits sharing one temp
   // path could interleave their writes and corrupt the save.
   return withDatLock(file, async () => {
-    let buf;
+    let buf: Buffer;
     try {
       buf = await fsp.readFile(file);
     } catch {
       throw httpError(404, 'No saved data for this player yet — they need to have joined the server at least once');
     }
-    let parsed;
+    let parsed: import('prismarine-nbt').NBT;
     try {
       ({ parsed } = await nbt.parse(buf));
     } catch (err) {
-      throw httpError(422, `Could not parse the player data file: ${err.message}`);
+      throw httpError(422, `Could not parse the player data file: ${(err as Error).message}`);
     }
-    const result = mutate(parsed.value);
+    const result = mutate(parsed.value as any);
     await backupDat(file);
     const out = zlib.gzipSync(nbt.writeUncompressed(parsed, 'big')); // playerdata is always gzip'd big-endian
     const tmp = `${file}.msm-tmp-${process.pid}-${require('node:crypto').randomUUID()}`;
@@ -1033,9 +1219,9 @@ async function withDatFile(serverId, ctx, mutate) {
 
 // Per-file async mutex: serializes .dat mutations for the same path so concurrent
 // edits can't interleave. The tail promise is dropped from the map once its queue drains.
-const datLocks = new Map();
-function withDatLock(key, fn) {
-  const prev = datLocks.get(key) || Promise.resolve();
+const datLocks = new Map<string, Promise<unknown>>();
+function withDatLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = (datLocks.get(key) as Promise<T> | undefined) || Promise.resolve();
   const run = prev.then(fn, fn); // run regardless of the previous edit's outcome
   const tail = run.catch(() => {});
   datLocks.set(key, tail);
@@ -1047,25 +1233,46 @@ function withDatLock(key, fn) {
 
 // ----------------------------------------------------------- public edit API
 
+interface EditSlotResult extends SlotEditResult {
+  player: string;
+  mechanism: 'rcon' | 'file';
+  slot: string;
+}
+
 /**
  * Edit one slot: op 'set' (place item+count), 'delete', or 'count'.
  * `nested` = {path, index} targets a sub-inventory INSIDE the item in that
  * slot (offline mechanism only).
  */
 async function editSlot(
-  serverId,
-  uuid,
-  { container, slot, op, item = null, count = 1, nested = null },
-  { actor = 'system' } = {}
-) {
+  serverId: string,
+  uuid: string,
+  {
+    container,
+    slot,
+    op,
+    item = null,
+    count = 1,
+    nested = null,
+  }: {
+    container: string;
+    slot: number | string;
+    op: 'set' | 'delete' | 'count';
+    item?: string | null;
+    count?: number;
+    nested?: { path: (string | number)[]; index: number } | null;
+  },
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<EditSlotResult> {
   const spec = resolveSlot(container, slot);
   if (!['set', 'delete', 'count'].includes(op)) throw httpError(400, `Unknown op "${op}"`);
-  if (op === 'set') item = assertItemId(item);
-  count = clampCount(count);
+  let resolvedItem = item;
+  if (op === 'set') resolvedItem = assertItemId(item);
+  const resolvedCount = clampCount(count);
 
   const ctx = await editContext(serverId, uuid);
   const playerLabel = ctx.name || ctx.uuid;
-  let result;
+  let result: SlotEditResult;
   if (nested) {
     if (ctx.mechanism === 'rcon') {
       throw httpError(
@@ -1078,14 +1285,16 @@ async function editSlot(
         path: nested.path,
         index: nested.index,
         op,
-        item,
-        count,
+        item: resolvedItem,
+        count: resolvedCount,
       })
     );
   } else if (ctx.mechanism === 'rcon') {
-    result = await editSlotOnline(serverId, ctx, spec, { op, item, count });
+    result = await editSlotOnline(serverId, ctx, spec, { op, item: resolvedItem, count: resolvedCount });
   } else {
-    result = await withDatFile(serverId, ctx, (root) => applyOfflineSlotEdit(root, spec, { op, item, count }));
+    result = await withDatFile(serverId, ctx, (root) =>
+      applyOfflineSlotEdit(root, spec, { op, item: resolvedItem, count: resolvedCount })
+    );
   }
 
   const where = nested
@@ -1117,8 +1326,21 @@ async function editSlot(
   return { ...result, player: playerLabel, mechanism: ctx.mechanism, slot: where };
 }
 
+interface MoveItemResult extends MoveResult {
+  player: string;
+  mechanism: 'rcon' | 'file';
+  from: string;
+  to: string;
+}
+
 /** Move/swap between any two slots (inventory <-> ender chest included). */
-async function moveItem(serverId, uuid, from, to, { actor = 'system' } = {}) {
+async function moveItem(
+  serverId: string,
+  uuid: string,
+  from: { container: string; slot: number | string },
+  to: { container: string; slot: number | string },
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<MoveItemResult> {
   const fromSpec = resolveSlot(from.container, from.slot);
   const toSpec = resolveSlot(to.container, to.slot);
   if (fromSpec.rconSlot === toSpec.rconSlot) throw httpError(400, 'Source and destination are the same slot');
@@ -1150,17 +1372,33 @@ async function moveItem(serverId, uuid, from, to, { actor = 'system' } = {}) {
   return { ...result, player: playerLabel, mechanism: ctx.mechanism, from: fromSpec.rconSlot, to: toSpec.rconSlot };
 }
 
+interface AddItemResult {
+  player: string;
+  item: string;
+  count: number;
+  slot: number;
+  mechanism: 'rcon' | 'file';
+  output?: string;
+}
+
 /** Add an item to the first free hotbar/main slot — works online and offline. */
-async function addItem(serverId, uuid, itemId, count = 1, { actor = 'system' } = {}) {
+async function addItem(
+  serverId: string,
+  uuid: string,
+  itemId: string,
+  count: number = 1,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<AddItemResult> {
   const item = assertItemId(itemId);
-  count = clampCount(count);
+  const resolvedCount = clampCount(count);
   const ctx = await editContext(serverId, uuid);
   if (ctx.mechanism === 'rcon') {
-    return { ...(await giveItem(serverId, ctx.name, item, count, { actor })), mechanism: 'rcon' };
+    const gave = await giveItem(serverId, ctx.name!, item, resolvedCount, { actor });
+    return { ...gave, slot: -1, mechanism: 'rcon' };
   }
   const playerLabel = ctx.name || ctx.uuid;
   const slot = await withDatFile(serverId, ctx, (root) => {
-    const entries = rawItemList(root, 'Inventory', { create: true });
+    const entries = rawItemList(root, 'Inventory', { create: true })!;
     const used = new Set(entries.filter((e) => e && e.Slot).map((e) => Number(e.Slot.value)));
     let free = -1;
     for (let n = 0; n <= 35; n++) {
@@ -1170,20 +1408,20 @@ async function addItem(serverId, uuid, itemId, count = 1, { actor = 'system' } =
       }
     }
     if (free === -1) throw httpError(409, 'Their inventory is full — no free slot to add into');
-    entries.push({ ...makeRawItem(item, count), Slot: tag.byte(free) });
+    entries.push({ ...makeRawItem(item, resolvedCount), Slot: tag.byte(free) });
     return free;
   });
   recordEvent({
     serverId,
     actor,
     type: 'inventory-edit',
-    summary: `${playerLabel}: ${count}x ${item} added to slot ${slot} (file edit)`,
-    details: { player: playerLabel, uuid: ctx.uuid, op: 'add', item, count, slot, via: 'file' },
+    summary: `${playerLabel}: ${resolvedCount}x ${item} added to slot ${slot} (file edit)`,
+    details: { player: playerLabel, uuid: ctx.uuid, op: 'add', item, count: resolvedCount, slot, via: 'file' },
   });
-  return { player: playerLabel, item, count, slot, mechanism: 'file' };
+  return { player: playerLabel, item, count: resolvedCount, slot, mechanism: 'file' };
 }
 
-module.exports = {
+export = {
   readPlayerData,
   listPlayersWithData,
   searchItems,

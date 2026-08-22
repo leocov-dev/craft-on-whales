@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // JEI-style item registry. The list of every givable item/block on a server is
@@ -25,12 +24,14 @@
 // folder or server jar actually changed. A per-process Map avoids re-parsing
 // the JSON blob on every request.
 
-const httpError = require('../utils/httpError');
+import type { Row } from '../db/types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const yauzl = require('yauzl');
-const db = require('../db');
-const { dataPath } = require('../storage/pathGuard');
+const yauzl = require('yauzl') as typeof import('yauzl');
+const db = require('../db') as typeof import('../db');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 
 const CACHE_PREFIX = 'item-registry:';
 const LANG_RE = /^assets\/([a-z0-9_.-]+)\/lang\/en_us\.json$/i;
@@ -46,7 +47,7 @@ const JAR_CONCURRENCY = 8;
 // be silently missing from the registry. This offline-cached, MC-version-keyed
 // fallback (PrismarineJS/minecraft-data, MIT) fills that gap without needing
 // the client jar. Cached in api_cache like every other external fetch in this
-// codebase (see loaderVersions.js) — items/blocks lists are static per release,
+// codebase (see loaderVersions.ts) — items/blocks lists are static per release,
 // so the TTL is long and a network hiccup just falls back to a stale cache.
 const MCDATA_BASE = 'https://cdn.jsdelivr.net/gh/PrismarineJS/minecraft-data@master/data/pc';
 const MCDATA_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -60,14 +61,48 @@ const MCDATA_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // (the source data is vanilla-only) — callers should skip icons for those.
 const ICON_BASE = '/icons/mc-items';
 
-const memory = new Map(); // serverId -> { fingerprint, registry }
+/** One item/block entry in the built registry. */
+interface RegistryItem {
+  id: string;
+  name: string;
+  mod: string;
+  kind: 'item' | 'block';
+}
+
+/** One mod's summary row, for the mod filter dropdown. */
+interface RegistryModSummary {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/** The full built/cached registry for one server. */
+interface Registry {
+  items: RegistryItem[];
+  mods: RegistryModSummary[];
+  builtAt: number;
+  buildMs: number;
+  fingerprint: string;
+  vanillaJar: string | null;
+  jarCount: number;
+}
+
+/** A raw parsed lang-file entry, before merging into the registry. */
+interface LangEntry {
+  id: string;
+  name: string;
+  kind: 'item' | 'block';
+  ns: string;
+}
+
+const memory = new Map<string, { fingerprint: string; registry: Registry }>();
 
 // ---------------------------------------------------------------------------
 // zip plumbing (yauzl, lazyEntries — only the entries we need are ever read)
 
-function openZip(target) {
+function openZip(target: Buffer | string): Promise<import('yauzl').ZipFile> {
   return new Promise((resolve, reject) => {
-    const cb = (err, zip) => (err ? reject(err) : resolve(zip));
+    const cb = (err: Error | null, zip: import('yauzl').ZipFile) => (err ? reject(err) : resolve(zip));
     if (Buffer.isBuffer(target)) yauzl.fromBuffer(target, { lazyEntries: true }, cb);
     else yauzl.open(target, { lazyEntries: true }, cb);
   });
@@ -78,13 +113,17 @@ function openZip(target) {
 // over-limit entry is simply skipped.
 const MAX_ZIP_ENTRY_BYTES = 16 * 1024 * 1024;
 
-function readZipEntry(zip, entry, { maxBytes = MAX_ZIP_ENTRY_BYTES } = {}) {
+function readZipEntry(
+  zip: import('yauzl').ZipFile,
+  entry: import('yauzl').Entry,
+  { maxBytes = MAX_ZIP_ENTRY_BYTES }: { maxBytes?: number } = {}
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zip.openReadStream(entry, (err, stream) => {
       if (err) return reject(err);
-      const chunks = [];
+      const chunks: Buffer[] = [];
       let total = 0;
-      stream.on('data', (c) => {
+      stream.on('data', (c: Buffer) => {
         total += c.length;
         if (total > maxBytes) {
           stream.destroy();
@@ -102,37 +141,40 @@ function readZipEntry(zip, entry, { maxBytes = MAX_ZIP_ENTRY_BYTES } = {}) {
 /**
  * Walk a zip's central directory and read only entries `want(name)` selects.
  * `stopWhen(found)` may end the walk early once everything needed was seen.
- * @returns {Promise<Map<string, Buffer>>}
  */
-function pickZipEntries(target, want, stopWhen = null) {
+function pickZipEntries(
+  target: Buffer | string,
+  want: (name: string) => boolean,
+  stopWhen: ((found: Map<string, Buffer>) => boolean) | null = null
+): Promise<Map<string, Buffer>> {
   return new Promise((resolve, reject) => {
-    const found = new Map();
+    const found = new Map<string, Buffer>();
     let settled = false;
-    const finish = (err) => {
+    const finish = (err?: Error) => {
       if (settled) return;
       settled = true;
       if (err) reject(err);
       else resolve(found);
     };
     openZip(target).then((zip) => {
-      zip.on('error', (err) => {
-        zip.close?.();
+      zip.on('error', (err: Error) => {
+        zip.close();
         finish(err);
       });
       zip.on('end', () => finish());
-      zip.on('entry', (entry) => {
+      zip.on('entry', (entry: import('yauzl').Entry) => {
         if (!want(entry.fileName)) return zip.readEntry();
         readZipEntry(zip, entry)
           .then((buf) => {
             found.set(entry.fileName, buf);
             if (stopWhen && stopWhen(found)) {
-              zip.close?.();
+              zip.close();
               return finish();
             }
             zip.readEntry();
           })
-          .catch((err) => {
-            zip.close?.();
+          .catch((err: Error) => {
+            zip.close();
             finish(err);
           });
       });
@@ -145,11 +187,11 @@ function pickZipEntries(target, want, stopWhen = null) {
 // mod metadata (display names) — cheap line-level parsing, never fatal
 
 /** META-INF/[neoforge.]mods.toml → Map(modId -> displayName). */
-function parseModsToml(text) {
-  const names = new Map();
+function parseModsToml(text: unknown): Map<string, string | null> {
+  const names = new Map<string, string | null>();
   let inMods = false;
-  let modId = null;
-  let displayName = null;
+  let modId: string | null = null;
+  let displayName: string | null = null;
   const commit = () => {
     if (modId) names.set(modId, displayName || null);
     modId = null;
@@ -165,21 +207,25 @@ function parseModsToml(text) {
     if (!inMods) continue;
     let m = /^modId\s*=\s*"([^"]+)"/.exec(line);
     if (m) {
-      modId = m[1];
+      modId = m[1]!;
       continue;
     }
     m = /^displayName\s*=\s*"([^"]+)"/.exec(line);
-    if (m) displayName = m[1];
+    if (m) displayName = m[1]!;
   }
   if (inMods) commit();
   return names;
 }
 
 /** fabric.mod.json / quilt.mod.json → Map(modId -> name). */
-function parseFabricModJson(text) {
-  const names = new Map();
+function parseFabricModJson(text: unknown): Map<string, string | null> {
+  const names = new Map<string, string | null>();
   try {
-    const data = JSON.parse(String(text));
+    const data = JSON.parse(String(text)) as {
+      id?: unknown;
+      name?: unknown;
+      quilt_loader?: { id?: unknown; metadata?: { name?: unknown } };
+    };
     if (data.id) names.set(String(data.id), data.name ? String(data.name) : null);
     const quilt = data.quilt_loader;
     if (quilt && quilt.id) {
@@ -195,23 +241,20 @@ function parseFabricModJson(text) {
 // ---------------------------------------------------------------------------
 // lang parsing
 
-/**
- * Pull items/blocks out of one en_us.json.
- * @returns {[{id, name, kind:'item'|'block', ns}]}
- */
-function parseLang(buf) {
-  let data;
+/** Pull items/blocks out of one en_us.json. */
+function parseLang(buf: unknown): LangEntry[] {
+  let data: Record<string, unknown>;
   try {
     data = JSON.parse(String(buf));
   } catch {
     return [];
   }
-  const out = [];
+  const out: LangEntry[] = [];
   for (const [key, value] of Object.entries(data)) {
     if (typeof value !== 'string' || !value.trim()) continue;
     const m = KEY_RE.exec(key); // exact 3 segments — sub-entries never match
     if (!m) continue;
-    out.push({ id: `${m[2]}:${m[3]}`, name: value.trim(), kind: m[1], ns: m[2] });
+    out.push({ id: `${m[2]}:${m[3]}`, name: value.trim(), kind: m[1] as 'item' | 'block', ns: m[2]! });
   }
   return out;
 }
@@ -220,9 +263,9 @@ function parseLang(buf) {
 // vanilla server jar discovery
 
 /** Candidate vanilla jar paths for a server, best-first. */
-async function vanillaJarCandidates(serverId) {
+async function vanillaJarCandidates(serverId: string): Promise<string[]> {
   const base = dataPath('servers', serverId);
-  const candidates = [];
+  const candidates: string[] = [];
 
   // Top-level jars (vanilla / custom: server.jar, minecraft_server*.jar, …)
   try {
@@ -235,9 +278,9 @@ async function vanillaJarCandidates(serverId) {
 
   // Forge/NeoForge: libraries/net/minecraft/server/<version>/*.jar
   const libDir = path.join(base, 'libraries', 'net', 'minecraft', 'server');
-  const walk = async (dir, depth) => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 3) return;
-    let entries = [];
+    let entries: import('node:fs').Dirent[] = [];
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
@@ -255,7 +298,7 @@ async function vanillaJarCandidates(serverId) {
   await walk(path.join(base, 'cache'), 0);
 
   // Largest first — the full server jar dwarfs slim/extra variants.
-  const sized = [];
+  const sized: { abs: string; size: number }[] = [];
   for (const abs of candidates) {
     try {
       sized.push({ abs, size: (await fsp.stat(abs)).size });
@@ -267,12 +310,16 @@ async function vanillaJarCandidates(serverId) {
   return sized.map((c) => c.abs);
 }
 
+interface VanillaLangResult {
+  entries: LangEntry[];
+  jarPath: string;
+}
+
 /**
  * Find and parse the vanilla lang file. Handles both plain jars (assets at the
  * top level) and Mojang bundler jars (real jar nested under META-INF/versions).
- * @returns {{entries:[], jarPath:string}|null}
  */
-async function readVanillaLang(serverId) {
+async function readVanillaLang(serverId: string): Promise<VanillaLangResult | null> {
   for (const jarPath of await vanillaJarCandidates(serverId)) {
     try {
       const found = await pickZipEntries(
@@ -303,15 +350,15 @@ async function readVanillaLang(serverId) {
 // ---------------------------------------------------------------------------
 // minecraft-data fallback (vanilla items when the server jar has no assets/)
 
-async function cachedJson(cacheKey, url, ttlMs) {
-  const cached = db.get('SELECT value_json, fetched_at FROM api_cache WHERE key = ?', cacheKey);
-  if (cached && Date.now() - Date.parse(cached.fetched_at.replace(' ', 'T') + 'Z') < ttlMs) {
-    return JSON.parse(cached.value_json);
+async function cachedJson(cacheKey: string, url: string, ttlMs: number): Promise<unknown> {
+  const cached: Row | undefined = db.get('SELECT value_json, fetched_at FROM api_cache WHERE key = ?', cacheKey);
+  if (cached && Date.now() - Date.parse(String(cached.fetched_at).replace(' ', 'T') + 'Z') < ttlMs) {
+    return JSON.parse(String(cached.value_json));
   }
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data: unknown = await res.json();
     db.run(
       `INSERT INTO api_cache (key, value_json, fetched_at) VALUES (?, ?, datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, fetched_at = excluded.fetched_at`,
@@ -320,17 +367,25 @@ async function cachedJson(cacheKey, url, ttlMs) {
     );
     return data;
   } catch (err) {
-    if (cached) return JSON.parse(cached.value_json); // stale beats nothing
+    if (cached) return JSON.parse(String(cached.value_json)); // stale beats nothing
     throw err;
   }
 }
 
-async function fetchMcData(version) {
+interface McDataItem {
+  name: string;
+  displayName: string;
+}
+interface McDataBlock {
+  name: string;
+}
+
+async function fetchMcData(version: string): Promise<{ items: McDataItem[]; blocks: McDataBlock[] }> {
   const [items, blocks] = await Promise.all([
     cachedJson(`mcdata:items:${version}`, `${MCDATA_BASE}/${version}/items.json`, MCDATA_TTL_MS),
     cachedJson(`mcdata:blocks:${version}`, `${MCDATA_BASE}/${version}/blocks.json`, MCDATA_TTL_MS),
   ]);
-  return { items, blocks };
+  return { items: items as McDataItem[], blocks: blocks as McDataBlock[] };
 }
 
 const MCDATA_VERSIONS_TTL_MS = 24 * 60 * 60 * 1000;
@@ -338,42 +393,48 @@ const MCDATA_VERSIONS_URL = 'https://api.github.com/repos/PrismarineJS/minecraft
 
 /** minecraft-data's version folders that actually carry real per-version data
  *  (`latest` is a red herring — it only holds protocol.yml, no items/blocks). */
-async function listMcDataVersions() {
-  const entries = await cachedJson('mcdata:versions', MCDATA_VERSIONS_URL, MCDATA_VERSIONS_TTL_MS);
+async function listMcDataVersions(): Promise<string[]> {
+  const entries = (await cachedJson('mcdata:versions', MCDATA_VERSIONS_URL, MCDATA_VERSIONS_TTL_MS)) as {
+    type: string;
+    name: string;
+  }[];
   return entries.filter((e) => e.type === 'dir' && /^\d+\.\d+(\.\d+)?$/.test(e.name)).map((e) => e.name);
 }
 
-function parseVer(v) {
+type VerTuple = [number, number, number];
+
+function parseVer(v: string): VerTuple | null {
   const m = /^(\d+)\.(\d+)(?:\.(\d+))?$/.exec(v);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3] || 0)] : null;
 }
 
-function cmpVer(a, b) {
+function cmpVer(a: VerTuple, b: VerTuple): number {
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
 /** Closest available minecraft-data version to `requested` — exact, else the
  *  newest one at or below it, else (requested is older than everything we
  *  have) the oldest available. An unparsable/empty request just gets newest. */
-function nearestVersion(requested, available) {
-  const parsed = available.map((v) => ({ v, p: parseVer(v) })).filter((x) => x.p);
+function nearestVersion(requested: string | null | undefined, available: string[]): string | null {
+  const parsed = available
+    .map((v) => ({ v, p: parseVer(v) }))
+    .filter((x): x is { v: string; p: VerTuple } => x.p !== null);
   if (!parsed.length) return null;
   parsed.sort((a, b) => cmpVer(b.p, a.p)); // newest first
-  const req = parseVer(requested);
-  if (!req) return parsed[0].v;
+  const req = parseVer(String(requested || ''));
+  if (!req) return parsed[0]!.v;
   const exact = parsed.find((x) => cmpVer(x.p, req) === 0);
   if (exact) return exact.v;
   const notNewer = parsed.find((x) => cmpVer(x.p, req) <= 0);
-  return notNewer ? notNewer.v : parsed[parsed.length - 1].v;
+  return notNewer ? notNewer.v : parsed[parsed.length - 1]!.v;
 }
 
 /**
  * Vanilla item/block entries for a server's MC version, sourced from
  * minecraft-data instead of the (assets-less) server jar. Never throws — an
  * unreachable network just means vanilla items stay absent, same as today.
- * @returns {Promise<[{id, name, kind:'item'|'block', ns:'minecraft'}]|null>}
  */
-async function fetchVanillaFallback(mcVersion) {
+async function fetchVanillaFallback(mcVersion: string | null | undefined): Promise<LangEntry[] | null> {
   const raw = String(mcVersion || '').trim();
   let version = raw && raw.toUpperCase() !== 'LATEST' ? raw : '';
   try {
@@ -383,7 +444,7 @@ async function fetchVanillaFallback(mcVersion) {
     /* directory listing unreachable — fall through and try the raw string as-is */
   }
   if (!version) return null;
-  let data;
+  let data: { items: McDataItem[]; blocks: McDataBlock[] };
   try {
     data = await fetchMcData(version);
   } catch {
@@ -395,7 +456,7 @@ async function fetchVanillaFallback(mcVersion) {
     .map((it) => ({
       id: `minecraft:${it.name}`,
       name: it.displayName,
-      kind: blockNames.has(it.name) ? 'block' : 'item',
+      kind: (blockNames.has(it.name) ? 'block' : 'item') as 'item' | 'block',
       ns: 'minecraft',
     }));
 }
@@ -404,14 +465,14 @@ async function fetchVanillaFallback(mcVersion) {
 // item icons — local, bundled (see ICON_BASE above)
 
 /** Base URL to build `${iconBase}/<path>.png` from (vanilla items only). */
-function iconBaseUrl() {
+function iconBaseUrl(): string {
   return ICON_BASE;
 }
 
 // ---------------------------------------------------------------------------
 // fingerprint — cheap change detection over the inputs
 
-async function computeFingerprint(serverId) {
+async function computeFingerprint(serverId: string): Promise<string> {
   const modsDir = dataPath('servers', serverId, 'mods');
   let count = 0;
   let totalSize = 0;
@@ -438,8 +499,8 @@ async function computeFingerprint(serverId) {
   const cands = await vanillaJarCandidates(serverId);
   if (cands.length) {
     try {
-      const st = await fsp.stat(cands[0]);
-      vanilla = `${path.relative(dataPath('servers', serverId), cands[0])}:${st.size}`;
+      const st = await fsp.stat(cands[0]!);
+      vanilla = `${path.relative(dataPath('servers', serverId), cands[0]!)}:${st.size}`;
     } catch {
       /* raced */
     }
@@ -447,27 +508,27 @@ async function computeFingerprint(serverId) {
   // A server with no on-disk vanilla jar yet (never started) has no jar
   // identity to key off — mc_version explicitly, so switching it pre-launch
   // still invalidates the (otherwise empty) cached registry.
-  const mcVersion = require('./servers').getServer(serverId)?.mc_version || '';
+  const server: { mc_version?: string } | null | undefined = require('./servers').getServer(serverId);
+  const mcVersion = server?.mc_version || '';
   return `v2|${count}|${totalSize}|${Math.round(maxMtime)}|${vanilla}|${mcVersion}`;
 }
 
 // ---------------------------------------------------------------------------
 // build
 
-/**
- * Scan every mod jar + the vanilla server jar and build the registry.
- * @param {string} serverId
- * @param {{onProgress?: (done:number, total:number, label?:string)=>void}} opts
- * @returns {Promise<{items:[], mods:[], builtAt:number, buildMs:number, fingerprint:string}>}
- */
-async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
-  const server = require('./servers').getServer(serverId);
+/** Scan every mod jar + the vanilla server jar and build the registry. */
+async function buildRegistry(
+  serverId: string,
+  { onProgress = () => {} }: { onProgress?: (done: number, total: number, label?: string) => void } = {}
+): Promise<Registry> {
+  const server: unknown = require('./servers').getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
+  const typedServer = server as { mc_version?: string };
 
   const started = Date.now();
   const fingerprint = await computeFingerprint(serverId);
-  const byId = new Map(); // id -> {id, name, mod, kind}
-  const modNames = new Map(); // ns -> display name
+  const byId = new Map<string, RegistryItem>(); // id -> {id, name, mod, kind}
+  const modNames = new Map<string, string>(); // ns -> display name
 
   // Vanilla first so mod-shipped assets/minecraft overrides never shadow it.
   const vanilla = await readVanillaLang(serverId);
@@ -479,7 +540,7 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
   } else {
     // Server jars (vanilla or otherwise) never ship a client's assets/ — fall
     // back to the offline-cached, version-keyed vanilla list.
-    const fallback = await fetchVanillaFallback(server.mc_version).catch(() => null);
+    const fallback = await fetchVanillaFallback(typedServer.mc_version).catch(() => null);
     if (fallback) {
       for (const e of fallback) {
         if (!byId.has(e.id)) byId.set(e.id, { id: e.id, name: e.name, mod: 'Minecraft', kind: e.kind });
@@ -489,19 +550,19 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
   }
 
   const modsDir = dataPath('servers', serverId, 'mods');
-  let jars = [];
+  let jars: string[] = [];
   try {
     jars = (await fsp.readdir(modsDir, { withFileTypes: true }))
-      .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.jar'))
-      .map((e) => e.name)
+      .filter((e: import('node:fs').Dirent) => e.isFile() && e.name.toLowerCase().endsWith('.jar'))
+      .map((e: import('node:fs').Dirent) => e.name)
       .sort();
   } catch {
     /* vanilla server — no mods dir */
   }
 
   let done = 0;
-  const scanJar = async (name) => {
-    let found;
+  const scanJar = async (name: string): Promise<void> => {
+    let found: Map<string, Buffer>;
     try {
       found = await pickZipEntries(path.join(modsDir, name), (n) => LANG_RE.test(n) || META_RE.test(n));
     } catch {
@@ -512,7 +573,7 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
     }
 
     // Jar-level display names: modId -> name from whichever metadata is present.
-    const jarNames = new Map();
+    const jarNames = new Map<string, string | null>();
     for (const [entryName, buf] of found) {
       if (entryName.endsWith('mods.toml')) {
         for (const [k, v] of parseModsToml(String(buf))) jarNames.set(k, v);
@@ -525,7 +586,7 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
     for (const [entryName, buf] of found) {
       const langMatch = LANG_RE.exec(entryName);
       if (!langMatch) continue;
-      const ns = langMatch[1].toLowerCase();
+      const ns = langMatch[1]!.toLowerCase();
       const display = jarNames.get(ns) || fallbackName || ns;
       if (!modNames.has(ns) || modNames.get(ns) === ns) modNames.set(ns, display);
       for (const e of parseLang(buf)) {
@@ -552,21 +613,21 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
   // jar that declares its namespace's pretty name).
   const items = [...byId.values()];
   for (const item of items) {
-    const ns = item.id.split(':')[0];
+    const ns = item.id.split(':')[0]!;
     item.mod = modNames.get(ns) || ns;
   }
   items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
-  const modCounts = new Map();
+  const modCounts = new Map<string, number>();
   for (const item of items) {
-    const ns = item.id.split(':')[0];
+    const ns = item.id.split(':')[0]!;
     modCounts.set(ns, (modCounts.get(ns) || 0) + 1);
   }
-  const mods = [...modCounts.entries()]
+  const mods: RegistryModSummary[] = [...modCounts.entries()]
     .map(([ns, count]) => ({ id: ns, name: modNames.get(ns) || ns, count }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const registry = {
+  const registry: Registry = {
     items,
     mods,
     builtAt: Date.now(),
@@ -594,16 +655,22 @@ async function buildRegistry(serverId, { onProgress = () => {} } = {}) {
  * fingerprint (jar count/size/mtime + vanilla jar) is re-checked every call —
  * it's a directory stat sweep, so cache hits stay in the low milliseconds.
  */
-async function getRegistry(serverId, { force = false, onProgress } = {}) {
+async function getRegistry(
+  serverId: string,
+  {
+    force = false,
+    onProgress,
+  }: { force?: boolean; onProgress?: (done: number, total: number, label?: string) => void } = {}
+): Promise<Registry> {
   const fingerprint = await computeFingerprint(serverId);
   if (!force) {
     const mem = memory.get(serverId);
     if (mem && mem.fingerprint === fingerprint) return mem.registry;
 
-    const row = db.get('SELECT value_json FROM api_cache WHERE key = ?', CACHE_PREFIX + serverId);
+    const row: Row | undefined = db.get('SELECT value_json FROM api_cache WHERE key = ?', CACHE_PREFIX + serverId);
     if (row) {
       try {
-        const registry = JSON.parse(row.value_json);
+        const registry = JSON.parse(String(row.value_json)) as Registry;
         if (registry.fingerprint === fingerprint) {
           memory.set(serverId, { fingerprint, registry });
           return registry;
@@ -617,21 +684,29 @@ async function getRegistry(serverId, { force = false, onProgress } = {}) {
 }
 
 /** [{id: namespace, name: display, count}] for the mod filter dropdown. */
-async function getMods(serverId) {
+async function getMods(serverId: string): Promise<RegistryModSummary[]> {
   return (await getRegistry(serverId)).mods;
 }
 
 // ---------------------------------------------------------------------------
 // search
 
+interface SearchParams {
+  q?: string;
+  mod?: string;
+  kind?: 'item' | 'block' | '';
+  limit?: number;
+  offset?: number;
+}
+
 /**
  * Search the registry. q matches display name OR id (case-insensitive
  * substring). Rank: exact id > name starts-with > name contains > id contains.
- * @param {string} serverId
- * @param {{q?:string, mod?:string, kind?:'item'|'block', limit?:number, offset?:number}} params
- * @returns {Promise<{items:[], total:number}>}
  */
-async function search(serverId, { q = '', mod = '', kind = '', limit = 100, offset = 0 } = {}) {
+async function search(
+  serverId: string,
+  { q = '', mod = '', kind = '', limit = 100, offset = 0 }: SearchParams = {}
+): Promise<{ items: RegistryItem[]; total: number }> {
   const registry = await getRegistry(serverId);
   const needle = String(q || '')
     .trim()
@@ -641,7 +716,7 @@ async function search(serverId, { q = '', mod = '', kind = '', limit = 100, offs
     .toLowerCase();
   const wantKind = kind === 'item' || kind === 'block' ? kind : null;
 
-  const scored = [];
+  const scored: [number, RegistryItem][] = [];
   for (const item of registry.items) {
     if (wantKind && item.kind !== wantKind) continue;
     if (modNs && !item.id.startsWith(modNs + ':')) continue;
@@ -651,7 +726,7 @@ async function search(serverId, { q = '', mod = '', kind = '', limit = 100, offs
     }
     const id = item.id.toLowerCase();
     const name = item.name.toLowerCase();
-    let rank;
+    let rank: number;
     if (id === needle || id === `minecraft:${needle}`) rank = 0;
     else if (name.startsWith(needle)) rank = 1;
     else if (name.includes(needle)) rank = 2;
@@ -667,7 +742,7 @@ async function search(serverId, { q = '', mod = '', kind = '', limit = 100, offs
   return { items: scored.slice(start, start + n).map(([, item]) => item), total };
 }
 
-module.exports = {
+export = {
   buildRegistry,
   getRegistry,
   getMods,

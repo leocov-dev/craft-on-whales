@@ -8,8 +8,10 @@
 // newest-first; we preserve that order rather than inventing a comparator,
 // because beta suffixes ("2.9.0-beta-2") make string ordering unreliable.
 
-const httpError = require('../utils/httpError');
-const db = require('../db');
+import type { Row } from '../db/types';
+
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+const db = require('../db') as typeof import('../db');
 
 const INDEX_URL = 'https://downloads.gtnewhorizons.com/versions.json';
 // NOT cosmetic: the download host answers HTTP 403 to requests with no User-Agent.
@@ -17,17 +19,32 @@ const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
 const CACHE_KEY = 'gtnh:versions';
 const TTL_MS = 30 * 60 * 1000;
 
+/** One normalized GTNH release entry. */
+interface GtnhVersionEntry {
+  version: string;
+  channel: 'beta' | 'stable';
+  releaseDate: string | null;
+  maxJavaVersion: number | null;
+  changelogUrl: string | null;
+}
+
+/** Shape of one raw entry in the upstream versions.json index. */
+interface RawGtnhEntry {
+  title?: unknown;
+  releaseDate?: unknown;
+  maxJavaVersion?: unknown;
+  description?: unknown;
+}
+
 /**
  * Pull the changelog link out of an entry's HTML blurb. The index is remote
  * content, so only an https github.com link is trusted enough to render.
- * @param {string} description
- * @returns {string|null}
  */
-function safeChangelogUrl(description) {
+function safeChangelogUrl(description: unknown): string | null {
   const match = /href="([^"]+)"/i.exec(String(description || ''));
   if (!match) return null;
   try {
-    const url = new URL(match[1]);
+    const url = new URL(match[1]!);
     if (url.protocol !== 'https:') return null;
     if (url.hostname !== 'github.com' && !url.hostname.endsWith('.github.com')) return null;
     return url.href;
@@ -39,63 +56,64 @@ function safeChangelogUrl(description) {
 /**
  * Raw index object → normalized entries, newest-first.
  * Pure: no network, no db — this is the part under test.
- * @param {any} raw
  */
-function normalizeIndex(raw) {
+function normalizeIndex(raw: unknown): GtnhVersionEntry[] {
   if (!raw || typeof raw !== 'object') return [];
   // No serverUrl here on purpose: the itzg image downloads the pack itself,
   // keyed by GTNH_PACK_VERSION — the panel never fetches the archive.
-  return Object.entries(raw).map(([version, entry]) => {
+  return Object.entries(raw as Record<string, RawGtnhEntry>).map(([version, entry]) => {
     const e = entry || {};
     return {
       version,
-      channel: /beta/i.test(String(e.title || '')) ? 'beta' : 'stable',
-      releaseDate: e.releaseDate || null,
-      maxJavaVersion: Number.isInteger(e.maxJavaVersion) ? e.maxJavaVersion : null,
+      channel: (/beta/i.test(String(e.title || '')) ? 'beta' : 'stable') as 'beta' | 'stable',
+      releaseDate: (e.releaseDate as string | undefined) || null,
+      maxJavaVersion: Number.isInteger(e.maxJavaVersion) ? (e.maxJavaVersion as number) : null,
       changelogUrl: safeChangelogUrl(e.description),
     };
   });
 }
 
-/**
- * @param {any} entries
- * @param {{includeBeta?: boolean}} opts
- */
-function filterVersions(entries, { includeBeta = false } = {}) {
+function filterVersions(entries: GtnhVersionEntry[], { includeBeta = false }: { includeBeta?: boolean } = {}) {
   return includeBeta ? entries : entries.filter((e) => e.channel === 'stable');
 }
 
-/**
- * @param {any} entries
- * @param {{includeBeta?: boolean}} opts
- */
-function pickLatest(entries, { includeBeta = false } = {}) {
+function pickLatest(
+  entries: GtnhVersionEntry[],
+  { includeBeta = false }: { includeBeta?: boolean } = {}
+): GtnhVersionEntry | null {
   return filterVersions(entries, { includeBeta })[0] || null;
 }
 
 /** Fetch + cache the index. Serves the stale copy rather than failing. */
-async function fetchIndex() {
-  const cached = db.get('SELECT value_json, fetched_at FROM api_cache WHERE key = ?', CACHE_KEY);
-  const stale = () => (cached ? normalizeIndex(JSON.parse(String(cached.value_json))) : null);
-  if (cached && Date.now() - Date.parse(String(cached.fetched_at) + 'Z') < TTL_MS) return stale();
+async function fetchIndex(): Promise<GtnhVersionEntry[]> {
+  const cached: Row | undefined = db.get('SELECT value_json, fetched_at FROM api_cache WHERE key = ?', CACHE_KEY);
+  const stale = (): GtnhVersionEntry[] | null =>
+    cached ? normalizeIndex(JSON.parse(String(cached.value_json))) : null;
+  if (cached && Date.now() - Date.parse(String(cached.fetched_at) + 'Z') < TTL_MS) return stale() as GtnhVersionEntry[];
 
-  let res;
+  let res: Response;
   try {
     res = await fetch(INDEX_URL, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },
       signal: AbortSignal.timeout(15000),
     });
   } catch (err) {
-    return stale() || Promise.reject(httpError(502, `Could not reach the GTNH download server (${err.message})`));
+    const stalePart = stale();
+    if (stalePart) return stalePart;
+    throw httpError(502, `Could not reach the GTNH download server (${(err as Error).message})`);
   }
   if (!res.ok) {
-    return stale() || Promise.reject(httpError(502, `GTNH download server answered HTTP ${res.status}`));
+    const stalePart = stale();
+    if (stalePart) return stalePart;
+    throw httpError(502, `GTNH download server answered HTTP ${res.status}`);
   }
-  let raw;
+  let raw: unknown;
   try {
     raw = await res.json();
   } catch (err) {
-    return stale() || Promise.reject(httpError(502, `GTNH index is malformed JSON (${err.message})`));
+    const stalePart = stale();
+    if (stalePart) return stalePart;
+    throw httpError(502, `GTNH index is malformed JSON (${(err as Error).message})`);
   }
   db.run(
     `INSERT INTO api_cache (key, value_json, fetched_at) VALUES (?, ?, datetime('now'))
@@ -106,21 +124,19 @@ async function fetchIndex() {
   return normalizeIndex(raw);
 }
 
-/** @param {{includeBeta?: boolean}} [opts] */
-async function listVersions({ includeBeta = false } = {}) {
+async function listVersions({ includeBeta = false }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry[]> {
   return filterVersions(await fetchIndex(), { includeBeta });
 }
 
 /** One version by exact key. Unknown keys are a 404 — never passed to container env. */
-async function getVersion(version) {
+async function getVersion(version: string): Promise<GtnhVersionEntry> {
   const entry = (await fetchIndex()).find((e) => e.version === version);
   if (!entry) throw httpError(404, `Unknown GTNH pack version: ${version}`);
   return entry;
 }
 
-/** @param {{includeBeta?: boolean}} [opts] */
-async function latest({ includeBeta = false } = {}) {
+async function latest({ includeBeta = false }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry | null> {
   return pickLatest(await fetchIndex(), { includeBeta });
 }
 
-module.exports = { normalizeIndex, filterVersions, pickLatest, listVersions, getVersion, latest, INDEX_URL };
+export = { normalizeIndex, filterVersions, pickLatest, listVersions, getVersion, latest, INDEX_URL };

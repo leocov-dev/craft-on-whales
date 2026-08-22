@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic HTTP-JSON interop across two mod registries.
 'use strict';
 
 // Backend for the "From mods" wizard browser. Three concerns, both platforms:
@@ -9,28 +8,49 @@
 // A dependency stays on the same platform as its parent (Modrinth project ids
 // and CurseForge mod ids never cross), so no cross-platform mapping is needed.
 
-const modrinth = require('./modrinthApi');
-const curseforge = require('./curseforgeApi');
+import type { ModPlatform } from './types';
+
+const modrinth = require('./modrinthApi') as typeof import('./modrinthApi');
+const curseforge = require('./curseforgeApi') as typeof import('./curseforgeApi');
 
 const MAX_DEPS = 50; // safety cap on the resolved-dependency closure
 const MAX_ITER = 300; // recursion guard
 
-function normMc(mc) {
+function normMc(mc: string | null | undefined): string | undefined {
   const v = String(mc || '').trim();
   return v && v !== 'LATEST' && v !== 'SNAPSHOT' ? v : undefined;
 }
 
 // ---- Search -----------------------------------------------------------------
 
+/** A single unified search result row, same shape for either platform. */
+interface ModSearchHit {
+  platform: ModPlatform;
+  ref: string;
+  projectId: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  downloads: number;
+}
+
+interface SearchParams {
+  query: string | null | undefined;
+  platform?: ModPlatform;
+  loader?: string;
+  mc?: string;
+  limit?: number;
+}
+
 /** Unified mod search. Returns [{platform, ref, projectId, name, description, iconUrl, downloads}]. */
-async function search({ query, platform, loader, mc, limit = 20 }) {
+async function search({ query, platform, loader, mc, limit = 20 }: SearchParams): Promise<ModSearchHit[]> {
   const q = String(query || '').trim();
   if (!q) return [];
   const mcVersion = normMc(mc);
   if (platform === 'curseforge') {
     const hits = await curseforge.search({ query: q, kind: 'mod', loader, mcVersion, limit });
     return hits.map((m) => ({
-      platform: 'curseforge',
+      platform: 'curseforge' as const,
       ref: m.slug,
       projectId: String(m.modId),
       name: m.name,
@@ -41,7 +61,7 @@ async function search({ query, platform, loader, mc, limit = 20 }) {
   }
   const hits = await modrinth.search({ query: q, kind: 'mod', loader, mcVersion, limit });
   return hits.map((h) => ({
-    platform: 'modrinth',
+    platform: 'modrinth' as const,
     ref: h.slug,
     projectId: h.projectId,
     name: h.title,
@@ -53,8 +73,15 @@ async function search({ query, platform, loader, mc, limit = 20 }) {
 
 // ---- Project metadata + versions -------------------------------------------
 
+interface ModMeta {
+  ref: string;
+  projectId: string;
+  name: string;
+  iconUrl: string | null;
+}
+
 /** {ref, projectId, name, iconUrl} for a mod given a slug or platform id. */
-async function metaFor(platform, refOrId) {
+async function metaFor(platform: ModPlatform, refOrId: string): Promise<ModMeta> {
   if (platform === 'curseforge') {
     const mod = /^\d+$/.test(String(refOrId))
       ? await curseforge.getMod(Number(refOrId))
@@ -65,8 +92,21 @@ async function metaFor(platform, refOrId) {
   return { ref: p.slug, projectId: p.id, name: p.title, iconUrl: p.icon_url || null };
 }
 
+/** A mod build/version, normalized to a shared shape across both platforms. */
+interface ModVersion {
+  versionId: string;
+  name: string;
+  versionNumber: string;
+  datePublished: string | null;
+  versionType: string;
+  gameVersions: string[];
+  requiredDeps: string[];
+  /** CurseForge only — authors can forbid API download. */
+  downloadable?: boolean;
+}
+
 /** Normalize one Modrinth version to the shared shape (+ required-dep project ids). */
-function normModrinthVersion(v) {
+function normModrinthVersion(v: import('./types').ModrinthVersion): ModVersion {
   return {
     versionId: v.id,
     name: v.name || v.version_number,
@@ -81,7 +121,7 @@ function normModrinthVersion(v) {
 }
 
 /** Normalize one CurseForge file to the shared shape (relationType 3 = required). */
-function normCurseforgeFile(f) {
+function normCurseforgeFile(f: import('./types').CurseforgeFile): ModVersion {
   return {
     versionId: String(f.fileId),
     name: f.name || f.fileName,
@@ -94,15 +134,22 @@ function normCurseforgeFile(f) {
   };
 }
 
+interface VersionsParams {
+  platform: ModPlatform;
+  ref: string;
+  loader?: string;
+  mc?: string;
+  limit?: number;
+}
+
 /**
  * A mod's builds for a loader + MC version, newest first.
- * @returns [{versionId, name, versionNumber, datePublished, versionType, gameVersions, requiredDeps}]
  */
-async function versions({ platform, ref, loader, mc, limit = 30 }) {
+async function versions({ platform, ref, loader, mc, limit = 30 }: VersionsParams): Promise<ModVersion[]> {
   const mcVersion = normMc(mc);
   if (platform === 'curseforge') {
     const meta = await metaFor('curseforge', ref);
-    const files = await curseforge.getFiles(meta.projectId, { mcVersion, loader });
+    const files = await curseforge.getFiles(Number(meta.projectId), { mcVersion, loader });
     return files.slice(0, limit).map(normCurseforgeFile);
   }
   const list = await modrinth.getVersions(ref, { loader, mcVersion });
@@ -111,10 +158,10 @@ async function versions({ platform, ref, loader, mc, limit = 30 }) {
 
 // ---- Required-dependency resolution ----------------------------------------
 
-const depKey = (platform, projectId) => `${platform}:${projectId}`;
+const depKey = (platform: ModPlatform, projectId: string): string => `${platform}:${projectId}`;
 
 /** Required-dependency project ids of ONE build (same platform as its parent). */
-async function requiredDepsOfVersion(platform, projectId, versionId) {
+async function requiredDepsOfVersion(platform: ModPlatform, projectId: string, versionId: string): Promise<string[]> {
   try {
     if (platform === 'curseforge') {
       const file = await curseforge.getFile(Number(projectId), Number(versionId));
@@ -127,23 +174,52 @@ async function requiredDepsOfVersion(platform, projectId, versionId) {
   }
 }
 
+/** One selection entry the wizard passes in to resolveDependencies(). */
+interface DepSelectionEntry {
+  platform: ModPlatform;
+  ref: string;
+  versionId?: string | null;
+}
+
+/** One resolved dependency, editable in the wizard before install. */
+interface ResolvedDep {
+  platform: ModPlatform;
+  ref: string;
+  projectId: string;
+  name: string;
+  iconUrl: string | null;
+  versions: ModVersion[];
+  versionId: string;
+}
+
+interface QueueNode {
+  platform: ModPlatform;
+  projectId: string;
+}
+
 /**
  * Resolve the recursive required-dependency closure of a selection.
- * @param {{loader, mc, selection:[{platform, ref, versionId}]}} args
- * @returns {Promise<{deps:[{platform, ref, projectId, name, iconUrl, versions, versionId}], warnings:string[]}>}
- *   deps excludes anything already in the selection; each carries its own
- *   version list + default pick so the wizard row is immediately editable.
+ * deps excludes anything already in the selection; each carries its own
+ * version list + default pick so the wizard row is immediately editable.
  */
-async function resolveDependencies({ loader, mc, selection = [] }) {
-  const have = new Set(); // projects already covered (selection + resolved deps)
-  const warnings = [];
-  const deps = [];
-  const queue = []; // { platform, projectId }
+async function resolveDependencies({
+  loader,
+  mc,
+  selection = [],
+}: {
+  loader?: string;
+  mc?: string;
+  selection?: DepSelectionEntry[];
+}): Promise<{ deps: ResolvedDep[]; warnings: string[] }> {
+  const have = new Set<string>(); // projects already covered (selection + resolved deps)
+  const warnings: string[] = [];
+  const deps: ResolvedDep[] = [];
+  const queue: QueueNode[] = [];
 
   // Seed: mark every selected project as covered, then enqueue its required deps.
   for (const item of selection) {
     if (!item || !item.ref) continue;
-    let meta;
+    let meta: ModMeta;
     try {
       meta = await metaFor(item.platform, item.ref);
     } catch {
@@ -157,18 +233,18 @@ async function resolveDependencies({ loader, mc, selection = [] }) {
   let iter = 0;
   while (queue.length && iter < MAX_ITER && deps.length < MAX_DEPS) {
     iter += 1;
-    const node = queue.shift();
+    const node = queue.shift()!;
     const k = depKey(node.platform, node.projectId);
     if (have.has(k)) continue;
     have.add(k);
 
-    let meta;
+    let meta: ModMeta;
     try {
       meta = await metaFor(node.platform, node.projectId);
     } catch {
       continue; // unresolvable id — skip quietly
     }
-    let vers = [];
+    let vers: ModVersion[] = [];
     try {
       vers = await versions({ platform: node.platform, ref: meta.ref, loader, mc });
     } catch {
@@ -178,7 +254,7 @@ async function resolveDependencies({ loader, mc, selection = [] }) {
       warnings.push(`${meta.name} has no ${loader}${mc ? ` ${mc}` : ''} build — skipped`);
       continue;
     }
-    const chosen = vers[0]; // newest compatible build
+    const chosen = vers[0]!; // newest compatible build
     deps.push({
       platform: node.platform,
       ref: meta.ref,
@@ -195,4 +271,4 @@ async function resolveDependencies({ loader, mc, selection = [] }) {
   return { deps, warnings };
 }
 
-module.exports = { search, versions, resolveDependencies, metaFor };
+export = { search, versions, resolveDependencies, metaFor };

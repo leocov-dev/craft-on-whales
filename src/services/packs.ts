@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Modpack installation & pinning. Minecraft Server Manager NEVER installs an unpinned pack:
@@ -6,33 +5,73 @@
 // restarts can never silently upgrade a server (discovery: unpinned
 // AUTO_CURSEFORGE/MODRINTH auto-upgrade on every start).
 
-const httpError = require('../utils/httpError');
-const db = require('../db');
-const { recordEvent } = require('../events');
-const serversService = require('./servers');
-const modrinth = require('./modrinthApi');
-const curseforge = require('./curseforgeApi');
-const modsService = require('./mods');
-const gtnhApi = require('./gtnhApi');
-const { pickJavaTag } = require('./javaMatrix');
+import type { Row } from '../db/types';
+import type { ContentServer } from './types';
 
-/**
- * Resolve a pack reference to install candidates.
- * platform: 'curseforge' | 'modrinth' | 'ftb' | 'gtnh'
- * ref: slug/URL/id — versionId optional (null → resolve latest now, then pin).
- */
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
+const db = require('../db') as typeof import('../db');
+const { recordEvent } = require('../events') as typeof import('../events');
+const serversService = require('./servers');
+const modrinth = require('./modrinthApi') as typeof import('./modrinthApi');
+const curseforge = require('./curseforgeApi') as typeof import('./curseforgeApi');
+const modsService = require('./mods') as typeof import('./mods');
+const gtnhApi = require('./gtnhApi') as typeof import('./gtnhApi');
+const { pickJavaTag } = require('./javaMatrix') as typeof import('./javaMatrix');
+
+type PackPlatform = 'curseforge' | 'modrinth' | 'ftb' | 'gtnh';
+
+interface PackVersionOption {
+  id: string;
+  name: string;
+  type: string;
+  date: string | null;
+  maxJavaVersion?: number | null;
+}
+
+/** Resolve-a-pack-reference result: enough to install/pin + show a version picker. */
+interface ResolvedPack {
+  platform: PackPlatform;
+  projectRef: string;
+  projectId: string;
+  projectName: string;
+  iconUrl?: string | null;
+  versionId: string;
+  versionName: string;
+  mcVersion: string | null;
+  loaders?: string[];
+  maxJavaVersion?: number | null;
+  channel?: 'beta' | 'stable';
+  javaTag?: string;
+  changelogUrl?: string | null;
+  allVersions: PackVersionOption[];
+}
+
 /**
  * CF bare slugs default to the MODS class in curseforge.resolveUrl, but this
  * service only ever deals in MODPACKS — spell it out as a modpacks URL so
  * slugs like "all-the-mods-10" resolve. Numeric IDs and full URLs pass through.
  */
-function normalizeCurseforgeRef(ref) {
+function normalizeCurseforgeRef(ref: string): string {
   const s = String(ref).trim();
   if (/^https?:\/\//i.test(s) || /^\d+$/.test(s)) return s;
   return `https://www.curseforge.com/minecraft/modpacks/${s}`;
 }
 
-async function resolvePack(platform, ref, { versionId = null, mcVersion, includeBeta = false } = {}) {
+interface ResolvePackOptions {
+  versionId?: string | null;
+  mcVersion?: string;
+  includeBeta?: boolean;
+}
+
+/**
+ * Resolve a pack reference to install candidates.
+ * ref: slug/URL/id — versionId optional (null → resolve latest now, then pin).
+ */
+async function resolvePack(
+  platform: PackPlatform,
+  ref: string,
+  { versionId = null, mcVersion, includeBeta = false }: ResolvePackOptions = {}
+): Promise<ResolvedPack> {
   if (platform === 'curseforge') {
     const project = await curseforge.resolveUrl(normalizeCurseforgeRef(ref));
     const files = await curseforge.getFiles(project.modId, { mcVersion });
@@ -71,9 +110,12 @@ async function resolvePack(platform, ref, { versionId = null, mcVersion, include
       versionName: version.version_number,
       mcVersion: version.game_versions[version.game_versions.length - 1] || null,
       loaders: version.loaders,
-      allVersions: versions
-        .slice(0, 25)
-        .map((v) => ({ id: v.id, name: v.version_number, type: v.version_type, date: v.date_published })),
+      allVersions: versions.slice(0, 25).map((v) => ({
+        id: v.id,
+        name: v.version_number,
+        type: v.version_type || 'release',
+        date: v.date_published || null,
+      })),
     };
   }
   if (platform === 'ftb') {
@@ -88,52 +130,51 @@ async function resolvePack(platform, ref, { versionId = null, mcVersion, include
       versionId: String(versionId),
       versionName: String(versionId),
       mcVersion: null,
+      allVersions: [],
     };
   }
-  if (platform === 'gtnh') {
-    // GTNH is a single project with no search API: `ref` is the constant 'gtnh',
-    // and a pack version is its own id. The Minecraft version is hardcoded
-    // because the index does not state one — GTNH is a 1.7.10 pack by definition.
-    const all = await gtnhApi.listVersions({ includeBeta: true });
-    // includeBeta only matters when versionId is absent (pickLatest's default
-    // path) — an explicit versionId always resolves that exact entry regardless
-    // of channel. Callers that already know a pin's channel (the upgrade
-    // orchestrator) must pass it, or a beta-pinned server silently resolves to
-    // the newest stable instead of the newest beta.
-    const entry = versionId ? await gtnhApi.getVersion(String(versionId)) : gtnhApi.pickLatest(all, { includeBeta });
-    if (!entry) throw httpError(502, 'The GTNH release index returned no installable versions');
-    return {
-      platform,
-      projectRef: 'gtnh',
-      projectId: 'gtnh',
-      projectName: 'GT New Horizons',
-      iconUrl: null,
-      versionId: entry.version,
-      versionName: entry.version,
-      mcVersion: '1.7.10',
-      maxJavaVersion: entry.maxJavaVersion,
-      channel: entry.channel,
-      // Resolved here so the wizard can show the Java version without
-      // re-implementing the matrix in the browser.
-      javaTag: pickJavaTag('1.7.10', 'GTNH', { maxJavaVersion: entry.maxJavaVersion }),
-      changelogUrl: entry.changelogUrl,
-      // 'release' rather than 'stable': the version picker already suppresses
-      // the channel suffix for 'release', so GTNH options render like every
-      // other platform's with no display-code change.
-      allVersions: all.map((e) => ({
-        id: e.version,
-        name: e.version,
-        type: e.channel === 'beta' ? 'beta' : 'release',
-        date: e.releaseDate,
-        maxJavaVersion: e.maxJavaVersion,
-      })),
-    };
-  }
-  throw httpError(400, `Unknown modpack platform: ${platform}`);
+  // platform === 'gtnh'
+  // GTNH is a single project with no search API: `ref` is the constant 'gtnh',
+  // and a pack version is its own id. The Minecraft version is hardcoded
+  // because the index does not state one — GTNH is a 1.7.10 pack by definition.
+  const all = await gtnhApi.listVersions({ includeBeta: true });
+  // includeBeta only matters when versionId is absent (pickLatest's default
+  // path) — an explicit versionId always resolves that exact entry regardless
+  // of channel. Callers that already know a pin's channel (the upgrade
+  // orchestrator) must pass it, or a beta-pinned server silently resolves to
+  // the newest stable instead of the newest beta.
+  const entry = versionId ? await gtnhApi.getVersion(String(versionId)) : gtnhApi.pickLatest(all, { includeBeta });
+  if (!entry) throw httpError(502, 'The GTNH release index returned no installable versions');
+  return {
+    platform,
+    projectRef: 'gtnh',
+    projectId: 'gtnh',
+    projectName: 'GT New Horizons',
+    iconUrl: null,
+    versionId: entry.version,
+    versionName: entry.version,
+    mcVersion: '1.7.10',
+    maxJavaVersion: entry.maxJavaVersion,
+    channel: entry.channel,
+    // Resolved here so the wizard can show the Java version without
+    // re-implementing the matrix in the browser.
+    javaTag: pickJavaTag('1.7.10', 'GTNH', { maxJavaVersion: entry.maxJavaVersion }),
+    changelogUrl: entry.changelogUrl,
+    // 'release' rather than 'stable': the version picker already suppresses
+    // the channel suffix for 'release', so GTNH options render like every
+    // other platform's with no display-code change.
+    allVersions: all.map((e) => ({
+      id: e.version,
+      name: e.version,
+      type: e.channel === 'beta' ? 'beta' : 'release',
+      date: e.releaseDate,
+      maxJavaVersion: e.maxJavaVersion,
+    })),
+  };
 }
 
 /** Env vars implementing the PINNED install for each platform. */
-function packEnv(resolved) {
+function packEnv(resolved: ResolvedPack): Record<string, string> {
   if (resolved.platform === 'curseforge') {
     return {
       TYPE: 'AUTO_CURSEFORGE',
@@ -142,7 +183,7 @@ function packEnv(resolved) {
     };
   }
   if (resolved.platform === 'modrinth') {
-    const env = {
+    const env: Record<string, string> = {
       TYPE: 'MODRINTH',
       MODRINTH_MODPACK: resolved.projectRef,
       MODRINTH_VERSION: resolved.versionId,
@@ -178,8 +219,12 @@ function packEnv(resolved) {
  * updates env with the pinned reference, records server_packs, flags recreate.
  * The caller decides when to restart (upgrade orchestrator stops first).
  */
-async function applyPack(serverId, resolved, { actor = 'system', force = false } = {}) {
-  const server = serversService.getServer(serverId);
+async function applyPack(
+  serverId: string,
+  resolved: ResolvedPack,
+  { actor = 'system', force = false }: { actor?: string; force?: boolean } = {}
+): Promise<{ previous: Row | null }> {
+  const server: ContentServer | null | undefined = serversService.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
 
   // World-safety guard (learned the hard way): applying a pack that targets a
@@ -188,23 +233,23 @@ async function applyPack(serverId, resolved, { actor = 'system', force = false }
   if (!force) {
     const warnings = worldVersionWarnings(server, resolved);
     if (warnings.length) {
-      const err = httpError(409, warnings.join(' '));
+      const err = httpError(409, warnings.join(' ')) as Error & { warnings?: string[]; requiresForce?: boolean };
       err.warnings = warnings;
       err.requiresForce = true;
       throw err;
     }
   }
 
-  const previous = db.get('SELECT * FROM server_packs WHERE server_id = ?', serverId);
+  const previous: Row | undefined = db.get('SELECT * FROM server_packs WHERE server_id = ?', serverId);
   // Strip EVERY previous pack-selection/exclusion env var (CF_/MODRINTH_/FTB_/GTNH_)
   // before merging the new pack env: switching platform (or even version)
   // must not leave stale slugs, file pins or exclusion lists behind. Unrelated
   // user env is preserved. SKIP_GTNH_ is its own prefix (not GTNH_-prefixed)
   // because that env var name is dictated by the container image's contract.
-  const cleanedEnv = Object.fromEntries(
+  const cleanedEnv: Record<string, string> = Object.fromEntries(
     Object.entries(server.env).filter(([key]) => !/^(CF_|MODRINTH_|FTB_|GTNH_|SKIP_GTNH_)/.test(key))
   );
-  const env = { ...cleanedEnv, ...packEnv(resolved) };
+  const env: Record<string, string> = { ...cleanedEnv, ...packEnv(resolved) };
   // GTNH's own server start scripts ship -Dfml.queryResult=confirm, and the
   // itzg launcher path loses it. Without it, the FIRST boot after any pack
   // version change over an existing world blocks forever on Forge's
@@ -224,7 +269,7 @@ async function applyPack(serverId, resolved, { actor = 'system', force = false }
     else delete env.JVM_DD_OPTS;
   }
   // The TYPE lives in its own column; keep env's TYPE out of the extras.
-  const type = env.TYPE;
+  const type: string = env.TYPE!;
   delete env.TYPE;
 
   db.run(
@@ -248,8 +293,8 @@ async function applyPack(serverId, resolved, { actor = 'system', force = false }
     resolved.projectName,
     resolved.versionId,
     resolved.versionName,
-    previous ? previous.pinned_version_id : null,
-    previous ? previous.pinned_version_name : null,
+    previous ? (previous.pinned_version_id as string | null) : null,
+    previous ? (previous.pinned_version_name as string | null) : null,
     resolved.maxJavaVersion ?? null,
     resolved.channel ?? null
   );
@@ -263,18 +308,28 @@ async function applyPack(serverId, resolved, { actor = 'system', force = false }
     details: {
       platform: resolved.platform,
       versionId: resolved.versionId,
-      previous: previous ? previous.pinned_version_id : null,
+      previous: previous ? (previous.pinned_version_id as string | null) : null,
     },
   });
   return { previous: previous || null };
 }
 
-function getPack(serverId) {
+function getPack(serverId: string): Row | null {
   return db.get('SELECT * FROM server_packs WHERE server_id = ?', serverId) || null;
 }
 
+interface PackLatestInfo {
+  current: { id: string | null; name: string | null };
+  latest: { id: string; name: string };
+  updateAvailable: boolean;
+  projectName: string | null;
+  projectRef: string | null;
+  platform: string;
+  changelogUrl?: string | null;
+}
+
 /** Latest available version for a server's pinned pack (for the update checker). */
-async function latestFor(serverId) {
+async function latestFor(serverId: string): Promise<PackLatestInfo | null> {
   const pack = getPack(serverId);
   if (!pack) return null;
   if (pack.platform === 'ftb') return null; // FTB API not wired for checks yet
@@ -284,12 +339,12 @@ async function latestFor(serverId) {
     const newest = await gtnhApi.latest({ includeBeta: pack.channel === 'beta' });
     if (!newest) return null;
     return {
-      current: { id: pack.pinned_version_id, name: pack.pinned_version_name },
+      current: { id: pack.pinned_version_id as string | null, name: pack.pinned_version_name as string | null },
       latest: { id: newest.version, name: newest.version },
       updateAvailable: newest.version !== pack.pinned_version_id,
-      projectName: pack.project_name,
-      projectRef: pack.project_ref,
-      platform: pack.platform,
+      projectName: pack.project_name as string | null,
+      projectRef: pack.project_ref as string | null,
+      platform: String(pack.platform),
       // A real per-version diff link (from the index entry) rather than the
       // generic "all files" page the checker falls back to for other platforms.
       changelogUrl: newest.changelogUrl,
@@ -297,36 +352,41 @@ async function latestFor(serverId) {
   }
   // Scope "latest" to the server's own MC version — otherwise the checker
   // offers upgrades that silently cross MC versions.
-  const server = serversService.getServer(serverId);
+  const server: ContentServer | null | undefined = serversService.getServer(serverId);
   const mcVersion = server && !['LATEST', 'SNAPSHOT'].includes(server.mc_version) ? server.mc_version : undefined;
-  const resolved = await resolvePack(pack.platform, pack.project_ref, { mcVersion });
+  const resolved = await resolvePack(pack.platform as PackPlatform, String(pack.project_ref), { mcVersion });
   return {
-    current: { id: pack.pinned_version_id, name: pack.pinned_version_name },
+    current: { id: pack.pinned_version_id as string | null, name: pack.pinned_version_name as string | null },
     latest: { id: resolved.versionId, name: resolved.versionName },
     updateAvailable: resolved.versionId !== pack.pinned_version_id,
-    projectName: pack.project_name,
-    projectRef: pack.project_ref,
-    platform: pack.platform,
+    projectName: pack.project_name as string | null,
+    projectRef: pack.project_ref as string | null,
+    platform: String(pack.platform),
   };
 }
 
 /** After any pack install/update completes on disk, restore the overlay. */
-async function afterPackOperation(serverId, { actor = 'system' } = {}) {
+async function afterPackOperation(
+  serverId: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ restored: number }> {
   return modsService.reapplyOverlay(serverId, { actor });
 }
 
 /** Warnings when a pack's MC version conflicts with the server's existing world. */
-function worldVersionWarnings(server, resolved) {
+function worldVersionWarnings(server: ContentServer, resolved: ResolvedPack): string[] {
   if (!resolved.mcVersion) return [];
-  const warnings = [];
+  const warnings: string[] = [];
   try {
     const worlds = require('./worlds');
-    const { dataPath } = require('../storage/pathGuard');
+    const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
     const path = require('node:path');
     const level = worlds.activeLevelName(server);
-    const worldVersion = worlds.readLevelVersion(path.join(dataPath('servers', server.id), level, 'level.dat'));
+    const worldVersion: string | null = worlds.readLevelVersion(
+      path.join(dataPath('servers', server.id), level, 'level.dat')
+    );
     if (worldVersion && worldVersion !== resolved.mcVersion) {
-      const { parseVersion } = require('./javaMatrix');
+      const { parseVersion } = require('./javaMatrix') as typeof import('./javaMatrix');
       const wv = parseVersion(worldVersion);
       const pv = parseVersion(resolved.mcVersion);
       const downgrade =
@@ -346,8 +406,8 @@ function worldVersionWarnings(server, resolved) {
   return warnings;
 }
 
-function pickMcVersion(gameVersions = []) {
+function pickMcVersion(gameVersions: string[] = []): string | null {
   return gameVersions.find((v) => /^\d+\.\d+(\.\d+)?$/.test(v)) || null;
 }
 
-module.exports = { resolvePack, applyPack, getPack, latestFor, afterPackOperation, packEnv };
+export = { resolvePack, applyPack, getPack, latestFor, afterPackOperation, packEnv };

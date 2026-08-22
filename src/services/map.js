@@ -155,7 +155,7 @@ async function disableMap(serverId, { actor = 'system' } = {}) {
     "SELECT filename FROM server_content WHERE server_id = ? AND managed_by = 'overlay' AND name LIKE 'BlueMap%'",
     serverId
   );
-  if (row) await modsService.removeContent(serverId, row.filename, { actor }).catch(() => {});
+  if (row) await modsService.removeContent(serverId, String(row.filename), { actor }).catch(() => {});
   db.run('UPDATE servers SET pending_recreate = 1 WHERE id = ?', serverId);
   recordEvent({ serverId, actor, type: 'map-disabled', summary: 'Live map disabled — applies on next restart' });
 }

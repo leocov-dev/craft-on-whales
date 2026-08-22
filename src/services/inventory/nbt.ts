@@ -1,32 +1,33 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Player-inventory NBT normalization. Pure functions: id/name validation,
 // item-stack normalization across the pre-1.20.5 'tag' and 1.20.5+ 'components'
 // formats, and generic nested-inventory (backpack/shulker) detection.
 
-const httpError = require('../../utils/httpError');
+import type { NormalizedItem, NormalizedEnchant, NestedInventory, NestedInventoryEntry } from './types';
+
+const httpError = require('../../utils/httpError') as typeof import('../../utils/httpError');
 const { PLAYER_NAME_RE } = require('../../utils/playerName');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NAME_RE = PLAYER_NAME_RE;
+const NAME_RE: RegExp = PLAYER_NAME_RE;
 // Item ids travel through RCON — restrict to registry-shaped ids so nothing
 // can smuggle command fragments.
 const ITEM_RE = /^([a-z0-9_.-]+:)?[a-z0-9_./-]{1,120}$/;
 
-function assertUuid(uuid) {
+function assertUuid(uuid: string | null | undefined): string {
   const u = String(uuid || '').toLowerCase();
   if (!UUID_RE.test(u)) throw httpError(400, 'Invalid player UUID');
   return u;
 }
 
-function assertName(name) {
+function assertName(name: string | null | undefined): string {
   if (!NAME_RE.test(String(name)))
     throw httpError(400, 'Invalid player name (letters, digits and _ only, max 16 chars)');
   return String(name);
 }
 
-function assertItemId(item) {
+function assertItemId(item: string | null | undefined): string {
   const id = String(item || '')
     .toLowerCase()
     .trim();
@@ -37,9 +38,13 @@ function assertItemId(item) {
 // ---------------------------------------------------------------------------
 // Item normalization — both the pre-1.20.5 'tag' compound and the 1.20.5+
 // 'components' format. Unknown structures degrade to { slot, id, count }.
+//
+// The raw item stack here is simplified NBT (prismarine-nbt's `simplify()`
+// output) — genuinely dynamic per Minecraft version/mod, so it's typed `any`
+// rather than forced through an inaccurate interface.
 
 /** Flatten a Minecraft text component (JSON string, plain string, object, or array) to plain text. */
-function textComponentToString(value) {
+function textComponentToString(value: any): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'string') {
     const raw = value.trim();
@@ -60,7 +65,9 @@ function textComponentToString(value) {
   }
   if (typeof value === 'object') {
     const own = typeof value.text === 'string' ? value.text : '';
-    const extra = Array.isArray(value.extra) ? value.extra.map((v) => textComponentToString(v) || '').join('') : '';
+    const extra = Array.isArray(value.extra)
+      ? value.extra.map((v: any) => textComponentToString(v) || '').join('')
+      : '';
     const text = (own + extra).replace(/§./g, '').trim();
     return text || null;
   }
@@ -68,9 +75,9 @@ function textComponentToString(value) {
 }
 
 /** [{id, lvl}] from either enchantment container shape, or null. */
-function normalizeEnchants(value) {
+function normalizeEnchants(value: any): NormalizedEnchant[] | null {
   if (!value) return null;
-  const out = [];
+  const out: NormalizedEnchant[] = [];
   if (Array.isArray(value)) {
     // Pre-1.20.5: tag.Enchantments = [{id: 'minecraft:sharpness', lvl: 5}]
     for (const e of value) {
@@ -86,22 +93,18 @@ function normalizeEnchants(value) {
   return out.length ? out : null;
 }
 
-/**
- * Normalize one simplified-NBT item stack.
- * @returns {{slot:number|null, id:string, count:number, displayName?:string,
- *            enchants?:[{id:string,lvl:number}], damage?:number}|null}
- */
-function normalizeItem(raw) {
+/** Normalize one simplified-NBT item stack. */
+function normalizeItem(raw: any): NormalizedItem | null {
   if (!raw || typeof raw !== 'object' || raw.id === undefined) return null;
-  const item = {
+  const item: NormalizedItem = {
     slot: raw.Slot !== undefined ? Number(raw.Slot) : null,
     id: String(raw.id),
     count: Number(raw.count ?? raw.Count ?? 1),
   };
   try {
-    let displayName = null;
-    let enchants = null;
-    let damage = null;
+    let displayName: string | null = null;
+    let enchants: NormalizedEnchant[] | null = null;
+    let damage: number | null = null;
 
     if (raw.components && typeof raw.components === 'object') {
       // 1.20.5+ data components
@@ -140,7 +143,7 @@ const NESTED_MAX_PATH = 10; // path segments from the item root
 const NESTED_KEY_RE = /^[A-Za-z0-9_:./ -]{1,80}$/;
 
 /** The compound that actually holds id/count for a list element (or null). */
-function nestedElementItem(el) {
+function nestedElementItem(el: any): any | null {
   if (!el || typeof el !== 'object' || Array.isArray(el)) return null;
   if (typeof el.id === 'string') return el;
   if (el.item && typeof el.item === 'object' && typeof el.item.id === 'string') return el.item;
@@ -148,7 +151,7 @@ function nestedElementItem(el) {
 }
 
 /** True when a simplified-NBT array reads as a list of item stacks. */
-function isItemList(arr) {
+function isItemList(arr: any): boolean {
   if (!Array.isArray(arr) || !arr.length || arr.length > 256) return false;
   let stacks = 0;
   for (const el of arr) {
@@ -161,15 +164,11 @@ function isItemList(arr) {
 }
 
 /** 'minecraft:container' -> 'Container', 'sophisticatedcore:inventory' -> 'Inventory'. */
-function nestedLabel(pathSegs) {
+function nestedLabel(pathSegs: (string | number)[]): string {
   for (let i = pathSegs.length - 1; i >= 0; i--) {
-    if (
-      typeof pathSegs[i] === 'string' &&
-      pathSegs[i] !== 'tag' &&
-      pathSegs[i] !== 'components' &&
-      pathSegs[i] !== 'item'
-    ) {
-      const base = pathSegs[i].split(':').pop().replace(/[_.]/g, ' ').trim();
+    const seg = pathSegs[i];
+    if (typeof seg === 'string' && seg !== 'tag' && seg !== 'components' && seg !== 'item') {
+      const base = seg.split(':').pop()!.replace(/[_.]/g, ' ').trim();
       if (base) return base.charAt(0).toUpperCase() + base.slice(1);
     }
   }
@@ -178,12 +177,11 @@ function nestedLabel(pathSegs) {
 
 /**
  * Find every nested item list inside a simplified raw item stack.
- * @returns {[{path:(string|number)[], label:string, items:[{index, slot, ...normalized}]}]}
- *          path starts at the item root (e.g. ['components','minecraft:container']).
+ * path starts at the item root (e.g. ['components','minecraft:container']).
  */
-function detectNestedInventories(raw) {
-  const found = [];
-  const visit = (node, pathSegs, depth) => {
+function detectNestedInventories(raw: any): NestedInventory[] {
+  const found: NestedInventory[] = [];
+  const visit = (node: any, pathSegs: (string | number)[], depth: number): void => {
     if (!node || typeof node !== 'object' || pathSegs.length > NESTED_MAX_PATH || found.length >= 20) return;
     if (Array.isArray(node)) {
       if (isItemList(node)) {
@@ -191,7 +189,7 @@ function detectNestedInventories(raw) {
         found.push({
           path: pathSegs,
           label: nestedLabel(pathSegs),
-          items: node.map((el, index) => {
+          items: node.map((el, index): NestedInventoryEntry => {
             const inner = nestedElementItem(el);
             const it = inner ? normalizeItem(inner) : null;
             const slot = el.slot ?? el.Slot ?? (inner ? inner.Slot : undefined);
@@ -220,7 +218,7 @@ function detectNestedInventories(raw) {
 }
 
 /** normalizeItem + nested sub-inventory detection (top-level stacks only). */
-function normalizeItemDeep(raw) {
+function normalizeItemDeep(raw: any): NormalizedItem | null {
   const item = normalizeItem(raw);
   if (!item) return null;
   const nested = detectNestedInventories(raw);
@@ -228,7 +226,7 @@ function normalizeItemDeep(raw) {
   return item;
 }
 
-module.exports = {
+export = {
   assertUuid,
   assertName,
   assertItemId,
