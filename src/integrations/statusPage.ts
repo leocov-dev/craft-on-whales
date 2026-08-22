@@ -6,7 +6,7 @@
 import type { IntegrationRow } from './types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db');
+const { dbApi: db } = require('../db');
 
 const KIND = 'status-page';
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
@@ -75,4 +75,4 @@ function findBySlug(slug: string): string | null {
   return r ? r.server_id : null;
 }
 
-export = { getStatusPage, setStatusPage, findBySlug, SLUG_RE };
+export { getStatusPage, setStatusPage, findBySlug, SLUG_RE };

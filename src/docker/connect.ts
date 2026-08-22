@@ -89,4 +89,4 @@ async function checkDocker(): Promise<DockerStatus> {
   return status;
 }
 
-export = { getDocker, checkDocker };
+export { getDocker, checkDocker };

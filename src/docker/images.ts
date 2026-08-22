@@ -4,7 +4,7 @@
 // "image update available" checks.
 
 const { getDocker } = require('./connect') as typeof import('./connect');
-const config = require('../config');
+const { config } = require('../config');
 
 // Overridable via MC_IMAGE_REPO for a private mirror / air-gapped registry.
 const IMAGE_REPO: string = config.mcImageRepo;
@@ -85,4 +85,4 @@ async function localDigest(ref: string): Promise<string | null> {
   }
 }
 
-export = { IMAGE_REPO, imageRef, imageExists, pullImage, ensureImage, localDigest };
+export { IMAGE_REPO, imageRef, imageExists, pullImage, ensureImage, localDigest };

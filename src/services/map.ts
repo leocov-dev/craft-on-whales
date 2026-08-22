@@ -11,7 +11,7 @@ import { httpError } from '../utils/httpError';
 const net = require('node:net');
 const fs = require('node:fs');
 const path = require('node:path');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const serversService = require('./servers') as typeof import('./servers');
@@ -196,12 +196,4 @@ async function freePort(): Promise<number> {
   throw httpError(503, 'No free port for the map web server');
 }
 
-export = {
-  getMapConfig,
-  supportsMap,
-  enableMap,
-  disableMap,
-  extraPortsFor,
-  writeMapConfigs,
-  BLUEMAP_CONTAINER_PORT,
-};
+export { getMapConfig, supportsMap, enableMap, disableMap, extraPortsFor, writeMapConfigs, BLUEMAP_CONTAINER_PORT };

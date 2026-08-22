@@ -3,7 +3,9 @@
 require('./helpers/env');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { fields, getField, SECTIONS } = require('../src/config/field-catalog');
+const {
+  catalog: { fields, getField, SECTIONS },
+} = require('../src/config/field-catalog');
 
 test('every field key is unique within its scope', () => {
   const seen = new Set();

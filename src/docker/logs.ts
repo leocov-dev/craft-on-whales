@@ -91,4 +91,4 @@ function demuxBuffer(buf: Buffer | string): string {
   return parts.join('');
 }
 
-export = { fetchLogs, followLogs, demuxBuffer };
+export { fetchLogs, followLogs, demuxBuffer };

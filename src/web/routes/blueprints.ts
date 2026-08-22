@@ -7,7 +7,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fs = require('node:fs');
@@ -191,4 +191,4 @@ function publicServer(s: import('../../services/types').Server | null) {
 // JSON error handler for this subtree (mirrors routes/api.js).
 router.use(makeJsonErrorHandler('blueprints', { fileTooLarge: 'Upload is too large' }));
 
-export = router;
+export { router };

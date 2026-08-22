@@ -33,4 +33,4 @@ function up(db: Db): void {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_library_sha_cat ON library_files(sha256, category)');
 }
 
-export = { up };
+export { up };

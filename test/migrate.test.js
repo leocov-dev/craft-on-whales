@@ -4,7 +4,7 @@ require('./helpers/env');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { migrate } = require('../src/db/migrate');
-const db = require('../src/db');
+const { dbApi: db } = require('../src/db');
 
 test('migrate() applies the full schema from an empty DB, then is idempotent', () => {
   const first = migrate();

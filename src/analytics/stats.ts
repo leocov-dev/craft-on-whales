@@ -8,7 +8,7 @@ import type { CuratedStats, PlayerStatSnapshotRow } from './types';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { dataPath } = require('../storage/pathGuard');
 const serversService = require('../services/servers');
 const { activeLevelName } = require('../services/worlds');
@@ -461,4 +461,4 @@ function xrayReport(serverId: string): XrayReport {
   };
 }
 
-export = { ingestStats, startStatsIngest, profile, scoreboard, xrayReport, curate };
+export { ingestStats, startStatsIngest, profile, scoreboard, xrayReport, curate };

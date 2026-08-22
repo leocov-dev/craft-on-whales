@@ -5,7 +5,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const config = require('../config');
+const { config } = require('../config');
 
 class PathEscapeError extends Error {
   attempted: string;
@@ -115,4 +115,4 @@ function isInsideDataDir(candidate: string): boolean {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-export = { safeJoin, dataPath, isInsideDataDir, PathEscapeError };
+export { safeJoin, dataPath, isInsideDataDir, PathEscapeError };

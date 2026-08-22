@@ -9,7 +9,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { Server } from '../../services/types';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
@@ -90,4 +90,4 @@ router.post(
 // JSON error handler (mirrors routes/api.js)
 router.use(makeJsonErrorHandler('items-api'));
 
-export = router;
+export { router };

@@ -5,7 +5,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
@@ -13,7 +13,7 @@ const { z } = require('zod');
 const servers = require('../../services/servers') as typeof import('../../services/servers');
 const players = require('../../services/players') as typeof import('../../services/players');
 const { inspectStatus } = require('../../docker/containers') as typeof import('../../docker/containers');
-const biomes = require('../../config/biomes') as typeof import('../../config/biomes');
+const { biomes } = require('../../config/biomes') as typeof import('../../config/biomes');
 const { PLAYER_NAME_RE } = require('../../utils/playerName') as typeof import('../../utils/playerName');
 
 const router = express.Router({ mergeParams: true });
@@ -271,4 +271,4 @@ router.post(
 // JSON error handler for this subtree (mirrors routes/api.js)
 router.use(makeJsonErrorHandler('players-api'));
 
-export = router;
+export { router };

@@ -8,7 +8,7 @@ import type { Row } from '../db/types';
 const fs = require('node:fs');
 const path = require('node:path');
 const { nanoid } = require('nanoid');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { dataPath } = require('../storage/pathGuard');
 
 /** An `events` row (see db/migrations/001_init.ts), cast from the db layer's
@@ -207,4 +207,4 @@ function pruneEvents(days: number, { actor = 'system' }: { actor?: string } = {}
   return { removed: rows.length };
 }
 
-export = { recordEvent, listEvents, getEvent, readExcerpt, exportEvents, pruneEvents };
+export { recordEvent, listEvents, getEvent, readExcerpt, exportEvents, pruneEvents };

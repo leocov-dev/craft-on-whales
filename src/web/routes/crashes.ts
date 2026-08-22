@@ -5,7 +5,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
@@ -108,4 +108,4 @@ function ownedCrash(req: Request) {
 // JSON error handler, same shape as routes/api.js
 router.use(makeJsonErrorHandler('crashes'));
 
-export = router;
+export { router };

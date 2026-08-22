@@ -40,4 +40,4 @@ function icon(name: string, classes?: unknown): string {
   return load(name).replace('<svg', `<svg class="icon shrink-0 ${cls}" aria-hidden="true" focusable="false"`);
 }
 
-export = { icon };
+export { icon };

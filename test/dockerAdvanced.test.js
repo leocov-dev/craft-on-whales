@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { migrate } = require('../src/db/migrate');
 migrate();
-const db = require('../src/db');
+const { dbApi: db } = require('../src/db');
 const dockerSpec = require('../src/services/dockerSpec');
 const { isPortFree } = require('../src/services/ports');
 const app = require('./helpers/app');

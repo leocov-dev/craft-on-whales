@@ -3,7 +3,7 @@
 // Mojang version manifest, cached in SQLite for 6 hours so the wizard's
 // version picker is instant and works briefly offline.
 
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const MANIFEST_URL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
 const CACHE_KEY = 'mojang-version-manifest';
@@ -67,4 +67,4 @@ async function listVersions({
     .slice(0, limit);
 }
 
-export = { getVersionManifest, listVersions };
+export { getVersionManifest, listVersions };

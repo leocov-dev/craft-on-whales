@@ -9,9 +9,9 @@ require('./helpers/env');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('./helpers/app'); // migrates the DB + gives us seedServer()
-const db = require('../src/db');
+const { dbApi: db } = require('../src/db');
 const packs = require('../src/services/packs');
-const gtnhApi = require('../src/services/gtnhApi');
+const { gtnhApi } = require('../src/services/gtnhApi');
 const checker = require('../src/updates/checker');
 const rawIndex = require('./fixtures/gtnh-versions.json');
 

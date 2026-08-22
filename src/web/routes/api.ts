@@ -4,9 +4,8 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import type { Server } from '../../services/types';
-import type { Field } from '../../config/field-catalog/types';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fs = require('node:fs');
@@ -19,7 +18,7 @@ const servers = require('../../services/servers') as typeof import('../../servic
 const ports = require('../../services/ports') as typeof import('../../services/ports');
 const mojang = require('../../services/mojang') as typeof import('../../services/mojang');
 const tasks = require('../../services/tasks') as typeof import('../../services/tasks');
-const db = require('../../db') as typeof import('../../db');
+const { dbApi: db } = require('../../db') as typeof import('../../db');
 const eventsService = require('../../events') as typeof import('../../events');
 const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
 const { checkDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
@@ -35,7 +34,9 @@ const router = express.Router();
 // Valid server TYPE values, derived from the field catalog so this stays in sync
 // with the wizard. An unknown type would create a container that only fails later
 // at start with no useful feedback.
-const SERVER_TYPES: string[] = (require('../../config/field-catalog/general') as Field[])
+const SERVER_TYPES: string[] = (
+  require('../../config/field-catalog/general') as typeof import('../../config/field-catalog/general')
+).fields
   .find((f) => f.key === 'TYPE')!
   .options!.map((o) => o.value);
 
@@ -280,7 +281,7 @@ const LIVE_EMPTY = { stats: null, players: null, startedAt: null, phase: null, u
 
 router.get('/servers/live', (req: Request, res: Response) => {
   const liveCache = require('../../services/liveCache') as typeof import('../../services/liveCache');
-  const db = require('../../db') as typeof import('../../db');
+  const { dbApi: db } = require('../../db') as typeof import('../../db');
   const all = liveCache.getAll();
   const out: Record<string, unknown> = {};
   for (const row of db.all('SELECT id, status FROM servers WHERE deleted_at IS NULL')) {
@@ -1000,7 +1001,7 @@ router.delete(
 );
 
 // ---- Blueprints ----
-router.use('/blueprints', require('./blueprints') as typeof import('./blueprints'));
+router.use('/blueprints', (require('./blueprints') as typeof import('./blueprints')).router);
 
 // ---- World quick controls (Overview tab) — version-tolerant service ----
 const worldControls = require('../../services/worldControls') as typeof import('../../services/worldControls');
@@ -1071,8 +1072,8 @@ router.post(
 );
 
 // ---- Worlds & files ----
-router.use('/worlds', require('./worlds') as typeof import('./worlds'));
-router.use('/servers/:id/worlds', (require('./worlds') as typeof import('./worlds')).serverWorlds);
+router.use('/worlds', (require('./worlds') as typeof import('./worlds')).router);
+router.use('/servers/:id/worlds', (require('./worlds') as typeof import('./worlds')).router.serverWorlds);
 // Admin/operator only: read/download expose raw server files (server.properties
 // carries the plaintext rcon.password), so viewers are kept out of the whole tree
 // rather than relying on requireWrite, which only blocks their non-GET requests.
@@ -1084,26 +1085,26 @@ router.use(
 router.use('/files', authMiddleware.requireRole('admin'), (require('./files') as typeof import('./files')).globalFiles);
 
 // ---- Crash reports ----
-router.use('/servers/:id/crashes', require('./crashes') as typeof import('./crashes'));
+router.use('/servers/:id/crashes', (require('./crashes') as typeof import('./crashes')).router);
 
 // ---- Player god-mode ----
-router.use('/servers/:id/players', require('./players') as typeof import('./players'));
+router.use('/servers/:id/players', (require('./players') as typeof import('./players')).router);
 
 // ---- Custom chat commands (!rtp2 …) ----
-router.use('/servers/:id/chat-commands', require('./chatCommands') as typeof import('./chatCommands'));
+router.use('/servers/:id/chat-commands', (require('./chatCommands') as typeof import('./chatCommands')).router);
 
 // ---- Integrations (Discord, invites, status page) ----
-router.use('/servers/:id/integrations', require('./integrations') as typeof import('./integrations'));
+router.use('/servers/:id/integrations', (require('./integrations') as typeof import('./integrations')).router);
 
 // ---- Analytics & activity timeline ----
-router.use('/servers/:id/analytics', require('./analytics') as typeof import('./analytics'));
+router.use('/servers/:id/analytics', (require('./analytics') as typeof import('./analytics')).router);
 
 // ---- Inventory forensics ----
-router.use('/servers/:id/inventory', require('./inventory') as typeof import('./inventory'));
-router.use('/inventory', (require('./inventory') as typeof import('./inventory')).globalSearch);
+router.use('/servers/:id/inventory', (require('./inventory') as typeof import('./inventory')).router);
+router.use('/inventory', (require('./inventory') as typeof import('./inventory')).router.globalSearch);
 
 // ---- Item registry (JEI-style browser, built from the server's own jars) ----
-router.use('/servers/:id/items', require('./items') as typeof import('./items'));
+router.use('/servers/:id/items', (require('./items') as typeof import('./items')).router);
 
 // ---- Mods manager ----
 const mods = require('../../services/mods') as typeof import('../../services/mods');
@@ -1709,4 +1710,4 @@ function publicServer(s: Server | null): Omit<Server, 'rcon_password_cipher' | '
 
 router.use(makeJsonErrorHandler('api', { fileTooLarge: 'File too large (512 KB icon limit)' }));
 
-export = router;
+export { router };

@@ -59,7 +59,7 @@ async function adminCookie() {
 
 /** Insert a minimal server row directly (no Docker) and return its id. */
 function seedServer(id = 'srv_test01') {
-  const db = require('../../src/db');
+  const { dbApi: db } = require('../../src/db');
   db.run(
     `INSERT INTO servers (id, display_name, type, port_game, port_rcon, rcon_password_cipher, heap_mb, container_memory_mb)
      VALUES (?, ?, 'PAPER', 25599, 26599, 'x', 1024, 1536)`,

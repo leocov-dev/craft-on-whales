@@ -226,7 +226,7 @@ function normalizeItemDeep(raw: any): NormalizedItem | null {
   return item;
 }
 
-export = {
+export {
   assertUuid,
   assertName,
   assertItemId,

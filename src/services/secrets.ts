@@ -4,7 +4,7 @@
 // derived from SESSION_SECRET. Ciphertext format: base64(iv).base64(tag).base64(data)
 
 const crypto = require('node:crypto');
-const config = require('../config') as typeof import('../config');
+const { config } = require('../config') as typeof import('../config');
 
 if (!config.sessionSecret) {
   console.warn('[secrets] SESSION_SECRET is empty — set it in .env before storing real credentials');
@@ -49,4 +49,4 @@ function generatePassword(bytes = 18): string {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-export = { encrypt, decrypt, tryDecrypt, generatePassword };
+export { encrypt, decrypt, tryDecrypt, generatePassword };

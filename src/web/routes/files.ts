@@ -1,12 +1,12 @@
 'use strict';
 
 // File manager API.
-//   module.exports.serverFiles → mount at /api/servers/:id/files (mergeParams)
-//   module.exports.globalFiles → mount at /api/files (admin, rooted at DATA_DIR)
+//   exports.serverFiles → mount at /api/servers/:id/files (mergeParams)
+//   exports.globalFiles → mount at /api/files (admin, rooted at DATA_DIR)
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fsp = require('node:fs/promises');
@@ -181,4 +181,7 @@ function makeRouter(scope: 'server' | 'global') {
   return router;
 }
 
-export = { serverFiles: makeRouter('server'), globalFiles: makeRouter('global') };
+const serverFiles = makeRouter('server');
+const globalFiles = makeRouter('global');
+
+export { serverFiles, globalFiles };

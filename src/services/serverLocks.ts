@@ -15,4 +15,4 @@ function withSaveLock<T>(serverId: string, fn: () => T | Promise<T>): Promise<T>
   return mutex.withLock(`save:${serverId}`, fn);
 }
 
-export = { withSaveLock };
+export { withSaveLock };

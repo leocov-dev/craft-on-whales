@@ -6,7 +6,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const express = require('express');
 const serversService = require('../../services/servers') as typeof import('../../services/servers');
 const statusPage = require('../../integrations/statusPage') as typeof import('../../integrations/statusPage');
@@ -45,4 +45,4 @@ router.get(
   })
 );
 
-export = router;
+export { router };

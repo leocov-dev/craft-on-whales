@@ -17,8 +17,8 @@ const archiver = require('archiver');
 const yauzl = require('yauzl');
 const { nanoid } = require('nanoid');
 const { z: zod } = require('zod');
-const db = require('../db');
-const config = require('../config');
+const { dbApi: db } = require('../db');
+const { config } = require('../config');
 const { dataPath, safeJoin } = require('../storage/pathGuard');
 
 // Starter blueprints inherit the panel's host-aware resource defaults so they
@@ -1007,7 +1007,7 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|\0]/g, '_').slice(0, 180);
 }
 
-export = {
+export {
   exportBlueprint,
   importPreview,
   importBlueprint,

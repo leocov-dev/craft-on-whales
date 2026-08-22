@@ -11,8 +11,8 @@ import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const config = require('../config') as typeof import('../config');
-const db = require('../db') as typeof import('../db');
+const { config } = require('../config') as typeof import('../config');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { safeJoin } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const indexer = require('../storage/indexer') as typeof import('../storage/indexer');
@@ -438,7 +438,7 @@ function humanBytes(n: number): string {
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
-export = {
+export {
   list,
   readText,
   writeText,

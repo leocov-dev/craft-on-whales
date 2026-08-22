@@ -13,7 +13,7 @@ import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const os = require('node:os');
 const archiver = require('archiver');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { dataPath } = require('../storage/pathGuard');
 const serversService = require('../services/servers');
 const modsService = require('../services/mods');
@@ -316,4 +316,4 @@ function buildServersDat({ name, ip }: { name: string; ip: string }): Buffer {
   ]);
 }
 
-export = { inviteInfo, generateMrpack, detectPublicIp, portForwardGuidance, buildServersDat };
+export { inviteInfo, generateMrpack, detectPublicIp, portForwardGuidance, buildServersDat };

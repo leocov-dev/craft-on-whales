@@ -10,4 +10,4 @@ function up(db: Db): void {
   db.exec('ALTER TABLE servers ADD COLUMN console_label TEXT');
 }
 
-export = { up };
+export { up };

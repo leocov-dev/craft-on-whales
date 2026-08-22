@@ -7,7 +7,7 @@
 import { httpError } from '../utils/httpError';
 const { Cron } = require('croner');
 const { nanoid } = require('nanoid');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { recordEvent } = require('../events');
 const { getTimezone } = require('./settings') as typeof import('./settings');
 
@@ -267,4 +267,4 @@ function listSchedules() {
   });
 }
 
-export = { startScheduler, createSchedule, setEnabled, deleteSchedule, listSchedules, rearmAll, TASK_TYPES };
+export { startScheduler, createSchedule, setEnabled, deleteSchedule, listSchedules, rearmAll, TASK_TYPES };

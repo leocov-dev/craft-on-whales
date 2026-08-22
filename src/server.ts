@@ -21,7 +21,7 @@ function installRuntimeGuards(): void {
 }
 
 try {
-  const config = require('./config') as typeof import('./config');
+  const { config } = require('./config') as typeof import('./config');
   const { ensureDataRoot } = require('./storage/dataRoot') as typeof import('./storage/dataRoot');
   const { migrate } = require('./db/migrate') as typeof import('./db/migrate');
 

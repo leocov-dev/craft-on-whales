@@ -37,4 +37,4 @@ function securityHeaders(req: Request, res: Response, next: NextFunction): void 
   next();
 }
 
-export = { securityHeaders };
+export { securityHeaders };

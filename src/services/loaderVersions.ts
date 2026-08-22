@@ -11,7 +11,7 @@
 
 import type { Row } from '../db/types';
 
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_BUILDS = 40; // keep the dropdown sane; power users have the advanced env field
@@ -144,4 +144,4 @@ async function getBuilds(loader: string, mc: string | null | undefined): Promise
   return { loader: key, envKey: envKeyFor(key), builds: [LATEST, ...builds], default: '' };
 }
 
-export = { getBuilds, envKeyFor };
+export { getBuilds, envKeyFor };

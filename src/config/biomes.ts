@@ -80,4 +80,4 @@ const biomes: string[] = [
   'minecraft:the_void',
 ];
 
-export = biomes;
+export { biomes };

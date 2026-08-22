@@ -10,7 +10,7 @@ const { getDocker } = require('./connect') as typeof import('./connect');
 const { LABEL, inspectStatus } = require('./containers') as typeof import('./containers');
 const { fetchLogs } = require('./logs');
 const { recordEvent } = require('../events');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 
 // serverId → recent crash timestamps (for backoff)
 const crashWindows = new Map<string, number[]>();
@@ -225,4 +225,4 @@ function diagnoseFatal(logText: string): FatalDiagnosis | null {
   return null;
 }
 
-export = { startWatcher };
+export { startWatcher };

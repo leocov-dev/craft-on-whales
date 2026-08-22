@@ -135,7 +135,7 @@ function clearLoginFailures(username: string | undefined | null, ip: string | un
   loginAttempts.delete(attemptKey(username, ip));
 }
 
-export = {
+export {
   requireAuth,
   requireRole,
   requireWrite,

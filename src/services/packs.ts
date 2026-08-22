@@ -9,13 +9,13 @@ import type { Row } from '../db/types';
 import type { ContentServer } from './types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { recordEvent } = require('../events') as typeof import('../events');
 const serversService = require('./servers');
 const modrinth = require('./modrinthApi') as typeof import('./modrinthApi');
 const curseforge = require('./curseforgeApi') as typeof import('./curseforgeApi');
 const modsService = require('./mods') as typeof import('./mods');
-const gtnhApi = require('./gtnhApi') as typeof import('./gtnhApi');
+const { gtnhApi } = require('./gtnhApi') as typeof import('./gtnhApi');
 const { pickJavaTag } = require('./javaMatrix') as typeof import('./javaMatrix');
 
 type PackPlatform = 'curseforge' | 'modrinth' | 'ftb' | 'gtnh';
@@ -410,4 +410,4 @@ function pickMcVersion(gameVersions: string[] = []): string | null {
   return gameVersions.find((v) => /^\d+\.\d+(\.\d+)?$/.test(v)) || null;
 }
 
-export = { resolvePack, applyPack, getPack, latestFor, afterPackOperation, packEnv };
+export { resolvePack, applyPack, getPack, latestFor, afterPackOperation, packEnv };

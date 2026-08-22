@@ -134,7 +134,7 @@ test('safeJoin allows a symlink that resolves inside the base', (t) => {
 });
 
 test('isInsideDataDir is true for the root and children, false for outside', () => {
-  const config = require('../src/config');
+  const { config } = require('../src/config');
   assert.equal(isInsideDataDir(config.dataDir), true);
   assert.equal(isInsideDataDir(path.join(config.dataDir, 'servers', 'x')), true);
   assert.equal(isInsideDataDir(path.resolve(config.dataDir, '..', 'elsewhere')), false);

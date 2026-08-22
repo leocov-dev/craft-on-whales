@@ -7,7 +7,7 @@ import type { Row } from '../db/types';
 import type { CurseforgeMod, CurseforgeFile, CurseforgeResolved } from './types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const apiKeys = require('./apiKeys');
 
 const BASE = 'https://api.curseforge.com/v1';
@@ -232,4 +232,4 @@ function loaderTypeId(loader: string): number {
   return LOADER_TYPE_IDS[String(loader).toLowerCase()] || 0;
 }
 
-export = { search, getMod, getModBySlug, getFiles, getFile, getDescription, resolveUrl, GAME_MINECRAFT };
+export { search, getMod, getModBySlug, getFiles, getFile, getDescription, resolveUrl, GAME_MINECRAFT };

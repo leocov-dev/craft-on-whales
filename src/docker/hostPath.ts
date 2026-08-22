@@ -8,7 +8,7 @@
 // DATA_DIR_HOST is unset, this is the identity function.
 
 const path = require('node:path');
-const config = require('../config');
+const { config } = require('../config');
 
 // DATA_DIR_HOST describes the host's filesystem, which may use a different
 // separator than the panel's runtime (Linux container managing a Windows
@@ -35,4 +35,4 @@ function toHostPath(abs: string): string {
   return `${base}${HOST_SEP}${suffix}`;
 }
 
-export = { toHostPath };
+export { toHostPath };

@@ -1,13 +1,13 @@
 'use strict';
 
 // World management API.
-//   module.exports          → mount at /api/worlds        (global world library)
-//   module.exports.serverWorlds → mount at /api/servers/:id/worlds (mergeParams)
+//   exports.router               → mount at /api/worlds        (global world library)
+//   exports.router.serverWorlds → mount at /api/servers/:id/worlds (mergeParams)
 
 import type { Request, Response, NextFunction, Router } from 'express';
 import type { Row } from '../../db/types';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fsp = require('node:fs/promises');
@@ -16,7 +16,7 @@ const multer = require('multer') as typeof import('multer');
 const { z } = require('zod');
 const worlds = require('../../services/worlds') as typeof import('../../services/worlds');
 const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
-const db = require('../../db') as typeof import('../../db');
+const { dbApi: db } = require('../../db') as typeof import('../../db');
 
 // requireAuth guarantees req.user on every /api request.
 const actorOf = (req: Request) => req.user!.username;
@@ -310,6 +310,6 @@ for (const r of [router, serverWorlds]) {
   r.use(makeJsonErrorHandler('worlds', { fileTooLarge: 'That archive is too large (20 GB limit)' }));
 }
 
-// module.exports.serverWorlds → mount at /api/servers/:id/worlds (see app.js).
+// exports.router.serverWorlds → mount at /api/servers/:id/worlds (see api.ts).
 router.serverWorlds = serverWorlds;
-export = router;
+export { router };

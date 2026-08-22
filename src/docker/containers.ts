@@ -10,7 +10,7 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const { getDocker } = require('./connect') as typeof import('./connect');
 const { toHostPath } = require('./hostPath');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 
 const LABEL = 'msm.id';
 const GAME_PORT = '25565';
@@ -368,7 +368,7 @@ async function chownDataDir(dir: string, image: string, uid: number | string, gi
   }
 }
 
-export = {
+export {
   LABEL,
   containerName,
   createContainer,

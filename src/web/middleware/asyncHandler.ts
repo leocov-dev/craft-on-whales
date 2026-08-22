@@ -16,4 +16,4 @@ function asyncHandler<Req extends Request = Request, Res extends Response = Resp
   };
 }
 
-export = asyncHandler;
+export { asyncHandler };

@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const library = require('./library');
@@ -638,7 +638,7 @@ async function importUploadedMod(
   return { filename: installed, excluded: excludeToken || null };
 }
 
-export = {
+export {
   listContent,
   installFromUrl,
   classifyModSource,

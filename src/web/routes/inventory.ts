@@ -2,12 +2,12 @@
 
 // Inventory forensics API. Mounted at /api/servers/:id/inventory (mergeParams
 // carries :id down from the mount point). A second router — exported as
-// `module.exports.globalSearch` — serves GET /api/inventory/search across all
+// `exports.router.globalSearch` — serves GET /api/inventory/search across all
 // servers.
 
 import type { Request, Response, NextFunction, Router } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
@@ -19,9 +19,9 @@ const { PLAYER_NAME_RE } = require('../../utils/playerName') as typeof import('.
 const itemRegistry = require('../../services/itemRegistry') as typeof import('../../services/itemRegistry');
 
 // `router.globalSearch` is a second, unrelated router bolted onto this one so
-// a single require('./inventory') gives web/routes/api.js both mount points
-// (see the export at the bottom); the type carries that extra property
-// locally rather than augmenting express's global Router type.
+// a single require('./inventory') gives web/routes/api.ts both mount points
+// (as `.router` and `.router.globalSearch`); the type carries that extra
+// property locally rather than augmenting express's global Router type.
 const router: Router & { globalSearch?: Router } = express.Router({ mergeParams: true });
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
@@ -267,4 +267,4 @@ router.use(errorHandler);
 globalSearch.use(errorHandler);
 
 router.globalSearch = globalSearch;
-export = router;
+export { router };

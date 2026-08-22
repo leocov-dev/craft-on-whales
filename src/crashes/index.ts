@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const fsp = fs.promises;
 const { nanoid } = require('nanoid');
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { dataPath } = require('../storage/pathGuard');
 const { recordEvent } = require('../events');
 
@@ -353,7 +353,7 @@ function deleteOlderThan(
   return { deleted: rows.length, freedBytes };
 }
 
-export = {
+export {
   scanServer,
   scanAll,
   startCrashWatcher,

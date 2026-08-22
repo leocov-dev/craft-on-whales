@@ -8,7 +8,7 @@
 import type { IntegrationRow } from './types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const secrets = require('../services/secrets');
 
 const KIND = 'discord-webhook';
@@ -294,4 +294,4 @@ function titleFor(type: string): string {
   return map[type] || type;
 }
 
-export = { getConfig, setConfig, testWebhook, notify, startEventBridge, stopEventBridge, WEBHOOK_RE };
+export { getConfig, setConfig, testWebhook, notify, startEventBridge, stopEventBridge, WEBHOOK_RE };

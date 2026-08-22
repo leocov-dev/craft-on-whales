@@ -10,8 +10,8 @@ import { httpError } from '../utils/httpError';
 const fs = require('node:fs');
 const path = require('node:path');
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
-const config = require('../config') as typeof import('../config');
+const { dbApi: db } = require('../db') as typeof import('../db');
+const { config } = require('../config') as typeof import('../config');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const secrets = require('./secrets') as typeof import('./secrets');
@@ -928,7 +928,7 @@ function setConsoleLabel(id: string, label: unknown): string {
   return clean;
 }
 
-export = {
+export {
   listServers,
   getServer,
   createServer,

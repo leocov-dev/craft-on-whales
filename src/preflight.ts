@@ -46,4 +46,4 @@ if (major < MIN_MAJOR) {
   );
 }
 
-export = { MIN_MAJOR };
+export { MIN_MAJOR };

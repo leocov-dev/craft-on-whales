@@ -8,8 +8,8 @@ import type { Row } from '../db/types';
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const config = require('../config');
-const db = require('../db');
+const { config } = require('../config');
+const { dbApi: db } = require('../db');
 
 let scanning = false;
 let timer: NodeJS.Timeout | null = null;
@@ -176,4 +176,4 @@ async function enforceStrictQuotas(): Promise<void> {
   }
 }
 
-export = { scan, startIndexer, sizeOf, lastScan, diskFree, assertUnderQuota, enforceStrictQuotas };
+export { scan, startIndexer, sizeOf, lastScan, diskFree, assertUnderQuota, enforceStrictQuotas };

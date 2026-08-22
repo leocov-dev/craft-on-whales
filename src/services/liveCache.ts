@@ -5,7 +5,7 @@
 // Docker (a one-shot `docker stats` costs ~2s; `docker exec rcon-cli list`
 // ~0.5s). Everything reads from here; nothing user-facing calls Docker inline.
 
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { statsStream, statsOnce } = require('../docker/stats') as typeof import('../docker/stats');
 const { execCaptureChecked, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
 const { fetchLogs } = require('../docker/logs') as typeof import('../docker/logs');
@@ -311,4 +311,4 @@ async function sampleOnce(serverId: string): ReturnType<typeof statsOnce> {
   }
 }
 
-export = { get, getAll, statusDetail, startLiveCache, sync, detach, sampleOnce };
+export { get, getAll, statusDetail, startLiveCache, sync, detach, sampleOnce };

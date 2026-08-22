@@ -23,7 +23,7 @@ import type { Request, Response } from 'express';
 const http = require('node:http');
 const net = require('node:net');
 const express = require('express');
-const config = require('../../config') as typeof import('../../config');
+const { config } = require('../../config') as typeof import('../../config');
 const { getDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
 const containers = require('../../docker/containers') as typeof import('../../docker/containers');
 const { getMapConfig, BLUEMAP_CONTAINER_PORT } = require('../../services/map') as typeof import('../../services/map');
@@ -161,4 +161,4 @@ router.use('/:id', async (req: Request, res: Response) => {
   req.pipe(upstream);
 });
 
-export = router;
+export { router };

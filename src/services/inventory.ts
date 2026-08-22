@@ -22,7 +22,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const nbt = require('prismarine-nbt') as typeof import('prismarine-nbt');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const containers = require('../docker/containers') as typeof import('../docker/containers');
@@ -1421,7 +1421,7 @@ async function addItem(
   return { player: playerLabel, item, count: resolvedCount, slot, mechanism: 'file' };
 }
 
-export = {
+export {
   readPlayerData,
   listPlayersWithData,
   searchItems,

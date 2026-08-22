@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 const express = require('express');
 const QRCode = require('qrcode');
 const { z } = require('zod');
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } =
@@ -113,4 +113,4 @@ router.post(
 
 router.use(makeJsonErrorHandler('account'));
 
-export = router;
+export { router };

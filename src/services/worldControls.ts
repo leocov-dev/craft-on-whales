@@ -284,4 +284,4 @@ async function runQuick(
   return { label: quick.label, output: out.trim() };
 }
 
-export = { getState, runQuick, QUICK_ACTIONS };
+export { getState, runQuick, QUICK_ACTIONS };

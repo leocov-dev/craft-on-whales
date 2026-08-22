@@ -5,8 +5,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const raw = require('./fixtures/gtnh-versions.json');
 const { migrate } = require('../src/db/migrate');
-const db = require('../src/db');
-const gtnh = require('../src/services/gtnhApi');
+const { dbApi: db } = require('../src/db');
+const { gtnhApi: gtnh } = require('../src/services/gtnhApi');
 
 // Initialize database for async tests
 migrate();

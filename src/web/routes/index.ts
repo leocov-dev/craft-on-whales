@@ -6,13 +6,13 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { ServerExtraPort, ServerExtraBind } from '../../services/types';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const express = require('express');
 const serversService = require('../../services/servers') as typeof import('../../services/servers');
 const eventsService = require('../../events') as typeof import('../../events');
 const { serverVM, eventVM, crashVM, safeJsonParse } = require('../viewModels') as typeof import('../viewModels');
 const { fetchLogs } = require('../../docker/logs') as typeof import('../../docker/logs');
-const db = require('../../db') as typeof import('../../db');
+const { dbApi: db } = require('../../db') as typeof import('../../db');
 const { requireRole } = require('../middleware/auth') as typeof import('../middleware/auth');
 const { PLAYER_NAME_RE, isBedrockName } = require('../../utils/playerName') as typeof import('../../utils/playerName');
 
@@ -213,7 +213,7 @@ router.get('/servers/new', async (req: Request, res: Response) => {
   } catch {
     /* daemon down */
   }
-  const catalog = require('../../config/field-catalog') as typeof import('../../config/field-catalog');
+  const { catalog } = require('../../config/field-catalog') as typeof import('../../config/field-catalog');
   const SIMPLE_SECTIONS = new Set(['identity', 'flavor', 'resources']); // covered by the Simple UI
   const advancedSections = catalog.SECTIONS.filter((s) => !SIMPLE_SECTIONS.has(s.id))
     .map((s) => ({ ...s, fields: catalog.forSection(s.id, 'advanced').filter((f) => f.scope === 'env') }))
@@ -733,7 +733,7 @@ router.get(
 
 router.get('/settings', requireRole('admin'), (req: Request, res: Response) => {
   const apiKeys = require('../../services/apiKeys') as typeof import('../../services/apiKeys');
-  const config = require('../../config') as typeof import('../../config');
+  const { config } = require('../../config') as typeof import('../../config');
   res.render('settings', {
     title: 'Settings',
     active: 'settings',
@@ -749,4 +749,4 @@ router.get('/login', (req: Request, res: Response) => {
   res.render('login', { title: 'Sign in', layout: 'bare' });
 });
 
-export = router;
+export { router };

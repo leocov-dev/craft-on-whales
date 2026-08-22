@@ -265,4 +265,4 @@ if (!config.sessionSecret || config.sessionSecret.length < 16) {
   throw new Error('Failed to resolve a session secret.');
 }
 
-export = config;
+export { config };

@@ -271,4 +271,4 @@ async function resolveDependencies({
   return { deps, warnings };
 }
 
-export = { search, versions, resolveDependencies, metaFor };
+export { search, versions, resolveDependencies, metaFor };

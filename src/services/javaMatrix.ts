@@ -69,4 +69,4 @@ function pickJavaTag(
   return 'java21';
 }
 
-export = { pickJavaTag, parseVersion };
+export { pickJavaTag, parseVersion };

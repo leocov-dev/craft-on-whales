@@ -7,7 +7,7 @@ import type { Row } from '../db/types';
 import type { ModrinthSearchHit, ModrinthResolved, ModrinthProject, ModrinthVersion, ModrinthFile } from './types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const BASE = 'https://api.modrinth.com/v2';
 const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
@@ -158,4 +158,4 @@ function primaryFile(version: ModrinthVersion): ModrinthFile {
   return version.files.find((f) => f.primary) || version.files[0]!;
 }
 
-export = { search, getProject, getVersions, getVersion, resolveUrl, primaryFile };
+export { search, getProject, getVersions, getVersion, resolveUrl, primaryFile };

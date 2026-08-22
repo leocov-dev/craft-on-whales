@@ -22,7 +22,7 @@ const archiver = require('archiver');
 const yauzl = require('yauzl') as typeof import('yauzl');
 const tar = require('tar') as typeof import('tar');
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
@@ -1347,7 +1347,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref());
 }
 
-export = {
+export {
   detectWorldRoot,
   importArchive,
   extractFromServer,

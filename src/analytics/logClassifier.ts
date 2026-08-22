@@ -228,4 +228,4 @@ function isPvp(evt: ClassifiedEvent | null | undefined): boolean {
   return Boolean(evt && evt.type === 'death' && evt.target && looksLikePlayer(evt.target));
 }
 
-export = { classify, isPvp, looksLikePlayer };
+export { classify, isPvp, looksLikePlayer };

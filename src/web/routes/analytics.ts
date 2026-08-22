@@ -6,12 +6,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { SQLInputValue } from '../../db/types';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
 const { z } = require('zod');
-const db = require('../../db') as typeof import('../../db');
+const { dbApi: db } = require('../../db') as typeof import('../../db');
 const servers = require('../../services/servers') as typeof import('../../services/servers');
 const stats = require('../../analytics/stats') as typeof import('../../analytics/stats');
 const { backfillFromLogs } = require('../../analytics/ingest') as typeof import('../../analytics/ingest');
@@ -226,4 +226,4 @@ router.post(
 // JSON error handler, same shape as the main API subtree.
 router.use(makeJsonErrorHandler('analytics'));
 
-export = router;
+export { router };

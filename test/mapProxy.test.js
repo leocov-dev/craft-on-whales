@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const app = require('./helpers/app');
-const db = require('../src/db');
+const { dbApi: db } = require('../src/db');
 
 let cookie;
 

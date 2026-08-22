@@ -31,4 +31,4 @@ async function networkExists(name?: string | null): Promise<boolean> {
   return nets.some((n) => n.name === name);
 }
 
-export = { listNetworks, networkExists };
+export { listNetworks, networkExists };

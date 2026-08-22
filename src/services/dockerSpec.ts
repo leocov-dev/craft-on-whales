@@ -173,4 +173,4 @@ async function validateOverrides(
   if (errors.length) throw httpError(400, errors.join(' '));
 }
 
-export = { toYaml, fromYaml, validateOverrides };
+export { toYaml, fromYaml, validateOverrides };

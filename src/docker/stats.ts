@@ -92,4 +92,4 @@ async function statsStream(serverId: string, onSample: (stats: NormalizedStats) 
   };
 }
 
-export = { statsOnce, statsStream, normalize };
+export { statsOnce, statsStream, normalize };

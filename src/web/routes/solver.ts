@@ -4,7 +4,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 
-const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { asyncHandler } = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
 const { makeJsonErrorHandler } =
   require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const express = require('express');
@@ -50,4 +50,4 @@ router.post(
 // JSON error handler (this router is mounted outside the /api router's own).
 router.use(makeJsonErrorHandler('solver'));
 
-export = router;
+export { router };

@@ -250,4 +250,4 @@ function bestOwnVersions(
   return { loader: null, versions: [] };
 }
 
-export = { solve, LOADERS, MAX_PROJECTS, compareMcDesc, buildLoaderMap, pairMeta };
+export { solve, LOADERS, MAX_PROJECTS, compareMcDesc, buildLoaderMap, pairMeta };

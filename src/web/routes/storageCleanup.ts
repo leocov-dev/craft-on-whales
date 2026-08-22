@@ -6,7 +6,7 @@
 
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const db = require('../../db') as typeof import('../../db');
+const { dbApi: db } = require('../../db') as typeof import('../../db');
 const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
 const { recordEvent } = require('../../events') as typeof import('../../events');
 
@@ -163,4 +163,4 @@ async function largestFiles({ top = 15, maxScan = 3000 }: LargestFilesOptions = 
   return best.slice(0, top);
 }
 
-export = { runCleanup, largestFiles, DEFAULT_DAYS };
+export { runCleanup, largestFiles, DEFAULT_DAYS };

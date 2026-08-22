@@ -11,8 +11,8 @@ import type WebSocket from 'ws';
 
 const { WebSocketServer } = require('ws') as typeof import('ws');
 const signature = require('cookie-signature') as typeof import('cookie-signature');
-const config = require('../config') as typeof import('../config');
-const db = require('../db') as typeof import('../db');
+const { config } = require('../config') as typeof import('../config');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { followLogs } = require('../docker/logs') as typeof import('../docker/logs');
 const { statsStream } = require('../docker/stats') as typeof import('../docker/stats');
 const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
@@ -227,4 +227,4 @@ function announceConsoleAction(serverId: string, command: string): void {
   execCapture(serverId, ['rcon-cli', '--', 'tellraw', '@a', JSON.stringify(payload)]).catch(() => {});
 }
 
-export = { attachWebSockets };
+export { attachWebSockets };

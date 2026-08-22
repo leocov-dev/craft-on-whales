@@ -144,7 +144,7 @@ function generateBackupCodes(n: number = BACKUP_CODE_COUNT): string[] {
   return codes;
 }
 
-export = {
+export {
   STEP_SECONDS,
   generateSecret,
   buildOtpauthUrl,

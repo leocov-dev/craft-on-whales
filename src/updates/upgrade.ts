@@ -259,4 +259,4 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref());
 }
 
-export = { upgradePack, rollbackPack, upgradeStatus };
+export { upgradePack, rollbackPack, upgradeStatus };

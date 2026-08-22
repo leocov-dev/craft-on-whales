@@ -7,8 +7,8 @@
 import type { Row } from '../db/types';
 
 const net = require('node:net');
-const db = require('../db');
-const config = require('../config');
+const { dbApi: db } = require('../db');
+const { config } = require('../config');
 
 function probe(port: number, host: string = '0.0.0.0'): Promise<boolean> {
   return new Promise((resolve) => {
@@ -89,4 +89,4 @@ async function suggestPorts({ withBedrock = false }: SuggestPortsOptions = {}): 
   return result;
 }
 
-export = { isPortFree, suggestPorts };
+export { isPortFree, suggestPorts };

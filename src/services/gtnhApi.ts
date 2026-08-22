@@ -11,7 +11,7 @@
 import type { Row } from '../db/types';
 
 import { httpError } from '../utils/httpError';
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const INDEX_URL = 'https://downloads.gtnewhorizons.com/versions.json';
 // NOT cosmetic: the download host answers HTTP 403 to requests with no User-Agent.
@@ -139,4 +139,15 @@ async function latest({ includeBeta = false }: { includeBeta?: boolean } = {}): 
   return pickLatest(await fetchIndex(), { includeBeta });
 }
 
-export = { normalizeIndex, filterVersions, pickLatest, listVersions, getVersion, latest, INDEX_URL };
+// Exported as a single mutable object, not a named-export list: test/checker-
+// gtnh.test.js and test/packs-gtnh.test.js stub listVersions/getVersion/latest
+// by reassigning properties on this object directly (`gtnhApi.listVersions =
+// ...`). A plain `export { listVersions, ... }` list would make esbuild's CJS
+// transpilation of named exports define them as read-only getters on
+// module.exports (to preserve ESM live-binding semantics), which can't be
+// reassigned at all — this object's own properties are ordinary and mutable,
+// so stubbing keeps working for every caller that holds a reference to it
+// (see src/services/packs.ts's `const gtnhApi = require('./gtnhApi')`).
+const gtnhApi = { normalizeIndex, filterVersions, pickLatest, listVersions, getVersion, latest, INDEX_URL };
+
+export { gtnhApi };

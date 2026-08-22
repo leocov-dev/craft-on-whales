@@ -17,4 +17,4 @@ router.get('/:id', (req: Request, res: Response) => {
   res.json({ ok: true, task });
 });
 
-export = router;
+export { router };

@@ -8,7 +8,7 @@ import type { Db, Migration } from './types';
 
 const fs = require('node:fs');
 const path = require('node:path');
-const db: Db = require('./index');
+const { dbApi: db }: { dbApi: Db } = require('./index');
 
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
@@ -39,4 +39,4 @@ function migrate(): number {
   return count;
 }
 
-export = { migrate };
+export { migrate };

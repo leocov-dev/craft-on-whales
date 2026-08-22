@@ -8,7 +8,7 @@
 
 import { httpError } from '../utils/httpError';
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const players = require('./players') as typeof import('./players');
 const { recordEvent } = require('../events') as typeof import('../events');
 const { execCapture } = require('../docker/containers') as typeof import('../docker/containers');
@@ -771,7 +771,7 @@ async function testCommand(
   }
 }
 
-export = {
+export {
   listCommands,
   getCommand,
   createCommand,

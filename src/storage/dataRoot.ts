@@ -5,7 +5,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const config = require('../config');
+const { config } = require('../config');
 
 const LAYOUT: string[] = [
   'servers',
@@ -62,4 +62,4 @@ function cleanTmp({ olderThanMs = 0 }: CleanTmpOptions = {}): void {
   }
 }
 
-export = { ensureDataRoot, cleanTmp, LAYOUT };
+export { ensureDataRoot, cleanTmp, LAYOUT };

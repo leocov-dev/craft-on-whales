@@ -30,7 +30,7 @@ import { httpError } from '../utils/httpError';
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const yauzl = require('yauzl') as typeof import('yauzl');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 
 const CACHE_PREFIX = 'item-registry:';
@@ -742,7 +742,7 @@ async function search(
   return { items: scored.slice(start, start + n).map(([, item]) => item), total };
 }
 
-export = {
+export {
   buildRegistry,
   getRegistry,
   getMods,

@@ -30,6 +30,17 @@
 // transform breaks when the same file also has ordinary `export`
 // declarations. See the comment at the top of types.ts.
 import type { Field, FieldMode, FieldScope, SectionId, Section } from './types';
+import { fields as resourcesFields } from './resources';
+import { fields as jvmFields } from './jvm';
+import { fields as generalFields } from './general';
+import { fields as worldFields } from './world';
+import { fields as gameplayFields } from './gameplay';
+import { fields as playersFields } from './players';
+import { fields as networkFields } from './network';
+import { fields as rconFields } from './rcon';
+import { fields as packsFields } from './packs';
+import { fields as autopauseFields } from './autopause';
+import { fields as maintenanceFields } from './maintenance';
 
 const SECTIONS: Section[] = [
   { id: 'identity', label: 'Identity', icon: 'tag' },
@@ -48,17 +59,17 @@ const SECTIONS: Section[] = [
 ];
 
 const fields: Field[] = [
-  ...(require('./resources') as Field[]),
-  ...(require('./jvm') as Field[]),
-  ...(require('./general') as Field[]),
-  ...(require('./world') as Field[]),
-  ...(require('./gameplay') as Field[]),
-  ...(require('./players') as Field[]),
-  ...(require('./network') as Field[]),
-  ...(require('./rcon') as Field[]),
-  ...(require('./packs') as Field[]),
-  ...(require('./autopause') as Field[]),
-  ...(require('./maintenance') as Field[]),
+  ...resourcesFields,
+  ...jvmFields,
+  ...generalFields,
+  ...worldFields,
+  ...gameplayFields,
+  ...playersFields,
+  ...networkFields,
+  ...rconFields,
+  ...packsFields,
+  ...autopauseFields,
+  ...maintenanceFields,
 ];
 
 const byKey = new Map<string, Field>(fields.map((f) => [`${f.scope}:${f.key}`, f]));
@@ -73,4 +84,4 @@ function getField(scope: FieldScope, key: string): Field | null {
 
 const catalog = { SECTIONS, fields, forSection, getField };
 
-export = catalog;
+export { catalog };

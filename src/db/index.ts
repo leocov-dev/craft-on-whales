@@ -9,7 +9,7 @@ import type { Db, Row } from './types';
 
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
-const config = require('../config');
+const { config } = require('../config');
 
 let db: InstanceType<typeof DatabaseSync> | null = null;
 
@@ -65,4 +65,4 @@ function close(): void {
 
 const dbApi: Db = { open, run, get, all, exec, transaction, close };
 
-export = dbApi;
+export { dbApi };

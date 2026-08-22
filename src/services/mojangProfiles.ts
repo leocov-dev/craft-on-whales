@@ -3,7 +3,7 @@
 // Mojang username → profile (UUID) resolution, cached in SQLite so repeated
 // player actions never hammer the API. Unknown names resolve to null.
 
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const API_BASE = 'https://api.mojang.com/users/profiles/minecraft/';
 const CACHE_PREFIX = 'mojang-profile:';
@@ -59,4 +59,4 @@ async function resolveProfile(name: string): Promise<MojangProfile | null> {
   return profile;
 }
 
-export = { resolveProfile, uuidToDashed };
+export { resolveProfile, uuidToDashed };

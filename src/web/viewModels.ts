@@ -5,7 +5,7 @@
 import type { Server } from '../services/types';
 
 const { getVersionManifest } = require('../services/mojang') as typeof import('../services/mojang');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 const GB = 1024 ** 3;
 
@@ -281,4 +281,4 @@ function crashVM(c: CrashLike): CrashViewModel {
   };
 }
 
-export = { serverVM, flavorLabel, displayVersion, eventVM, crashVM, safeJsonParse };
+export { serverVM, flavorLabel, displayVersion, eventVM, crashVM, safeJsonParse };

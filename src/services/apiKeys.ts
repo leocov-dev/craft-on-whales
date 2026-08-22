@@ -3,8 +3,8 @@
 // Third-party API key storage (encrypted at rest) + validity testing.
 // The CurseForge key from .env is imported once on boot if none is stored.
 
-const db = require('../db') as typeof import('../db');
-const config = require('../config') as typeof import('../config');
+const { dbApi: db } = require('../db') as typeof import('../db');
+const { config } = require('../config') as typeof import('../config');
 const secrets = require('./secrets') as typeof import('./secrets');
 const { recordEvent } = require('../events') as typeof import('../events');
 
@@ -87,4 +87,4 @@ function importFromEnvOnce(): void {
   }
 }
 
-export = { getKey, setKey, deleteKey, maskedKey, testCurseForgeKey, importFromEnvOnce };
+export { getKey, setKey, deleteKey, maskedKey, testCurseForgeKey, importFromEnvOnce };

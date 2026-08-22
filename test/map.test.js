@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const app = require('./helpers/app'); // migrates the DB + gives us seedServer()
-const db = require('../src/db');
+const { dbApi: db } = require('../src/db');
 const { dataPath } = require('../src/storage/pathGuard');
 const map = require('../src/services/map');
 

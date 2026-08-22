@@ -1079,7 +1079,7 @@ async function scanServerBiomes(serverId: string, running: boolean): Promise<Bio
   }
   if (!biomes) {
     // Fallback: bundled vanilla registry.
-    biomes = (require('../config/biomes') as typeof import('../config/biomes')).map((id) => ({
+    biomes = (require('../config/biomes') as typeof import('../config/biomes')).biomes.map((id) => ({
       id,
       dimension: BIOME_DIMENSION.get(id) || 'minecraft:overworld',
     }));
@@ -1285,7 +1285,7 @@ async function tpToBiome(
   return { player, biome: biomeId, x, z, dimension: searchDim, output: out };
 }
 
-export = {
+export {
   readJson,
   writeJson,
   listPlayers,

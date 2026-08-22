@@ -284,4 +284,4 @@ const fields: Field[] = [
   },
 ];
 
-export = fields;
+export { fields };

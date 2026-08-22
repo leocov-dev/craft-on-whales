@@ -12,7 +12,7 @@ const authService = require('../../services/auth') as typeof import('../../servi
 const { checkLoginAllowed, recordLoginFailure, clearLoginFailures } =
   require('../middleware/auth') as typeof import('../middleware/auth');
 const { recordEvent } = require('../../events') as typeof import('../../events');
-const config = require('../../config') as typeof import('../../config');
+const { config } = require('../../config') as typeof import('../../config');
 const { checkDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
 
 const router = express.Router();
@@ -236,4 +236,4 @@ function firstIssue(err: unknown): string {
   return (err as Error)?.message || 'Something went wrong';
 }
 
-export = router;
+export { router };

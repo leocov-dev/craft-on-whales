@@ -81,4 +81,4 @@ function requireAdminForOverrides(req: Request, input: OverridesInput): void {
   }
 }
 
-export = { dockerOverridesSchema, overridesPresent, requireAdminForOverrides };
+export { dockerOverridesSchema, overridesPresent, requireAdminForOverrides };

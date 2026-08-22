@@ -4,7 +4,7 @@
 // against the latest available, caching results in update_checks. Scheduled
 // daily + on-demand; API-friendly (all lookups go through cached clients).
 
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const { recordEvent } = require('../events');
 const serversService = require('../services/servers');
 const packsService = require('../services/packs');
@@ -220,4 +220,4 @@ function lastCheckedAt(): string | null {
   return row ? row.fetched_at : null;
 }
 
-export = { checkAll, listOutdated, lastCheckedAt };
+export { checkAll, listOutdated, lastCheckedAt };

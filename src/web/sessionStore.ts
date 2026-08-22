@@ -5,7 +5,7 @@
 import type { SessionData } from 'express-session';
 
 const { Store } = require('express-session');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 class SqliteSessionStore extends Store {
   get(sid: string, cb: (err: unknown, session?: SessionData | null) => void): void {
@@ -55,4 +55,4 @@ class SqliteSessionStore extends Store {
   }
 }
 
-export = { SqliteSessionStore };
+export { SqliteSessionStore };

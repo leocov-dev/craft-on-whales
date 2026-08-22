@@ -25,7 +25,7 @@ function loadConfig(extraEnv) {
 }
 
 test('config exposes validated defaults', () => {
-  const config = require('../src/config');
+  const { config } = require('../src/config');
   assert.equal(config.port, 25564);
   assert.equal(config.mcImageRepo, 'itzg/minecraft-server');
   assert.equal(config.trustProxy, false);
@@ -56,7 +56,7 @@ test('a too-short SESSION_SECRET fails fast', () => {
 function loadMapProxyHost(extraEnv) {
   const res = spawnSync(
     process.execPath,
-    ['-r', 'tsx/cjs', '-e', "process.stdout.write(require('./src/config').mapProxyHost)"],
+    ['-r', 'tsx/cjs', '-e', "process.stdout.write(require('./src/config').config.mapProxyHost)"],
     {
       cwd: ROOT,
       env: {
@@ -95,7 +95,7 @@ test('TRUST_PROXY / COOKIE_SECURE resolve to usable values', () => {
       '-r',
       'tsx/cjs',
       '-e',
-      "const c=require('./src/config'); process.stdout.write(JSON.stringify({tp:c.trustProxy,cs:c.cookieSecure,exposed:c.isExposedBind}))",
+      "const { config: c } = require('./src/config'); process.stdout.write(JSON.stringify({tp:c.trustProxy,cs:c.cookieSecure,exposed:c.isExposedBind}))",
     ],
     {
       cwd: ROOT,

@@ -63,4 +63,4 @@ function makeJsonErrorHandler(tag: string, { fileTooLarge = 'File too large' }: 
   };
 }
 
-export = { makeJsonErrorHandler, friendlyError };
+export { makeJsonErrorHandler, friendlyError };

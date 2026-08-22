@@ -160,4 +160,4 @@ async function sendChat(
   return { ...message, actor, ts: new Date().toISOString() };
 }
 
-export = { sendChat, buildComponent, normalizeTarget, COLORS, FORMATS };
+export { sendChat, buildComponent, normalizeTarget, COLORS, FORMATS };

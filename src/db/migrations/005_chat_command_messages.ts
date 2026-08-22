@@ -16,4 +16,4 @@ function up(db: Db): void {
   `);
 }
 
-export = { up };
+export { up };

@@ -192,4 +192,4 @@ function listTasks(): TaskView[] {
   return out.sort((a, b) => (a.state === 'running' ? -1 : 1) - (b.state === 'running' ? -1 : 1));
 }
 
-export = { createTask, run, getTask, listTasks };
+export { createTask, run, getTask, listTasks };

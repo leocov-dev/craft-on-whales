@@ -11,7 +11,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { pipeline } = require('node:stream/promises');
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
 const { safeFetch } = require('../utils/urlGuard') as typeof import('../utils/urlGuard');
@@ -343,7 +343,7 @@ function humanBytes(n: number): string {
   return `${Math.round(n / 1024)} KB`;
 }
 
-export = {
+export {
   downloadToLibrary,
   importFile,
   installToServer,

@@ -4,7 +4,7 @@
 // JSON values. Secrets (API keys, RCON passwords) live in api_keys/servers,
 // encrypted — never here.
 
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 
 function get(key: string, fallback: unknown = null): unknown {
   const row = db.get('SELECT value_json FROM settings WHERE key = ?', key);
@@ -206,7 +206,7 @@ function clientLocalization(): { timezone: string; locale: string } {
   return { timezone: getTimezone(), locale: resolveLocale() };
 }
 
-export = {
+export {
   get,
   set,
   remove,

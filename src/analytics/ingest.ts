@@ -7,7 +7,7 @@
 
 import type { ClassifiedEvent } from './types';
 
-const db = require('../db');
+const { dbApi: db } = require('../db');
 const serversService = require('../services/servers');
 const { followLogs, fetchLogs } = require('../docker/logs');
 const { classify } = require('./logClassifier') as {
@@ -258,12 +258,4 @@ function pruneOlderThan(days: number): { events: number; sessions: number } {
   return { events, sessions };
 }
 
-export = {
-  startIngest,
-  stopIngest,
-  backfillFromLogs,
-  pruneOlderThan,
-  buildTs,
-  splitDockerTimestamp,
-  closeAllSessions,
-};
+export { startIngest, stopIngest, backfillFromLogs, pruneOlderThan, buildTs, splitDockerTimestamp, closeAllSessions };

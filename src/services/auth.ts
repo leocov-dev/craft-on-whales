@@ -5,7 +5,7 @@
 import { httpError } from '../utils/httpError';
 const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
-const db = require('../db') as typeof import('../db');
+const { dbApi: db } = require('../db') as typeof import('../db');
 const { recordEvent } = require('../events') as typeof import('../events');
 const totp = require('./totp') as typeof import('./totp');
 const secrets = require('./secrets') as typeof import('./secrets');
@@ -271,7 +271,7 @@ function pruneExpiredSessions(): import('node:sqlite').StatementResultingChanges
   return db.run("DELETE FROM sessions WHERE expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
 }
 
-export = {
+export {
   firstRunNeeded,
   createUser,
   verifyCredentials,
