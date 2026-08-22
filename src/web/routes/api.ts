@@ -676,7 +676,7 @@ router.get(
     const resolved = await packs.resolvePack(platform, ref, {});
     let description = '';
     let downloads = null;
-    let author = null;
+    const author = null;
     if (platform === 'modrinth') {
       const project = await modrinthApi.getProject(resolved.projectRef);
       downloads = project.downloads ?? null;

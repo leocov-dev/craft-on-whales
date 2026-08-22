@@ -25,10 +25,10 @@
     "build:css": "tailwindcss -i assets/css/input.css -o public/css/app.css --minify",
     "watch:css": "tailwindcss -i assets/css/input.css -o public/css/app.css --watch",
     "postinstall": "node scripts/postinstall.js",
-    "lint": "eslint scripts public/js test eslint.config.js",
+    "lint": "eslint src scripts public/js test eslint.config.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json",
     "test": "node -r tsx/cjs --test \"test/**/*.test.js\"",
     "test:unit": "node -r tsx/cjs --test \"test/**/*.test.js\"",
     "test:smoke": "node scripts/qa-sweep.js"
@@ -72,6 +72,8 @@
     "globals": "^17.7.0",
     "prettier": "^3.4.2",
     "tailwindcss": "^4.1.4",
-    "typescript": "^7.0.2"
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript7": "npm:typescript@^7.0.2",
+    "typescript-eslint": "^8.67.0"
   }
 }
