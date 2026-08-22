@@ -78,6 +78,9 @@ export interface ModrinthProject {
   title: string;
   icon_url?: string | null;
   project_type: string;
+  downloads?: number;
+  /** Full project description, as Markdown. */
+  body?: string;
 }
 
 /** One file attached to a Modrinth version. */

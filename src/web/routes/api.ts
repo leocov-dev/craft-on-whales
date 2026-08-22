@@ -1,44 +1,49 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // JSON API consumed by the panel's own frontend.
 
-const asyncHandler = require('../middleware/asyncHandler');
-const { makeJsonErrorHandler } = require('../middleware/jsonErrorHandler');
+import type { Request, Response, NextFunction } from 'express';
+import type { Server } from '../../services/types';
+import type { Field } from '../../config/field-catalog/types';
+
+const asyncHandler = require('../middleware/asyncHandler') as typeof import('../middleware/asyncHandler');
+const { makeJsonErrorHandler } =
+  require('../middleware/jsonErrorHandler') as typeof import('../middleware/jsonErrorHandler');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const express = require('express');
-const multer = require('multer');
+const multer = require('multer') as typeof import('multer');
 const { z } = require('zod');
-const servers = require('../../services/servers');
-const ports = require('../../services/ports');
-const mojang = require('../../services/mojang');
-const tasks = require('../../services/tasks');
-const db = require('../../db');
-const eventsService = require('../../events');
-const { dataPath } = require('../../storage/pathGuard');
-const { checkDocker } = require('../../docker/connect');
-const { fetchLogs } = require('../../docker/logs');
-const { statsOnce } = require('../../docker/stats');
-const dockerNetworks = require('../../docker/networks');
-const dockerSpec = require('../../services/dockerSpec');
-const { dockerOverridesSchema, requireAdminForOverrides } = require('./dockerOverridesSchema');
+const servers = require('../../services/servers') as typeof import('../../services/servers');
+const ports = require('../../services/ports') as typeof import('../../services/ports');
+const mojang = require('../../services/mojang') as typeof import('../../services/mojang');
+const tasks = require('../../services/tasks') as typeof import('../../services/tasks');
+const db = require('../../db') as typeof import('../../db');
+const eventsService = require('../../events') as typeof import('../../events');
+const { dataPath } = require('../../storage/pathGuard') as typeof import('../../storage/pathGuard');
+const { checkDocker } = require('../../docker/connect') as typeof import('../../docker/connect');
+const { fetchLogs } = require('../../docker/logs') as typeof import('../../docker/logs');
+const { statsOnce } = require('../../docker/stats') as typeof import('../../docker/stats');
+const dockerNetworks = require('../../docker/networks') as typeof import('../../docker/networks');
+const dockerSpec = require('../../services/dockerSpec') as typeof import('../../services/dockerSpec');
+const { dockerOverridesSchema, requireAdminForOverrides } =
+  require('./dockerOverridesSchema') as typeof import('./dockerOverridesSchema');
 
 const router = express.Router();
 
 // Valid server TYPE values, derived from the field catalog so this stays in sync
 // with the wizard. An unknown type would create a container that only fails later
 // at start with no useful feedback.
-const SERVER_TYPES = require('../../config/field-catalog/general')
-  .find((f) => f.key === 'TYPE')
-  .options.map((o) => o.value);
+const SERVER_TYPES: string[] = (require('../../config/field-catalog/general') as Field[])
+  .find((f) => f.key === 'TYPE')!
+  .options!.map((o) => o.value);
 
 /** Load a server row or throw a JSON-friendly 404. */
-function requireServer(id) {
+function requireServer(id: string): Server {
   const server = servers.getServer(id);
   if (!server) {
-    const err = new Error('Server not found');
+    const err: Error = new Error('Server not found');
     err.status = 404;
     throw err;
   }
@@ -60,7 +65,7 @@ const createSchema = z
       .trim()
       .min(1)
       .max(32)
-      .refine((v) => SERVER_TYPES.includes(v), { message: 'Unknown server type' }),
+      .refine((v: string) => SERVER_TYPES.includes(v), { message: 'Unknown server type' }),
     mcVersion: z.string().trim().max(32).optional(),
     javaTag: z.string().max(16).optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -77,33 +82,39 @@ const createSchema = z
     start: z.coerce.boolean().optional(),
     ...dockerOverridesSchema,
   })
-  .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-    message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
-  });
+  .refine(
+    (v: { containerMemoryMb?: number; heapMb?: number }) =>
+      !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+    {
+      message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
+    }
+  );
 
 router.post(
   '/servers',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const input = createSchema.parse(req.body);
     requireAdminForOverrides(req, input);
-    const server = await servers.createServer(input, { actor: req.user.username, start: input.start !== false });
+    const server = await servers.createServer(input, { actor: req.user!.username, start: input.start !== false });
     res.status(201).json({ ok: true, server: publicServer(server) });
   })
 );
 
-for (const action of ['start', 'stop', 'restart', 'kill', 'recreate']) {
+type LifecycleAction = 'start' | 'stop' | 'restart' | 'kill' | 'recreate';
+
+for (const action of ['start', 'stop', 'restart', 'kill', 'recreate'] as LifecycleAction[]) {
   router.post(
     `/servers/:id/${action}`,
-    asyncHandler(async (req, res, next) => {
-      await servers[`${action}Server`](req.params.id, { actor: req.user.username });
-      res.json({ ok: true, server: publicServer(servers.getServer(req.params.id)) });
+    asyncHandler(async (req: Request, res: Response) => {
+      await servers[`${action}Server`](String(req.params.id), { actor: req.user!.username });
+      res.json({ ok: true, server: publicServer(servers.getServer(String(req.params.id))) });
     })
   );
 }
 
 router.patch(
   '/servers/:id',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response) => {
     const changes = z
       .object({
         name: z.string().trim().min(1).max(80).optional(),
@@ -128,9 +139,13 @@ router.patch(
         env: z.record(z.string(), z.string()).optional(),
         ...dockerOverridesSchema,
       })
-      .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-        message: 'Container memory limit must be higher than the Java heap',
-      })
+      .refine(
+        (v: { containerMemoryMb?: number; heapMb?: number }) =>
+          !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+        {
+          message: 'Container memory limit must be higher than the Java heap',
+        }
+      )
       .parse(req.body);
     requireAdminForOverrides(req, changes);
     if (
@@ -139,7 +154,7 @@ router.patch(
       changes.extraPorts !== undefined ||
       changes.extraBinds !== undefined
     ) {
-      const before = requireServer(req.params.id);
+      const before = requireServer(String(req.params.id));
       await dockerSpec.validateOverrides(
         {
           containerName: changes.containerName || null,
@@ -150,7 +165,9 @@ router.patch(
         { previousExtraPorts: before.extraPorts }
       );
     }
-    const { server, needsRecreate } = servers.updateServer(req.params.id, changes, { actor: req.user.username });
+    const { server, needsRecreate } = servers.updateServer(String(req.params.id), changes, {
+      actor: req.user!.username,
+    });
     res.json({ ok: true, needsRecreate, server: publicServer(server) });
   })
 );
@@ -158,10 +175,12 @@ router.patch(
 // Advanced Docker settings: host network discovery, and the "Preview as YAML"
 // round trip shared by the wizard (pre-creation) and the Settings tab (post-creation).
 
+const authMiddleware = require('../middleware/auth') as typeof import('../middleware/auth');
+
 router.get(
   '/docker/networks',
-  require('../middleware/auth').requireRole('admin'),
-  asyncHandler(async (req, res) => {
+  authMiddleware.requireRole('admin'),
+  asyncHandler(async (req: Request, res: Response) => {
     res.json({ ok: true, networks: await dockerNetworks.listNetworks() });
   })
 );
@@ -184,17 +203,20 @@ const previewSchema = z.object({
 
 router.post(
   '/docker/preview',
-  require('../middleware/auth').requireRole('admin'),
-  asyncHandler((req, res) => {
+  authMiddleware.requireRole('admin'),
+  asyncHandler((req: Request, res: Response) => {
     const input = previewSchema.parse(req.body);
-    res.json({ ok: true, yaml: dockerSpec.toYaml(servers.previewCreateSpec(input)) });
+    res.json({
+      ok: true,
+      yaml: dockerSpec.toYaml(servers.previewCreateSpec(input) as unknown as Parameters<typeof dockerSpec.toYaml>[0]),
+    });
   })
 );
 
 router.post(
   '/docker/preview/parse',
-  require('../middleware/auth').requireRole('admin'),
-  asyncHandler((req, res) => {
+  authMiddleware.requireRole('admin'),
+  asyncHandler((req: Request, res: Response) => {
     const { yaml: text } = z.object({ yaml: z.string().max(20000) }).parse(req.body);
     res.json({ ok: true, spec: dockerSpec.fromYaml(text) });
   })
@@ -202,18 +224,23 @@ router.post(
 
 router.get(
   '/servers/:id/docker-spec',
-  require('../middleware/auth').requireRole('admin'),
-  asyncHandler((req, res) => {
-    requireServer(req.params.id);
-    res.json({ ok: true, yaml: dockerSpec.toYaml(servers.previewServerSpec(req.params.id)) });
+  authMiddleware.requireRole('admin'),
+  asyncHandler((req: Request, res: Response) => {
+    requireServer(String(req.params.id));
+    res.json({
+      ok: true,
+      yaml: dockerSpec.toYaml(
+        servers.previewServerSpec(String(req.params.id)) as unknown as Parameters<typeof dockerSpec.toYaml>[0]
+      ),
+    });
   })
 );
 
 router.delete(
   '/servers/:id',
-  asyncHandler(async (req, res, next) => {
-    const { freedBytes } = await servers.deleteServer(req.params.id, {
-      actor: req.user.username,
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    const { freedBytes } = await servers.deleteServer(String(req.params.id), {
+      actor: req.user!.username,
       keepWorld: req.query.keepWorld === 'true',
     });
     res.json({ ok: true, freedBytes });
@@ -222,26 +249,26 @@ router.delete(
 
 router.get(
   '/servers/:id/logs',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const tail = Math.max(1, Math.min(Number(req.query.tail) || 500, 5000));
-    res.type('text/plain').send(await fetchLogs(req.params.id, { tail }));
+    res.type('text/plain').send(await fetchLogs(String(req.params.id), { tail }));
   })
 );
 
 // Per-server label for panel-run console actions (announced in-game). Empty clears it.
 router.put(
   '/servers/:id/console-label',
-  asyncHandler((req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     const { label } = z.object({ label: z.string().max(48).optional() }).parse(req.body);
-    res.json({ ok: true, label: servers.setConsoleLabel(req.params.id, label) });
+    res.json({ ok: true, label: servers.setConsoleLabel(String(req.params.id), label) });
   })
 );
 
 router.get(
   '/servers/:id/stats',
-  asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, stats: await statsOnce(req.params.id) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    res.json({ ok: true, stats: await statsOnce(String(req.params.id)) });
   })
 );
 
@@ -249,14 +276,17 @@ router.get(
 // Includes the DB status for EVERY server so the dashboard can move the
 // status dot when a server crashes or stops — hydration used to update only
 // the numbers, leaving a crashed server pulsing green "Running" until reload.
-router.get('/servers/live', (req, res) => {
-  const liveCache = require('../../services/liveCache');
-  const db = require('../../db');
+const LIVE_EMPTY = { stats: null, players: null, startedAt: null, phase: null, upConfirmed: false };
+
+router.get('/servers/live', (req: Request, res: Response) => {
+  const liveCache = require('../../services/liveCache') as typeof import('../../services/liveCache');
+  const db = require('../../db') as typeof import('../../db');
   const all = liveCache.getAll();
-  const out = {};
+  const out: Record<string, unknown> = {};
   for (const row of db.all('SELECT id, status FROM servers WHERE deleted_at IS NULL')) {
-    const e = all[row.id] || {};
-    out[row.id] = {
+    const id = String(row.id);
+    const e = all[id] || LIVE_EMPTY;
+    out[id] = {
       status: row.status,
       cpuPct: e.stats ? e.stats.cpuPct : null,
       memUsedMb: e.stats ? Math.round(e.stats.memUsedBytes / 1024 / 1024) : null,
@@ -272,7 +302,7 @@ router.get('/servers/live', (req, res) => {
 
 router.get(
   '/ports/check',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const port = Number(req.query.port);
     if (!Number.isInteger(port)) return res.status(400).json({ ok: false, error: 'port required' });
     res.json({ ok: true, port, free: await ports.isPortFree(port) });
@@ -281,19 +311,19 @@ router.get(
 
 router.get(
   '/ports/suggest',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, ports: await ports.suggestPorts({ withBedrock: req.query.bedrock === 'true' }) });
   })
 );
 
 router.get(
   '/versions',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, versions: await mojang.listVersions({ includeSnapshots: req.query.snapshots === 'true' }) });
   })
 );
 
-router.get('/docker/status', async (req, res, next) => {
+router.get('/docker/status', async (req: Request, res: Response, next: NextFunction) => {
   try {
     res.json({ ok: true, docker: await checkDocker() });
   } catch (err) {
@@ -302,21 +332,21 @@ router.get('/docker/status', async (req, res, next) => {
 });
 
 // ---- API keys (Settings page) — admin only ----
-const apiKeys = require('../../services/apiKeys');
-const { requireRole: requireRoleKeys } = require('../middleware/auth');
+const apiKeys = require('../../services/apiKeys') as typeof import('../../services/apiKeys');
+const { requireRole: requireRoleKeys } = require('../middleware/auth') as typeof import('../middleware/auth');
 
-router.get('/keys', (req, res) => {
+router.get('/keys', (req: Request, res: Response) => {
   res.json({ ok: true, curseforge: { masked: apiKeys.maskedKey('curseforge') } });
 });
 
 router.post(
   '/keys/curseforge',
   requireRoleKeys('admin'),
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { key } = z.object({ key: z.string().trim().min(10).max(200) }).parse(req.body);
     const test = await apiKeys.testCurseForgeKey(key);
     if (!test.ok) return res.status(400).json({ ok: false, error: test.error });
-    apiKeys.setKey('curseforge', key, { actor: req.user.username });
+    apiKeys.setKey('curseforge', key, { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
@@ -324,15 +354,15 @@ router.post(
 router.post(
   '/keys/curseforge/test',
   requireRoleKeys('admin'),
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json(await apiKeys.testCurseForgeKey());
   })
 );
 
 // ---- Panel settings (public domain, shown instead of the LAN IP) ----
-const settingsService = require('../../services/settings');
+const settingsService = require('../../services/settings') as typeof import('../../services/settings');
 
-router.get('/settings', (req, res) => {
+router.get('/settings', (req: Request, res: Response) => {
   res.json({
     ok: true,
     publicHost: settingsService.getPublicHost(),
@@ -343,7 +373,7 @@ router.get('/settings', (req, res) => {
 router.post(
   '/settings',
   requireRoleKeys('admin'),
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { publicHost } = z.object({ publicHost: z.string().max(255).optional() }).parse(req.body);
     const saved = settingsService.setPublicHost(publicHost || '');
     res.json({ ok: true, publicHost: saved });
@@ -351,14 +381,14 @@ router.post(
 );
 
 // ---- Localization: timezone + country (auto-detected from the host by default) ----
-router.get('/settings/localization', (req, res) => {
+router.get('/settings/localization', (req: Request, res: Response) => {
   res.json({ ok: true, localization: settingsService.localization() });
 });
 
 router.post(
   '/settings/localization',
   requireRoleKeys('admin'),
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { timezone, country } = z
       .object({
         timezone: z.string().max(64).optional(),
@@ -369,7 +399,7 @@ router.post(
       settingsService.setTimezone(timezone);
       // Already-armed schedules keep firing on whatever zone they were
       // created with until re-armed — do it now, not just for new ones.
-      require('../../services/scheduler').rearmAll();
+      (require('../../services/scheduler') as typeof import('../../services/scheduler')).rearmAll();
     }
     if (country !== undefined) settingsService.setCountry(country);
     res.json({ ok: true, localization: settingsService.localization() });
@@ -377,14 +407,14 @@ router.post(
 );
 
 // ---- Modpacks: resolve/preview, install (always pinned), upgrade, rollback ----
-const packs = require('../../services/packs');
-const upgrade = require('../../updates/upgrade');
-const checker = require('../../updates/checker');
-const backups = require('../../services/backups');
+const packs = require('../../services/packs') as typeof import('../../services/packs');
+const upgrade = require('../../updates/upgrade') as typeof import('../../updates/upgrade');
+const checker = require('../../updates/checker') as typeof import('../../updates/checker');
+const backups = require('../../services/backups') as typeof import('../../services/backups');
 
 router.post(
   '/packs/resolve',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { platform, ref, versionId, mcVersion } = z
       .object({
         platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
@@ -401,7 +431,7 @@ router.post(
   })
 );
 
-router.post('/servers/:id/pack', async (req, res, next) => {
+router.post('/servers/:id/pack', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { platform, ref, versionId, force } = z
       .object({
@@ -416,11 +446,12 @@ router.post('/servers/:id/pack', async (req, res, next) => {
       })
       .parse(req.body);
     const resolved = await packs.resolvePack(platform, ref, { versionId });
-    await packs.applyPack(req.params.id, resolved, { actor: req.user.username, force });
+    await packs.applyPack(String(req.params.id), resolved, { actor: req.user!.username, force });
     res.json({ ok: true, pack: resolved, note: 'Applied — recreate/restart to install' });
   } catch (err) {
-    if (err.requiresForce) {
-      return res.status(409).json({ ok: false, error: err.message, requiresForce: true, warnings: err.warnings });
+    const e = err as Error & { requiresForce?: boolean; warnings?: string[] };
+    if (e.requiresForce) {
+      return res.status(409).json({ ok: false, error: e.message, requiresForce: true, warnings: e.warnings });
     }
     next(err);
   }
@@ -443,7 +474,7 @@ const UPGRADE_STEP_LABELS = {
 // {ok:false, error, rollbackAvailable:true} so the client can offer rollback.
 router.post(
   '/servers/:id/pack/upgrade',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { versionId, skipBackup } = z
       .object({
         // Same shape constraint as the other pack versionId fields: this one
@@ -457,8 +488,8 @@ router.post(
         skipBackup: z.coerce.boolean().optional(),
       })
       .parse(req.body);
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
     const taskId = tasks.run(`Upgrading pack on ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step(UPGRADE_STEP_LABELS.resolving);
       try {
@@ -466,11 +497,12 @@ router.post(
           versionId,
           skipBackup,
           actor,
-          onStep: (s) => t.step(UPGRADE_STEP_LABELS[s] || s),
+          onStep: (s: string) => t.step((UPGRADE_STEP_LABELS as Record<string, string>)[s] || s),
         });
       } catch (err) {
-        if (err.rollbackAvailable) {
-          return { ok: false, error: err.message, rollbackAvailable: true };
+        const e = err as Error;
+        if (e.rollbackAvailable) {
+          return { ok: false, error: e.message, rollbackAvailable: true };
         }
         throw err;
       }
@@ -483,10 +515,10 @@ router.post(
 // recent pre-update backup for this server is restored alongside the re-pin.
 router.post(
   '/servers/:id/pack/rollback',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const body = z.object({ backupId: z.string().trim().max(40).optional() }).parse(req.body);
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
     const backupId =
       body.backupId ||
       db.get(
@@ -507,13 +539,13 @@ router.post(
 );
 
 // ---- Pack browser — search, details, installed pack mods, one-shot create ----
-const curseforgeApi = require('../../services/curseforgeApi');
-const modrinthApi = require('../../services/modrinthApi');
+const curseforgeApi = require('../../services/curseforgeApi') as typeof import('../../services/curseforgeApi');
+const modrinthApi = require('../../services/modrinthApi') as typeof import('../../services/modrinthApi');
 const sanitizeHtml = require('sanitize-html');
 const { marked } = require('marked');
 
 /** Sanitize platform-provided pack descriptions (Modrinth markdown→HTML, CF raw HTML). */
-function sanitizePackHtml(html) {
+function sanitizePackHtml(html: unknown): string {
   return sanitizeHtml(String(html || ''), {
     allowedTags: [
       'p',
@@ -566,7 +598,7 @@ function sanitizePackHtml(html) {
 // Search modpacks on Modrinth (no key) or CurseForge (needs the stored key).
 router.get(
   '/packs/search',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { q, platform } = z
       .object({
         q: z.string().trim().min(1).max(120),
@@ -602,16 +634,19 @@ router.get(
 // version is echoed back so the UI can mark it).
 router.get(
   '/packs/details',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const query = z
       .object({
         platform: z.enum(['curseforge', 'modrinth']).optional(),
         ref: z.string().trim().min(1).max(400).optional(),
         serverId: z.string().trim().max(40).optional(),
       })
-      .refine((v) => Boolean(v.serverId) || (v.platform && v.ref), {
-        message: 'Provide platform+ref or serverId',
-      })
+      .refine(
+        (v: { serverId?: string; platform?: string; ref?: string }) => Boolean(v.serverId) || (v.platform && v.ref),
+        {
+          message: 'Provide platform+ref or serverId',
+        }
+      )
       .parse({
         platform: req.query.platform || undefined,
         ref: req.query.ref || undefined,
@@ -676,11 +711,13 @@ router.get(
 // 'pack' + on-disk scan), for the details modal's mod list.
 router.get(
   '/servers/:id/pack/mods',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
-    const pin = packs.getPack(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
+    const pin = packs.getPack(String(req.params.id));
     if (!pin) throw Object.assign(new Error('This server has no managed modpack'), { status: 404 });
-    const all = await require('../../services/mods').listContent(req.params.id);
+    const all = await (require('../../services/mods') as typeof import('../../services/mods')).listContent(
+      String(req.params.id)
+    );
     const rows = all
       .filter((m) => m.source === 'pack')
       .map((m) => ({ name: m.name, file: m.file, kind: m.kind, version: m.version, size: m.size, enabled: m.enabled }));
@@ -711,23 +748,27 @@ const fromPackSchema = z
     env: z.record(z.string(), z.string()).optional(),
     ...dockerOverridesSchema,
   })
-  .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-    message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
-  });
+  .refine(
+    (v: { containerMemoryMb?: number; heapMb?: number }) =>
+      !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+    {
+      message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
+    }
+  );
 
 // One-shot "create server from modpack": resolve (pin) → create (image pull
 // progress included) → apply pack → start, all inside ONE task so the wizard
 // shows real progress end to end. Returns {ok, taskId}; task result {serverId}.
 router.post(
   '/servers/from-pack',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const input = fromPackSchema.parse(req.body);
     requireAdminForOverrides(req, input);
-    const actor = req.user.username;
+    const actor = req.user!.username;
     const taskId = tasks.run(`Creating ${input.name} from a ${input.platform} pack`, { actor }, async (t) => {
       t.step('Resolving pack version (pinned — never "latest")');
       const resolved = await packs.resolvePack(input.platform, input.ref, { versionId: input.versionId });
-      const type = packs.packEnv(resolved).TYPE;
+      const type = packs.packEnv(resolved).TYPE!;
       t.step('Creating server');
       const server = await servers.createServer(
         {
@@ -771,8 +812,8 @@ router.post(
 // Long operation — returns {ok, taskId}; the task result is the findings array.
 router.post(
   '/updates/check',
-  asyncHandler((req, res, next) => {
-    const actor = req.user.username;
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const actor = req.user!.username;
     const taskId = tasks.run('Checking for updates', { actor }, async (t) => {
       t.step('Querying CurseForge, Modrinth and the registry');
       const findings = await checker.checkAll({ actor });
@@ -786,9 +827,9 @@ router.post(
 // the task result is scoped to this server's findings.
 router.post(
   '/servers/:id/updates/check',
-  asyncHandler((req, res, next) => {
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
     const taskId = tasks.run(
       `Checking updates for ${server.display_name}`,
       { serverId: server.id, actor },
@@ -803,24 +844,26 @@ router.post(
 );
 
 // ---- Schedules ----
-const scheduler = require('../../services/scheduler');
+const scheduler = require('../../services/scheduler') as typeof import('../../services/scheduler');
 
 // Validate a cron expression and preview the next 3 runs.
-router.get('/schedules/preview', (req, res) => {
+router.get('/schedules/preview', (req: Request, res: Response) => {
   const expr = String(req.query.cron || '').trim();
   try {
     if (!expr) throw new Error('Empty expression');
     const { Cron } = require('croner');
-    const runs = new Cron(expr, { timezone: settingsService.getTimezone() }).nextRuns(3).map((d) => d.toISOString());
+    const runs = new Cron(expr, { timezone: settingsService.getTimezone() })
+      .nextRuns(3)
+      .map((d: Date) => d.toISOString());
     res.json({ ok: true, cron: expr, runs });
   } catch (err) {
-    res.status(400).json({ ok: false, error: `Invalid cron expression: ${err.message}` });
+    res.status(400).json({ ok: false, error: `Invalid cron expression: ${(err as Error).message}` });
   }
 });
 
 router.post(
   '/schedules',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const input = z
       .object({
         serverId: z.string().trim().max(40).nullable().optional(),
@@ -840,7 +883,7 @@ router.post(
           payload: input.payload,
           enabled: input.enabled !== false,
         },
-        { actor: req.user.username }
+        { actor: req.user!.username }
       ),
     });
   })
@@ -848,28 +891,28 @@ router.post(
 
 router.post(
   '/schedules/:id/toggle',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
-    scheduler.setEnabled(req.params.id, enabled, { actor: req.user.username });
+    scheduler.setEnabled(String(req.params.id), enabled, { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
 
 router.delete(
   '/schedules/:id',
-  asyncHandler((req, res, next) => {
-    scheduler.deleteSchedule(req.params.id, { actor: req.user.username });
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    scheduler.deleteSchedule(String(req.params.id), { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
 
 // ---- Storage ----
-const indexer = require('../../storage/indexer');
-const storageCleanup = require('./storageCleanup');
+const indexer = require('../../storage/indexer') as typeof import('../../storage/indexer');
+const storageCleanup = require('./storageCleanup') as typeof import('./storageCleanup');
 
 router.post(
   '/storage/scan',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     res.json({ ok: true, ...(await indexer.scan()) });
   })
 );
@@ -879,7 +922,7 @@ router.post(
 router.post(
   '/storage/cleanup',
   requireRoleKeys('admin'),
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { action, olderThanDays, dryRun } = z
       .object({
         action: z.enum(['tmp', 'orphans', 'old-logs', 'old-crashes']),
@@ -890,7 +933,7 @@ router.post(
     const result = await storageCleanup.runCleanup(action, {
       olderThanDays,
       dryRun: Boolean(dryRun),
-      actor: req.user.username,
+      actor: req.user!.username,
     });
     res.json({ ok: true, dryRun: Boolean(dryRun), ...result });
   })
@@ -900,9 +943,9 @@ router.post(
 // Long operation — returns {ok, taskId}; task result: {id, filename, size}.
 router.post(
   '/servers/:id/backups',
-  asyncHandler((req, res, next) => {
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
     const note = String(req.body?.note || '');
     const taskId = tasks.run(`Backing up ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step('Snapshotting server directory (save-off → save-all → zip → save-on)');
@@ -917,10 +960,10 @@ router.post(
 // backup, wipes the dir and extracts the archive.
 router.post(
   '/servers/:id/backups/:backupId/restore',
-  asyncHandler((req, res, next) => {
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
-    const backupId = req.params.backupId;
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
+    const backupId = String(req.params.backupId);
     const taskId = tasks.run(
       `Restoring backup on ${server.display_name}`,
       { serverId: server.id, actor },
@@ -940,34 +983,34 @@ router.post(
 router.get(
   '/backups/:backupId/download',
   requireRoleKeys('admin', 'operator'),
-  asyncHandler((req, res, next) => {
-    const backup = db.get('SELECT * FROM backups WHERE id = ?', req.params.backupId);
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const backup = db.get('SELECT * FROM backups WHERE id = ?', String(req.params.backupId));
     if (!backup) throw Object.assign(new Error('Backup not found'), { status: 404 });
-    const abs = dataPath(backup.rel_path);
+    const abs = dataPath(String(backup.rel_path));
     if (!fs.existsSync(abs)) throw Object.assign(new Error('Backup archive is missing on disk'), { status: 404 });
-    res.download(abs, backup.filename);
+    res.download(abs, String(backup.filename));
   })
 );
 
 router.delete(
   '/backups/:backupId',
-  asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, ...(await backups.deleteBackup(req.params.backupId, { actor: req.user.username })) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    res.json({ ok: true, ...(await backups.deleteBackup(String(req.params.backupId), { actor: req.user!.username })) });
   })
 );
 
 // ---- Blueprints ----
-router.use('/blueprints', require('./blueprints'));
+router.use('/blueprints', require('./blueprints') as typeof import('./blueprints'));
 
 // ---- World quick controls (Overview tab) — version-tolerant service ----
-const worldControls = require('../../services/worldControls');
+const worldControls = require('../../services/worldControls') as typeof import('../../services/worldControls');
 
 router.get(
   '/servers/:id/world/state',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     try {
-      res.json({ ok: true, running: true, state: await worldControls.getState(req.params.id) });
+      res.json({ ok: true, running: true, state: await worldControls.getState(String(req.params.id)) });
     } catch {
       res.json({ ok: true, running: false, state: {} });
     }
@@ -976,21 +1019,21 @@ router.get(
 
 router.post(
   '/servers/:id/world/quick',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     const { action } = z.object({ action: z.enum(Object.keys(worldControls.QUICK_ACTIONS)) }).parse(req.body);
-    const result = await worldControls.runQuick(req.params.id, action, { actor: req.user.username });
+    const result = await worldControls.runQuick(String(req.params.id), action, { actor: req.user!.username });
     res.json({ ok: true, ...result });
   })
 );
 
 // ---- Admin chat (tellraw / say over RCON) ----
-const chat = require('../../services/chat');
+const chat = require('../../services/chat') as typeof import('../../services/chat');
 
 router.post(
   '/servers/:id/chat',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     const body = z
       .object({
         mode: z.enum(['tellraw', 'say']).default('tellraw'),
@@ -1004,80 +1047,84 @@ router.post(
         obfuscated: z.coerce.boolean().optional(),
       })
       .parse(req.body);
-    const result = await chat.sendChat(req.params.id, { ...body, actor: req.user.username });
+    const result = await chat.sendChat(String(req.params.id), { ...body, actor: req.user!.username });
     res.status(201).json({ ok: true, ...result });
   })
 );
 
 // ---- Live map (BlueMap) ----
-const mapService = require('../../services/map');
+const mapService = require('../../services/map') as typeof import('../../services/map');
 
 router.post(
   '/servers/:id/map/enable',
-  asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, ...(await mapService.enableMap(req.params.id, { actor: req.user.username })) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    res.json({ ok: true, ...(await mapService.enableMap(String(req.params.id), { actor: req.user!.username })) });
   })
 );
 
 router.post(
   '/servers/:id/map/disable',
-  asyncHandler(async (req, res, next) => {
-    await mapService.disableMap(req.params.id, { actor: req.user.username });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    await mapService.disableMap(String(req.params.id), { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
 
 // ---- Worlds & files ----
-router.use('/worlds', require('./worlds'));
-router.use('/servers/:id/worlds', require('./worlds').serverWorlds);
+router.use('/worlds', require('./worlds') as typeof import('./worlds'));
+router.use('/servers/:id/worlds', (require('./worlds') as typeof import('./worlds')).serverWorlds);
 // Admin/operator only: read/download expose raw server files (server.properties
 // carries the plaintext rcon.password), so viewers are kept out of the whole tree
 // rather than relying on requireWrite, which only blocks their non-GET requests.
-router.use('/servers/:id/files', requireRoleKeys('admin', 'operator'), require('./files').serverFiles);
-router.use('/files', require('../middleware/auth').requireRole('admin'), require('./files').globalFiles);
+router.use(
+  '/servers/:id/files',
+  requireRoleKeys('admin', 'operator'),
+  (require('./files') as typeof import('./files')).serverFiles
+);
+router.use('/files', authMiddleware.requireRole('admin'), (require('./files') as typeof import('./files')).globalFiles);
 
 // ---- Crash reports ----
-router.use('/servers/:id/crashes', require('./crashes'));
+router.use('/servers/:id/crashes', require('./crashes') as typeof import('./crashes'));
 
 // ---- Player god-mode ----
-router.use('/servers/:id/players', require('./players'));
+router.use('/servers/:id/players', require('./players') as typeof import('./players'));
 
 // ---- Custom chat commands (!rtp2 …) ----
-router.use('/servers/:id/chat-commands', require('./chatCommands'));
+router.use('/servers/:id/chat-commands', require('./chatCommands') as typeof import('./chatCommands'));
 
 // ---- Integrations (Discord, invites, status page) ----
-router.use('/servers/:id/integrations', require('./integrations'));
+router.use('/servers/:id/integrations', require('./integrations') as typeof import('./integrations'));
 
 // ---- Analytics & activity timeline ----
-router.use('/servers/:id/analytics', require('./analytics'));
+router.use('/servers/:id/analytics', require('./analytics') as typeof import('./analytics'));
 
 // ---- Inventory forensics ----
-router.use('/servers/:id/inventory', require('./inventory'));
-router.use('/inventory', require('./inventory').globalSearch);
+router.use('/servers/:id/inventory', require('./inventory') as typeof import('./inventory'));
+router.use('/inventory', (require('./inventory') as typeof import('./inventory')).globalSearch);
 
 // ---- Item registry (JEI-style browser, built from the server's own jars) ----
-router.use('/servers/:id/items', require('./items'));
+router.use('/servers/:id/items', require('./items') as typeof import('./items'));
 
 // ---- Mods manager ----
-const mods = require('../../services/mods');
+const mods = require('../../services/mods') as typeof import('../../services/mods');
 
 router.get(
   '/servers/:id/mods',
-  asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, mods: await mods.listContent(req.params.id) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    res.json({ ok: true, mods: await mods.listContent(String(req.params.id)) });
   })
 );
 
 router.post(
   '/servers/:id/mods',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { url, kind } = z
       .object({
         url: z.string().trim().min(3).max(500),
         kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
       })
       .parse(req.body);
-    const result = await mods.installFromUrl(req.params.id, url, { actor: req.user.username, kind });
+    const result = await mods.installFromUrl(String(req.params.id), url, { actor: req.user!.username, kind });
     res.status(201).json({
       ok: true,
       installed: { name: result.library.name, filename: result.filename, version: result.library.version },
@@ -1091,16 +1138,18 @@ router.post(
 // replaces the old file and preserves the enabled/disabled state.
 router.post(
   '/servers/:id/mods/update',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { file, contentId } = z
       .object({
         file: z.string().min(1).max(200).optional(),
         contentId: z.string().trim().max(40).optional(),
       })
-      .refine((v) => Boolean(v.file) || Boolean(v.contentId), { message: 'Provide file or contentId' })
+      .refine((v: { file?: string; contentId?: string }) => Boolean(v.file) || Boolean(v.contentId), {
+        message: 'Provide file or contentId',
+      })
       .parse(req.body);
-    const server = requireServer(req.params.id);
-    const actor = req.user.username;
+    const server = requireServer(String(req.params.id));
+    const actor = req.user!.username;
 
     const row = contentId
       ? db.get('SELECT * FROM server_content WHERE id = ? AND server_id = ?', contentId, server.id)
@@ -1114,13 +1163,16 @@ router.post(
         status: 409,
       });
     }
-    const lib = row.library_id ? db.get('SELECT * FROM library_files WHERE id = ?', row.library_id) : null;
+    const lib = row.library_id ? db.get('SELECT * FROM library_files WHERE id = ?', String(row.library_id)) : null;
     if (!lib || !lib.project_id) {
       throw Object.assign(new Error('No update source is known for this mod (installed from a direct URL or upload)'), {
         status: 409,
       });
     }
-    const check = db.get("SELECT * FROM update_checks WHERE subject_type = 'content' AND subject_id = ?", row.id);
+    const check = db.get(
+      "SELECT * FROM update_checks WHERE subject_type = 'content' AND subject_id = ?",
+      String(row.id)
+    );
     if (!check || !check.latest_version) {
       throw Object.assign(new Error('No newer version is known — run an update check first'), { status: 409 });
     }
@@ -1135,8 +1187,11 @@ router.post(
     }
 
     const wasEnabled = Boolean(row.enabled);
-    await mods.removeContent(server.id, row.filename, { actor });
-    const result = await mods.installFromUrl(server.id, ref, { actor, kind: row.kind });
+    await mods.removeContent(server.id, String(row.filename), { actor });
+    const result = await mods.installFromUrl(server.id, ref, {
+      actor,
+      kind: row.kind as 'mod' | 'plugin' | 'datapack' | 'resourcepack' | undefined,
+    });
     if (!wasEnabled) await mods.setEnabled(server.id, result.filename, false, { actor });
     res.json({
       ok: true,
@@ -1152,16 +1207,22 @@ router.post(
 
 router.post(
   '/servers/:id/mods/toggle',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { file, enabled } = z.object({ file: z.string().min(1).max(200), enabled: z.boolean() }).parse(req.body);
-    res.json({ ok: true, ...(await mods.setEnabled(req.params.id, file, enabled, { actor: req.user.username })) });
+    res.json({
+      ok: true,
+      ...(await mods.setEnabled(String(req.params.id), file, enabled, { actor: req.user!.username })),
+    });
   })
 );
 
 router.delete(
   '/servers/:id/mods/:file',
-  asyncHandler(async (req, res, next) => {
-    res.json({ ok: true, ...(await mods.removeContent(req.params.id, req.params.file, { actor: req.user.username })) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    res.json({
+      ok: true,
+      ...(await mods.removeContent(String(req.params.id), String(req.params.file), { actor: req.user!.username })),
+    });
   })
 );
 
@@ -1173,39 +1234,39 @@ const modUpload = multer({ dest: dataPath('tmp'), limits: { fileSize: 250 * 1024
 
 router.get(
   '/servers/:id/pending-downloads',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
-    res.json({ ok: true, mods: mods.pendingDownloads(req.params.id) });
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
+    res.json({ ok: true, mods: mods.pendingDownloads(String(req.params.id)) });
   })
 );
 
 router.post(
   '/servers/:id/pending-downloads/exclude',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     const { filename } = z.object({ filename: z.string().min(1).max(300) }).parse(req.body);
-    const token = mods.pendingExcludeToken(req.params.id, filename);
-    mods.excludePackMod(req.params.id, token, { actor: req.user.username });
-    mods.clearPendingLine(req.params.id, filename);
-    res.json({ ok: true, excluded: token, mods: mods.pendingDownloads(req.params.id) });
+    const token = mods.pendingExcludeToken(String(req.params.id), filename);
+    mods.excludePackMod(String(req.params.id), token, { actor: req.user!.username });
+    mods.clearPendingLine(String(req.params.id), filename);
+    res.json({ ok: true, excluded: token, mods: mods.pendingDownloads(String(req.params.id)) });
   })
 );
 
 router.post(
   '/servers/:id/mods/upload',
   modUpload.single('file'),
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
     if (!req.file) throw Object.assign(new Error('No file uploaded'), { status: 400 });
     const excludeFilename = (req.body && req.body.excludeFilename) || null;
-    const excludeToken = excludeFilename ? mods.pendingExcludeToken(req.params.id, excludeFilename) : null;
+    const excludeToken = excludeFilename ? mods.pendingExcludeToken(String(req.params.id), excludeFilename) : null;
     try {
-      const result = await mods.importUploadedMod(req.params.id, req.file.path, req.file.originalname, {
+      const result = await mods.importUploadedMod(String(req.params.id), req.file.path, req.file.originalname, {
         excludeToken,
-        actor: req.user.username,
+        actor: req.user!.username,
       });
-      if (excludeFilename) mods.clearPendingLine(req.params.id, excludeFilename);
-      res.status(201).json({ ok: true, ...result, mods: mods.pendingDownloads(req.params.id) });
+      if (excludeFilename) mods.clearPendingLine(String(req.params.id), excludeFilename);
+      res.status(201).json({ ok: true, ...result, mods: mods.pendingDownloads(String(req.params.id)) });
     } finally {
       fs.promises.rm(req.file.path, { force: true }).catch(() => {});
     }
@@ -1214,9 +1275,9 @@ router.post(
 
 // ---- Events: export, excerpts, retention ----
 
-function sendEventExport(req, res, serverId) {
+function sendEventExport(req: Request, res: Response, serverId: string | null) {
   const { filename, contentType, body } = eventsService.exportEvents(serverId, {
-    format: req.query.format,
+    format: req.query.format === 'csv' ? 'csv' : 'json',
     q: String(req.query.q || '').trim(),
     type: String(req.query.type || '').trim(),
   });
@@ -1226,24 +1287,24 @@ function sendEventExport(req, res, serverId) {
 
 router.get(
   '/events/export',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     sendEventExport(req, res, String(req.query.server || '') || null);
   })
 );
 
 router.get(
   '/servers/:id/events/export',
-  asyncHandler((req, res, next) => {
-    requireServer(req.params.id);
-    sendEventExport(req, res, req.params.id);
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
+    sendEventExport(req, res, String(req.params.id));
   })
 );
 
 // Captured log excerpt for one event (text/plain; 404 when none was captured).
 router.get(
   '/events/:id/excerpt',
-  asyncHandler((req, res, next) => {
-    const event = eventsService.getEvent(Number(req.params.id));
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    const event = eventsService.getEvent(Number(String(req.params.id)));
     if (!event) throw Object.assign(new Error('Event not found'), { status: 404 });
     const text = eventsService.readExcerpt(event);
     if (text == null) throw Object.assign(new Error('No captured log for this event'), { status: 404 });
@@ -1254,9 +1315,9 @@ router.get(
 // Prune event history older than N days (excerpts included).
 router.post(
   '/events/prune',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { days } = z.object({ days: z.coerce.number().int().min(1).max(3650) }).parse(req.body);
-    const { removed } = eventsService.pruneEvents(days, { actor: req.user.username });
+    const { removed } = eventsService.pruneEvents(days, { actor: req.user!.username });
     res.json({ ok: true, removed });
   })
 );
@@ -1267,9 +1328,9 @@ const archivedFileSchema = z.string().regex(/^[\w.,()[\] -]+$/, 'Invalid file na
 
 router.get(
   '/servers/:id/logs/archived',
-  asyncHandler(async (req, res, next) => {
-    requireServer(req.params.id);
-    const dir = dataPath('logs', req.params.id, 'events');
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
+    const dir = dataPath('logs', String(req.params.id), 'events');
     const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
     const files = [];
     for (const e of entries) {
@@ -1285,10 +1346,10 @@ router.get(
 
 router.get(
   '/servers/:id/logs/archived/:file',
-  asyncHandler((req, res, next) => {
-    requireServer(req.params.id);
-    const file = archivedFileSchema.parse(req.params.file);
-    const abs = dataPath('logs', req.params.id, 'events', file);
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    requireServer(String(req.params.id));
+    const file = archivedFileSchema.parse(String(req.params.file));
+    const abs = dataPath('logs', String(req.params.id), 'events', file);
     if (!fs.existsSync(abs)) throw Object.assign(new Error('Archived log not found'), { status: 404 });
     res.download(abs, file);
   })
@@ -1297,16 +1358,17 @@ router.get(
 // ---- Custom server icon upload + serving ----
 
 const ICON_MAX_BYTES = 512 * 1024;
-const ICON_EXTS = { 'image/png': '.png', 'image/svg+xml': '.svg', 'image/jpeg': '.jpg' };
+const ICON_EXTS: Record<string, string> = { 'image/png': '.png', 'image/svg+xml': '.svg', 'image/jpeg': '.jpg' };
 const iconUpload = multer({ dest: dataPath('tmp'), limits: { fileSize: ICON_MAX_BYTES, files: 1 } });
 
 // multipart field: 'icon'. Stores data/library/icons/custom/<serverId><ext>
 // and sets servers.icon = 'custom:<filename>' (render via /api/icons/custom/<file>).
-router.post('/servers/:id/icon', iconUpload.single('icon'), async (req, res, next) => {
+router.post('/servers/:id/icon', iconUpload.single('icon'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const server = requireServer(req.params.id);
+    const server = requireServer(String(req.params.id));
     if (!req.file) throw Object.assign(new Error('Attach an image (field "icon")'), { status: 400 });
-    const ext = ICON_EXTS[req.file.mimetype];
+    const file = req.file;
+    const ext = ICON_EXTS[file.mimetype];
     if (!ext) {
       throw Object.assign(new Error('Icons must be PNG, SVG or JPEG (max 512 KB)'), { status: 400 });
     }
@@ -1318,14 +1380,14 @@ router.post('/servers/:id/icon', iconUpload.single('icon'), async (req, res, nex
       if (other !== ext) await fsp.rm(path.join(destDir, `${server.id}${other}`), { force: true }).catch(() => {});
     }
     await fsp.rm(path.join(destDir, filename), { force: true }).catch(() => {});
-    await fsp.rename(req.file.path, path.join(destDir, filename)).catch(async () => {
-      await fsp.copyFile(req.file.path, path.join(destDir, filename));
-      await fsp.rm(req.file.path, { force: true });
+    await fsp.rename(file.path, path.join(destDir, filename)).catch(async () => {
+      await fsp.copyFile(file.path, path.join(destDir, filename));
+      await fsp.rm(file.path, { force: true });
     });
     db.run('UPDATE servers SET icon = ? WHERE id = ?', `custom:${filename}`, server.id);
     eventsService.recordEvent({
       serverId: server.id,
-      actor: req.user.username,
+      actor: req.user!.username,
       type: 'config-changed',
       summary: 'Custom server icon uploaded',
     });
@@ -1338,11 +1400,11 @@ router.post('/servers/:id/icon', iconUpload.single('icon'), async (req, res, nex
 
 router.get(
   '/icons/custom/:file',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const file = z
       .string()
       .regex(/^srv_[\w-]+\.(png|svg|jpg)$/, 'Invalid icon file')
-      .parse(req.params.file);
+      .parse(String(req.params.file));
     const abs = dataPath('library', 'icons', 'custom', file);
     if (!fs.existsSync(abs)) throw Object.assign(new Error('Icon not found'), { status: 404 });
     // Custom icons may be user-uploaded SVGs (not sanitized). Serve them under a
@@ -1355,17 +1417,17 @@ router.get(
 );
 
 // ---- Users (admin only) ----
-const authService = require('../../services/auth');
-const { requireRole } = require('../middleware/auth');
+const authService = require('../../services/auth') as typeof import('../../services/auth');
+const { requireRole } = require('../middleware/auth') as typeof import('../middleware/auth');
 
-router.get('/users', requireRole('admin'), (req, res) => {
+router.get('/users', requireRole('admin'), (req: Request, res: Response) => {
   res.json({ ok: true, users: authService.listUsers() });
 });
 
 router.post(
   '/users',
   requireRole('admin'),
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { username, password, role } = z
       .object({
         username: z.string().trim().min(2).max(32),
@@ -1375,16 +1437,16 @@ router.post(
       .parse(req.body);
     res
       .status(201)
-      .json({ ok: true, user: authService.createUser({ username, password, role }, { actor: req.user.username }) });
+      .json({ ok: true, user: authService.createUser({ username, password, role }, { actor: req.user!.username }) });
   })
 );
 
 router.post(
   '/users/:id/role',
   requireRole('admin'),
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { role } = z.object({ role: z.enum(['admin', 'operator', 'viewer']) }).parse(req.body);
-    authService.setRole(req.params.id, role, { actor: req.user.username });
+    authService.setRole(String(req.params.id), role, { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
@@ -1392,9 +1454,9 @@ router.post(
 router.post(
   '/users/:id/password',
   requireRole('admin'),
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const { password } = z.object({ password: z.string().min(8).max(200) }).parse(req.body);
-    authService.setPassword(req.params.id, password, { actor: req.user.username });
+    authService.setPassword(String(req.params.id), password, { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
@@ -1402,8 +1464,8 @@ router.post(
 router.delete(
   '/users/:id',
   requireRole('admin'),
-  asyncHandler((req, res, next) => {
-    authService.deleteUser(req.params.id, { actor: req.user.username });
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    authService.deleteUser(String(req.params.id), { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
@@ -1417,24 +1479,24 @@ router.delete(
 router.post(
   '/users/:id/totp/disable',
   requireRole('admin'),
-  asyncHandler((req, res, next) => {
-    if (req.params.id === req.user.id) {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    if (String(req.params.id) === req.user!.id) {
       return res.status(400).json({ ok: false, error: 'Use your own account’s 2FA settings to disable it.' });
     }
-    authService.adminDisableTotp(req.params.id, { actor: req.user.username });
+    authService.adminDisableTotp(String(req.params.id), { actor: req.user!.username });
     res.json({ ok: true });
   })
 );
 
 // ---- Modrinth search (mods manager) ----
-const modrinth = require('../../services/modrinthApi');
+const modrinth = require('../../services/modrinthApi') as typeof import('../../services/modrinthApi');
 
 router.get(
   '/modrinth/search',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const results = await modrinth.search({
       query: String(req.query.q || ''),
-      kind: String(req.query.kind || 'mod'),
+      kind: String(req.query.kind || 'mod') as 'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack',
       loader: req.query.loader ? String(req.query.loader) : undefined,
       mcVersion: req.query.mc ? String(req.query.mc) : undefined,
     });
@@ -1443,15 +1505,15 @@ router.get(
 );
 
 // ---- "From mods" wizard browser (loader-first) ----
-const modBrowser = require('../../services/modBrowser');
-const loaderVersions = require('../../services/loaderVersions');
+const modBrowser = require('../../services/modBrowser') as typeof import('../../services/modBrowser');
+const loaderVersions = require('../../services/loaderVersions') as typeof import('../../services/loaderVersions');
 
 const MOD_LOADERS = ['fabric', 'forge', 'neoforge', 'quilt'];
 
 // Loader build versions to pin (fabric/quilt are MC-independent; neoforge/forge need mc).
 router.get(
   '/loaders/versions',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { loader, mc } = z
       .object({ loader: z.enum(MOD_LOADERS), mc: z.string().trim().max(32).optional() })
       .parse({ loader: req.query.loader, mc: req.query.mc || undefined });
@@ -1462,7 +1524,7 @@ router.get(
 // Unified mod search across Modrinth / CurseForge, filtered to loader + MC.
 router.get(
   '/mods/search',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { q, platform, loader, mc } = z
       .object({
         q: z.string().trim().max(120).default(''),
@@ -1483,7 +1545,7 @@ router.get(
 // A mod's builds for the chosen loader + MC, newest first (for its version picker).
 router.get(
   '/mods/versions',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { platform, ref, loader, mc } = z
       .object({
         platform: z.enum(['modrinth', 'curseforge']),
@@ -1504,7 +1566,7 @@ router.get(
 // Required-dependency closure of the current selection ("added as dependency" rows).
 router.post(
   '/mods/deps',
-  asyncHandler(async (req, res, next) => {
+  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const { loader, mc, selection } = z
       .object({
         loader: z.enum(MOD_LOADERS),
@@ -1555,19 +1617,23 @@ const fromModsSchema = z
     env: z.record(z.string(), z.string()).optional(),
     ...dockerOverridesSchema,
   })
-  .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-    message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
-  });
+  .refine(
+    (v: { containerMemoryMb?: number; heapMb?: number }) =>
+      !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+    {
+      message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
+    }
+  );
 
 // One-shot "create server from mods": create (no start) → install each mod
 // pinned to its chosen build → start, all inside ONE task with real progress.
 // Individual mod failures are tolerated and reported; the server still comes up.
 router.post(
   '/servers/from-mods',
-  asyncHandler((req, res, next) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const input = fromModsSchema.parse(req.body);
     requireAdminForOverrides(req, input);
-    const actor = req.user.username;
+    const actor = req.user!.username;
     const type = input.loader.toUpperCase(); // fabric → FABRIC, etc. (all valid TYPEs)
     const taskId = tasks.run(`Creating ${input.name} (${input.loader})`, { actor }, async (t) => {
       const env = { ...(input.env || {}) };
@@ -1595,7 +1661,7 @@ router.post(
         { actor, start: false, onProgress: (s) => t.step(s) }
       );
       // Install mods BEFORE first boot so a loader server starts with them present.
-      const failed = [];
+      const failed: string[] = [];
       for (let i = 0; i < input.mods.length; i += 1) {
         const m = input.mods[i];
         // With a versionId the build is pinned; without one (the solver path)
@@ -1613,7 +1679,7 @@ router.post(
         try {
           await mods.installFromUrl(server.id, url, { actor });
         } catch (err) {
-          failed.push(`${m.ref} (${err.message})`);
+          failed.push(`${m.ref} (${(err as Error).message})`);
         }
       }
       t.step('Starting server');
@@ -1630,12 +1696,17 @@ router.post(
   })
 );
 
-function publicServer(s) {
+// Strips the RCON password cipher and internal notes before a Server row goes
+// out over the API. Spreads `rest` (rather than hand-picking fields) so every
+// field rowToServer() puts on Server — including the raw snake_case columns
+// kept alongside their camelCase counterparts (see services/types.ts's Server
+// doc comment) — reaches API consumers, matching the pre-TS publicServer().
+function publicServer(s: Server | null): Omit<Server, 'rcon_password_cipher' | 'notes'> | null {
   if (!s) return null;
-  const { rcon_password_cipher, env_json, notes, ...rest } = s;
+  const { rcon_password_cipher, notes, ...rest } = s;
   return rest;
 }
 
 router.use(makeJsonErrorHandler('api', { fileTooLarge: 'File too large (512 KB icon limit)' }));
 
-module.exports = router;
+export = router;
