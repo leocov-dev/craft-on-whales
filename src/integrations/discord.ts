@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Discord webhook notifications (MP6, webhook mode only — no bot).
@@ -6,18 +5,30 @@
 // per-event toggles live in plain config_json. Delivery is fire-and-forget:
 // a broken webhook must never break panel operations.
 
+import type { IntegrationRow } from './types';
+
 const httpError = require('../utils/httpError');
 const db = require('../db');
 const secrets = require('../services/secrets');
 
 const KIND = 'discord-webhook';
 
-const DEFAULT_EVENTS = { lifecycle: true, crashes: true, backups: true, updates: true, players: true };
+interface EventToggles {
+  lifecycle: boolean;
+  crashes: boolean;
+  backups: boolean;
+  updates: boolean;
+  players: boolean;
+}
+
+const DEFAULT_EVENTS: EventToggles = { lifecycle: true, crashes: true, backups: true, updates: true, players: true };
 
 const WEBHOOK_RE = /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//;
 
+type NotificationKind = 'crash' | 'start' | 'stop' | 'backup' | 'update' | 'player';
+
 // Embed accent color per notification kind (decimal RGB, matches panel palette).
-const COLORS = {
+const COLORS: Record<NotificationKind, number> = {
   crash: 0xe5484d, // red
   start: 0x3fa62b, // green
   stop: 0x8b8f98, // grey
@@ -27,7 +38,7 @@ const COLORS = {
 };
 
 // History event type → [notification kind, toggle category]
-const EVENT_MAP = {
+const EVENT_MAP: Record<string, [NotificationKind, keyof EventToggles]> = {
   started: ['start', 'lifecycle'],
   stopped: ['stop', 'lifecycle'],
   crashed: ['crash', 'crashes'],
@@ -41,12 +52,19 @@ const EVENT_MAP = {
   'player-kick': ['player', 'players'],
 };
 
-function row(serverId) {
+function row(serverId: string): IntegrationRow | undefined {
   return db.get('SELECT * FROM integrations WHERE server_id = ? AND kind = ?', serverId, KIND);
 }
 
+interface DiscordConfig {
+  enabled: boolean;
+  hasWebhook: boolean;
+  webhookMasked: string | null;
+  events: EventToggles;
+}
+
 /** Masked, UI-safe view of the config. Never returns the webhook URL. */
-function getConfig(serverId) {
+function getConfig(serverId: string): DiscordConfig {
   const r = row(serverId);
   const cfg = r ? JSON.parse(r.config_json || '{}') : {};
   return {
@@ -58,7 +76,7 @@ function getConfig(serverId) {
 }
 
 /** Decrypted webhook URL (internal use only — never expose over HTTP). */
-function webhookUrl(serverId) {
+function webhookUrl(serverId: string): string | null {
   const r = row(serverId);
   if (!r || !r.config_cipher) return null;
   try {
@@ -68,21 +86,27 @@ function webhookUrl(serverId) {
   }
 }
 
-function maskWebhook(url) {
+function maskWebhook(url: string | null): string | null {
   if (!url) return null;
   // Keep scheme/host/webhook id, hide the token entirely.
   const m = /^(https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/\d+)\//.exec(url);
   return m ? `${m[1]}/••••••••` : 'https://discord.com/api/webhooks/••••••••';
 }
 
+interface SetConfigOptions {
+  enabled?: boolean;
+  webhookUrl?: string | null;
+  events?: Partial<EventToggles>;
+}
+
 /**
  * Upsert the config. webhookUrl: undefined = keep current, '' or null = clear,
  * string = validate + encrypt. events merges over the stored toggles.
  */
-function setConfig(serverId, { enabled, webhookUrl: url, events } = {}) {
+function setConfig(serverId: string, { enabled, webhookUrl: url, events }: SetConfigOptions = {}): DiscordConfig {
   const existing = row(serverId);
   const cfg = existing ? JSON.parse(existing.config_json || '{}') : {};
-  const nextEvents = { ...DEFAULT_EVENTS, ...(cfg.events || {}), ...(events || {}) };
+  const nextEvents: EventToggles = { ...DEFAULT_EVENTS, ...(cfg.events || {}), ...(events || {}) };
 
   let cipher = existing ? existing.config_cipher : null;
   if (url !== undefined) {
@@ -109,8 +133,20 @@ function setConfig(serverId, { enabled, webhookUrl: url, events } = {}) {
   return getConfig(serverId);
 }
 
+interface EmbedField {
+  name: string;
+  value: string;
+  inline?: boolean;
+}
+
+interface EmbedPayload {
+  title?: string;
+  description?: string;
+  fields?: EmbedField[];
+}
+
 /** Send a test embed so the user can confirm the webhook works. Throws on failure. */
-async function testWebhook(serverId) {
+async function testWebhook(serverId: string): Promise<{ ok: true }> {
   const url = webhookUrl(serverId);
   if (!url) throw httpError(400, 'No webhook URL saved for this server yet');
   const server = db.get('SELECT display_name FROM servers WHERE id = ?', serverId);
@@ -129,7 +165,7 @@ async function testWebhook(serverId) {
  * Send a notification if the integration is enabled and has a webhook.
  * Never throws; failures are logged at most once per hour per server.
  */
-async function notify(serverId, kind, payload = {}) {
+async function notify(serverId: string, kind: NotificationKind, payload: EmbedPayload = {}): Promise<boolean> {
   const r = row(serverId);
   if (!r || !r.enabled || !r.config_cipher) return false;
   const url = webhookUrl(serverId);
@@ -144,7 +180,7 @@ async function notify(serverId, kind, payload = {}) {
   }
 }
 
-function buildEmbed(kind, { title, description, fields } = {}) {
+function buildEmbed(kind: NotificationKind, { title, description, fields }: EmbedPayload = {}) {
   return {
     username: 'Minecraft Server Manager',
     embeds: [
@@ -164,7 +200,7 @@ function buildEmbed(kind, { title, description, fields } = {}) {
   };
 }
 
-function post(url, body) {
+function post(url: string, body: unknown): Promise<Response> {
   return fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -174,12 +210,14 @@ function post(url, body) {
 }
 
 // One error log line per server per hour — a dead webhook must not spam the panel log.
-const lastErrorLog = new Map();
-function logThrottled(serverId, err) {
+const lastErrorLog = new Map<string, number>();
+function logThrottled(serverId: string, err: unknown): void {
   const last = lastErrorLog.get(serverId) || 0;
   if (Date.now() - last < 60 * 60 * 1000) return;
   lastErrorLog.set(serverId, Date.now());
-  console.warn(`[discord] webhook delivery failed for ${serverId} (muted for 1h): ${err.message}`);
+  console.warn(
+    `[discord] webhook delivery failed for ${serverId} (muted for 1h): ${err instanceof Error ? err.message : err}`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -187,28 +225,38 @@ function logThrottled(serverId, err) {
 // history) and forwards mapped rows to Discord. Polling instead of hooking
 // recordEvent keeps this module fully decoupled from every event producer.
 
-let pollTimer = null;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastSeenId = 0;
 
-function startEventBridge({ intervalMs = 15000 } = {}) {
+function startEventBridge({ intervalMs = 15000 }: { intervalMs?: number } = {}): void {
   if (pollTimer) return;
   // Start at the current high-water mark: never replay pre-boot history.
-  lastSeenId = db.get('SELECT COALESCE(MAX(id), 0) AS id FROM events')?.id || 0;
+  lastSeenId = Number(db.get('SELECT COALESCE(MAX(id), 0) AS id FROM events')?.id) || 0;
   pollTimer = setInterval(() => {
-    pollOnce().catch((err) => console.warn('[discord] event bridge poll failed:', err.message));
+    pollOnce().catch((err) =>
+      console.warn('[discord] event bridge poll failed:', err instanceof Error ? err.message : err)
+    );
   }, intervalMs);
   if (pollTimer.unref) pollTimer.unref();
 }
 
-function stopEventBridge() {
+function stopEventBridge(): void {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
 }
 
-async function pollOnce() {
-  const rows = db.all('SELECT * FROM events WHERE id > ? ORDER BY id LIMIT 100', lastSeenId);
+interface HistoryEventRow {
+  id: number;
+  server_id: string | null;
+  actor: string;
+  type: string;
+  summary: string;
+}
+
+async function pollOnce(): Promise<void> {
+  const rows = db.all('SELECT * FROM events WHERE id > ? ORDER BY id LIMIT 100', lastSeenId) as HistoryEventRow[];
   if (!rows.length) return;
-  lastSeenId = rows[rows.length - 1].id;
+  lastSeenId = rows[rows.length - 1]?.id ?? lastSeenId;
 
   for (const evt of rows) {
     const mapped = EVENT_MAP[evt.type];
@@ -229,8 +277,8 @@ async function pollOnce() {
   }
 }
 
-function titleFor(type) {
-  const map = {
+function titleFor(type: string): string {
+  const map: Record<string, string> = {
     started: 'Server started',
     stopped: 'Server stopped',
     crashed: 'Server crashed',
@@ -246,4 +294,4 @@ function titleFor(type) {
   return map[type] || type;
 }
 
-module.exports = { getConfig, setConfig, testWebhook, notify, startEventBridge, stopEventBridge, WEBHOOK_RE };
+export = { getConfig, setConfig, testWebhook, notify, startEventBridge, stopEventBridge, WEBHOOK_RE };

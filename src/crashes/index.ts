@@ -16,20 +16,31 @@ const { recordEvent } = require('../events');
  * A crash_reports row (see db/migrations/001_init.ts). Cast to this from the
  * db layer's generic `Record<string, SQLOutputValue>` row shape so property
  * access and spreads type-check normally.
- * @typedef {{
- *   id: string,
- *   server_id: string,
- *   filename: string,
- *   file_mtime: string,
- *   size_bytes: number,
- *   summary: string,
- *   exception: string,
- *   suspected_json: string,
- *   event_id: number|null,
- *   viewed: number,
- *   created_at: string
- * }} CrashReportRow
  */
+interface CrashReportRow {
+  id: string;
+  server_id: string;
+  filename: string;
+  file_mtime: string;
+  size_bytes: number;
+  summary: string;
+  exception: string;
+  suspected_json: string;
+  event_id: number | null;
+  viewed: number;
+  created_at: string;
+}
+
+interface DecoratedCrash extends CrashReportRow {
+  suspected: string[];
+}
+
+interface ParsedCrash {
+  description: string;
+  exception: string;
+  summary: string;
+  suspects: string[];
+}
 
 // Package roots that never identify a mod (JDK, Minecraft, common libraries).
 const BORING_ROOTS = [
@@ -56,7 +67,7 @@ const BORING_ROOTS = [
   'scala.',
 ];
 
-function absPathFor(serverId, filename) {
+function absPathFor(serverId: string, filename: string): string {
   // hs_err files live in the server root; crash reports in crash-reports/.
   return filename.startsWith('hs_err')
     ? dataPath('servers', serverId, filename)
@@ -64,16 +75,18 @@ function absPathFor(serverId, filename) {
 }
 
 /** Parse a Minecraft crash report into { description, exception, summary, suspects }. */
-function parseCrashReport(text) {
+function parseCrashReport(text: string): ParsedCrash {
   const lines = text.split(/\r?\n/);
 
   let description = '';
   let exception = '';
   let descIdx = -1;
   for (let i = 0; i < lines.length; i++) {
-    const m = /^Description:\s*(.+)$/.exec(lines[i]);
+    const line = lines[i];
+    if (line === undefined) continue;
+    const m = /^Description:\s*(.+)$/.exec(line);
     if (m) {
-      description = m[1].trim();
+      description = (m[1] ?? '').trim();
       descIdx = i;
       break;
     }
@@ -84,7 +97,7 @@ function parseCrashReport(text) {
   if (descIdx !== -1) {
     for (let i = descIdx + 1; i < lines.length; i++) {
       const line = lines[i];
-      if (!line.trim()) continue;
+      if (line === undefined || !line.trim()) continue;
       if (/^\s/.test(line)) break; // hit indented content without an exception line
       exception = line.trim();
       break;
@@ -95,20 +108,22 @@ function parseCrashReport(text) {
     if (m) exception = m.trim();
   }
 
-  const suspects = new Set();
+  const suspects = new Set<string>();
 
   // Mod-loader-provided suspect list (Forge/NeoForge "-- Suspected Mod --"
   // section, or a "Suspected Mods:" line in system details).
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (line === undefined) continue;
     const inlineList = /^\s*Suspected Mods?:\s*(.+)$/.exec(line);
-    if (inlineList && inlineList[1].trim().toLowerCase() !== 'none') {
-      collectSuspectNames(inlineList[1], suspects);
+    if (inlineList && (inlineList[1] ?? '').trim().toLowerCase() !== 'none') {
+      collectSuspectNames(inlineList[1] ?? '', suspects);
       continue;
     }
     if (/^--\s*Suspected Mods?\s*--$/.test(line.trim())) {
       for (let j = i + 1; j < lines.length; j++) {
         const l = lines[j];
+        if (l === undefined) continue;
         if (/^--\s.+\s--$/.test(l.trim())) break; // next section
         if (!l.trim()) continue;
         if (/^\s*(Details:\s*$|Mod File:|Stacktrace:|Failure message:|Version:)/i.test(l)) continue;
@@ -125,35 +140,35 @@ function parseCrashReport(text) {
     const m = /^\s+at\s+([\w.$]+)/.exec(line);
     if (!m) continue;
     if (++frames > 40) break;
-    const cls = m[1];
+    const cls = m[1] ?? '';
     if (BORING_ROOTS.some((root) => cls.startsWith(root))) continue;
     const parts = cls.split('.');
-    if (parts.length >= 3) suspects.add(parts[1]);
+    if (parts.length >= 3 && parts[1]) suspects.add(parts[1]);
   }
 
   const summary = exception ? exception + (description ? ` — ${description}` : '') : description || 'Crash report';
   return { description, exception, summary, suspects: [...suspects] };
 }
 
-function collectSuspectNames(line, suspects) {
+function collectSuspectNames(line: string, suspects: Set<string>): void {
   // "NameOfMod (modid), Version: x" — prefer the modid in parentheses.
   const paren = /\(([\w-]+)\)/.exec(line);
-  if (paren) {
+  if (paren && paren[1]) {
     suspects.add(paren[1]);
     return;
   }
-  const name = line.trim().split(',')[0].trim();
+  const name = (line.trim().split(',')[0] ?? '').trim();
   if (name && name.length <= 64) suspects.add(name);
 }
 
 /** Parse a JVM fatal error log (hs_err_pid*.log). */
-function parseHsErr(text) {
+function parseHsErr(text: string): ParsedCrash {
   const lines = text.split(/\r?\n/).slice(0, 40);
   let problem = '';
   for (const line of lines) {
     const m = /^#\s+(\S.*)$/.exec(line);
     if (!m) continue;
-    const body = m[1].trim();
+    const body = (m[1] ?? '').trim();
     if (
       /fatal error has been detected|Java Runtime Environment|please submit|bug report|http|see problematic frame|if you would like/i.test(
         body
@@ -171,8 +186,8 @@ function parseHsErr(text) {
   };
 }
 
-async function listCandidateFiles(serverId) {
-  const out = [];
+async function listCandidateFiles(serverId: string): Promise<string[]> {
+  const out: string[] = [];
   const crashDir = dataPath('servers', serverId, 'crash-reports');
   const rootDir = dataPath('servers', serverId);
   try {
@@ -193,8 +208,8 @@ async function listCandidateFiles(serverId) {
 }
 
 /** Scan one server for crash files not yet indexed; parse + insert + record event. */
-async function scanServer(serverId) {
-  const inserted = [];
+async function scanServer(serverId: string): Promise<string[]> {
+  const inserted: string[] = [];
   for (const filename of await listCandidateFiles(serverId)) {
     if (db.get('SELECT id FROM crash_reports WHERE server_id = ? AND filename = ?', serverId, filename)) continue;
 
@@ -235,69 +250,71 @@ async function scanServer(serverId) {
 }
 
 /** Scan every (non-deleted) server; per-server errors are swallowed. */
-async function scanAll() {
+async function scanAll(): Promise<void> {
   const { listServers } = require('../services/servers'); // lazy: avoid require cycles
   for (const server of listServers()) {
     try {
       await scanServer(server.id);
     } catch (err) {
-      console.error(`[crashes] scan failed for ${server.id}:`, err.message);
+      console.error(`[crashes] scan failed for ${server.id}:`, err instanceof Error ? err.message : err);
     }
   }
 }
 
-let watcherTimer = null;
+let watcherTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Start the background watcher (immediate scan + interval). Returns stop(). */
-function startCrashWatcher({ intervalMs = 30000 } = {}) {
+function startCrashWatcher({ intervalMs = 30000 }: { intervalMs?: number } = {}): typeof stopCrashWatcher {
   stopCrashWatcher();
-  scanAll().catch((err) => console.error('[crashes] initial scan failed:', err.message));
+  scanAll().catch((err) => console.error('[crashes] initial scan failed:', err instanceof Error ? err.message : err));
   watcherTimer = setInterval(() => {
-    scanAll().catch((err) => console.error('[crashes] scan failed:', err.message));
+    scanAll().catch((err) => console.error('[crashes] scan failed:', err instanceof Error ? err.message : err));
   }, intervalMs);
   watcherTimer.unref();
   return stopCrashWatcher;
 }
 
-function stopCrashWatcher() {
+function stopCrashWatcher(): void {
   if (watcherTimer) {
     clearInterval(watcherTimer);
     watcherTimer = null;
   }
 }
 
-function listCrashes(serverId) {
-  return db.all('SELECT * FROM crash_reports WHERE server_id = ? ORDER BY file_mtime DESC', serverId).map((row) => {
-    const typed = /** @type {CrashReportRow} */ (row);
-    return { ...typed, suspected: JSON.parse(typed.suspected_json || '[]') };
-  });
+function listCrashes(serverId: string): DecoratedCrash[] {
+  return db
+    .all('SELECT * FROM crash_reports WHERE server_id = ? ORDER BY file_mtime DESC', serverId)
+    .map((row: unknown) => {
+      const typed = row as CrashReportRow;
+      return { ...typed, suspected: JSON.parse(typed.suspected_json || '[]') };
+    });
 }
 
-function getCrash(crashId) {
-  const row = /** @type {CrashReportRow | undefined} */ (db.get('SELECT * FROM crash_reports WHERE id = ?', crashId));
+function getCrash(crashId: string): DecoratedCrash | null {
+  const row = db.get('SELECT * FROM crash_reports WHERE id = ?', crashId) as CrashReportRow | undefined;
   return row ? { ...row, suspected: JSON.parse(row.suspected_json || '[]') } : null;
 }
 
 /** Read a report's full text. The filename MUST be one indexed for this server. */
-function getCrashText(serverId, filename) {
+function getCrashText(serverId: string, filename: string): string {
   const row = db.get('SELECT id FROM crash_reports WHERE server_id = ? AND filename = ?', serverId, filename);
   if (!row) {
-    const err = new Error('Crash report not found');
+    const err: Error & { status?: number } = new Error('Crash report not found');
     err.status = 404;
     throw err;
   }
   return fs.readFileSync(absPathFor(serverId, filename), 'utf8');
 }
 
-function markViewed(crashId) {
+function markViewed(crashId: string): void {
   db.run('UPDATE crash_reports SET viewed = 1 WHERE id = ?', crashId);
 }
 
 /** Delete a report: unlink the file + remove the row + record the event. */
-function deleteCrash(crashId, { actor = 'system' } = {}) {
+function deleteCrash(crashId: string, { actor = 'system' }: { actor?: string } = {}): { freedBytes: number } {
   const row = getCrash(crashId);
   if (!row) {
-    const err = new Error('Crash report not found');
+    const err: Error & { status?: number } = new Error('Crash report not found');
     err.status = 404;
     throw err;
   }
@@ -318,9 +335,17 @@ function deleteCrash(crashId, { actor = 'system' } = {}) {
 }
 
 /** Bulk cleanup: delete this server's reports older than `days`. */
-function deleteOlderThan(serverId, days, { actor = 'system' } = {}) {
+function deleteOlderThan(
+  serverId: string,
+  days: number,
+  { actor = 'system' }: { actor?: string } = {}
+): { deleted: number; freedBytes: number } {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-  const rows = db.all('SELECT id FROM crash_reports WHERE server_id = ? AND file_mtime < ?', serverId, cutoff);
+  const rows = db.all(
+    'SELECT id FROM crash_reports WHERE server_id = ? AND file_mtime < ?',
+    serverId,
+    cutoff
+  ) as unknown as { id: string }[];
   let freedBytes = 0;
   for (const { id } of rows) {
     freedBytes += deleteCrash(id, { actor }).freedBytes;
@@ -328,7 +353,7 @@ function deleteOlderThan(serverId, days, { actor = 'system' } = {}) {
   return { deleted: rows.length, freedBytes };
 }
 
-module.exports = {
+export = {
   scanServer,
   scanAll,
   startCrashWatcher,

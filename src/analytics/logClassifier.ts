@@ -9,6 +9,8 @@
 // with entity id" join and the "lost connection" leave) so the ingester can
 // collapse the pair into a single row.
 
+import type { ClassifiedEvent } from './types';
+
 const { NAME_PATTERN } = require('../utils/playerName');
 
 // `[12:34:56] [Server thread/INFO]: ` and variants such as
@@ -138,23 +140,23 @@ const MOB_NAMES = new Set([
   'creaking',
 ]);
 
-function looksLikePlayer(name) {
+function looksLikePlayer(name: string): boolean {
   return PLAYER_RE.test(name) && !MOB_NAMES.has(name.toLowerCase());
 }
 
 /** Classify one console line. Returns null for anything non-player-facing. */
-function classify(line) {
+function classify(line: string | null | undefined): ClassifiedEvent | null {
   if (!line) return null;
   // ANSI color escapes (docker log streams) and Minecraft formatting codes.
   let text = String(line)
-    .replace(/\[[0-9;]*m/g, '')
+    .replace(/\[[0-9;]*m/g, '')
     .replace(/§[0-9a-fk-or]/gi, '')
     .trim();
 
-  let time = null;
+  let time: string | null = null;
   const prefix = text.match(PREFIX_RE);
   if (prefix) {
-    time = prefix[1];
+    time = prefix[1] ?? null;
     text = text.slice(prefix[0].length).trim();
   }
   // 1.19+ marks unsigned chat (and rcon/console say) with this prefix.
@@ -163,26 +165,33 @@ function classify(line) {
 
   let m;
   if ((m = text.match(CHAT_RE))) {
-    return { time, type: 'chat', player: m[1], target: '', message: m[2] };
+    return { time, type: 'chat', player: m[1] ?? '', target: '', message: m[2] ?? '' };
   }
   if ((m = text.match(SERVER_CHAT_RE))) {
-    return { time, type: 'chat', player: '[Server]', target: '', message: m[1] };
+    return { time, type: 'chat', player: '[Server]', target: '', message: m[1] ?? '' };
   }
   if ((m = text.match(JOIN_RE))) {
-    return { time, type: 'join', player: m[1], target: '', message: '' };
+    return { time, type: 'join', player: m[1] ?? '', target: '', message: '' };
   }
   if ((m = text.match(LOGGED_IN_RE))) {
     // Secondary join line; the IP (port stripped) goes to target, never message.
-    return { time, type: 'join', player: m[1], target: m[2].replace(/:\d+$/, ''), message: '', dedupe: true };
+    return {
+      time,
+      type: 'join',
+      player: m[1] ?? '',
+      target: (m[2] ?? '').replace(/:\d+$/, ''),
+      message: '',
+      dedupe: true,
+    };
   }
   if ((m = text.match(LEAVE_RE))) {
-    return { time, type: 'leave', player: m[1], target: '', message: '' };
+    return { time, type: 'leave', player: m[1] ?? '', target: '', message: '' };
   }
   if ((m = text.match(LOST_CONN_RE))) {
-    return { time, type: 'leave', player: m[1], target: '', message: m[2], dedupe: true };
+    return { time, type: 'leave', player: m[1] ?? '', target: '', message: m[2] ?? '', dedupe: true };
   }
   if ((m = text.match(ADVANCEMENT_RE))) {
-    return { time, type: 'advancement', player: m[1], target: '', message: m[2] };
+    return { time, type: 'advancement', player: m[1] ?? '', target: '', message: m[2] ?? '' };
   }
 
   // Death messages: "<player> <verb...>" where player is the first token.
@@ -215,8 +224,8 @@ function classify(line) {
 }
 
 /** True when a (death) event was a player-vs-player kill. */
-function isPvp(evt) {
+function isPvp(evt: ClassifiedEvent | null | undefined): boolean {
   return Boolean(evt && evt.type === 'death' && evt.target && looksLikePlayer(evt.target));
 }
 
-module.exports = { classify, isPvp, looksLikePlayer };
+export = { classify, isPvp, looksLikePlayer };

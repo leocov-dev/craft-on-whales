@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Controlled upgrade orchestrator: preview → pre-update backup → graceful stop
@@ -13,10 +12,35 @@ const backupsService = require('../services/backups');
 const { fetchLogs } = require('../docker/logs');
 const { inspectStatus } = require('../docker/containers');
 
-const activeUpgrades = new Map(); // serverId -> {step, startedAt}
+interface UpgradeState {
+  step: string;
+  startedAt: number;
+}
 
-function upgradeStatus(serverId) {
+const activeUpgrades = new Map<string, UpgradeState>(); // serverId -> {step, startedAt}
+
+function upgradeStatus(serverId: string): UpgradeState | null {
   return activeUpgrades.get(serverId) || null;
+}
+
+interface TaskHandle {
+  step(label: string): void;
+}
+
+interface UpgradePackOptions {
+  versionId?: string | null;
+  skipBackup?: boolean;
+  allowVersionChange?: boolean;
+  actor?: string;
+  onStep?: (step: string) => void;
+  task?: TaskHandle | null;
+}
+
+interface UpgradePackResult {
+  ok: true;
+  from: string;
+  to: string;
+  backupId: string | null;
 }
 
 /**
@@ -26,7 +50,7 @@ function upgradeStatus(serverId) {
  * opts.task: optional tasks.js handle — step() calls are mirrored to it.
  */
 async function upgradePack(
-  serverId,
+  serverId: string,
   {
     versionId = null,
     skipBackup = false,
@@ -34,15 +58,15 @@ async function upgradePack(
     actor = 'system',
     onStep = () => {},
     task = null,
-  } = {}
-) {
+  }: UpgradePackOptions = {}
+): Promise<UpgradePackResult> {
   if (activeUpgrades.has(serverId)) throw httpError(409, 'An upgrade is already running for this server');
   const server = serversService.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   const pack = packsService.getPack(serverId);
   if (!pack) throw httpError(400, 'This server has no managed modpack');
 
-  const STEP_LABELS = {
+  const STEP_LABELS: Record<string, string> = {
     resolving: 'Resolving target version',
     'backing-up': 'Creating pre-update backup',
     stopping: 'Stopping server',
@@ -51,7 +75,7 @@ async function upgradePack(
     monitoring: 'Waiting for the server to come up',
     overlay: 'Restoring custom mod overlay',
   };
-  const step = (s) => {
+  const step = (s: string) => {
     activeUpgrades.set(serverId, { step: s, startedAt: activeUpgrades.get(serverId)?.startedAt || Date.now() });
     if (task) task.step(STEP_LABELS[s] || s);
     onStep(s);
@@ -92,7 +116,7 @@ async function upgradePack(
       throw err;
     }
 
-    let backupId = null;
+    let backupId: string | null = null;
     if (!skipBackup) {
       step('backing-up');
       const backup = await backupsService.createBackup(serverId, {
@@ -122,7 +146,11 @@ async function upgradePack(
     // CF/Modrinth installs download the whole pack on first boot — give them
     // twice the window. GTNH downloads a ~1-2 GB server pack and then builds a
     // 1.7.10 world with several hundred mods, which routinely outlasts both.
-    const INSTALL_TIMEOUTS_MS = { gtnh: 30 * 60 * 1000, curseforge: 20 * 60 * 1000, modrinth: 20 * 60 * 1000 };
+    const INSTALL_TIMEOUTS_MS: Record<string, number> = {
+      gtnh: 30 * 60 * 1000,
+      curseforge: 20 * 60 * 1000,
+      modrinth: 20 * 60 * 1000,
+    };
     const timeoutMs = INSTALL_TIMEOUTS_MS[pack.platform] || 10 * 60 * 1000;
     const healthy = await waitForHealthy(serverId, { timeoutMs });
     const excerpt = await fetchLogs(serverId, { tail: 200 }).catch(() => '');
@@ -161,8 +189,16 @@ async function upgradePack(
   }
 }
 
+interface RollbackResult {
+  ok: true;
+  version: string;
+}
+
 /** Roll back: restore the pre-update backup + re-pin the previous version. */
-async function rollbackPack(serverId, { backupId, actor = 'system' } = {}) {
+async function rollbackPack(
+  serverId: string,
+  { backupId, actor = 'system' }: { backupId?: string | null; actor?: string } = {}
+): Promise<RollbackResult> {
   const pack = packsService.getPack(serverId);
   if (!pack || !pack.previous_version_id) throw httpError(400, 'No previous pack version recorded');
 
@@ -192,7 +228,10 @@ async function rollbackPack(serverId, { backupId, actor = 'system' } = {}) {
  * starts — require 6 consecutive checks (~30s) AND a 'Done (' line in recent
  * logs, or slow-booting packs get a false OK (and false failures on rollback).
  */
-async function waitForHealthy(serverId, { timeoutMs = 10 * 60 * 1000 } = {}) {
+async function waitForHealthy(
+  serverId: string,
+  { timeoutMs = 10 * 60 * 1000 }: { timeoutMs?: number } = {}
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   let stableChecks = 0;
   while (Date.now() < deadline) {
@@ -216,8 +255,8 @@ async function waitForHealthy(serverId, { timeoutMs = 10 * 60 * 1000 } = {}) {
   return false;
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms).unref());
 }
 
-module.exports = { upgradePack, rollbackPack, upgradeStatus };
+export = { upgradePack, rollbackPack, upgradeStatus };

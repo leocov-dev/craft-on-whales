@@ -5,29 +5,43 @@
 // line becomes a player_events row; join/leave events also maintain
 // player_sessions.
 
+import type { ClassifiedEvent } from './types';
+
 const db = require('../db');
 const serversService = require('../services/servers');
 const { followLogs, fetchLogs } = require('../docker/logs');
-const { classify } = require('./logClassifier');
+const { classify } = require('./logClassifier') as {
+  classify: (line: string | null | undefined) => ClassifiedEvent | null;
+};
 
 const RUNNING = new Set(['running', 'starting', 'unhealthy']);
 const DEDUPE_WINDOW_MS = 5000; // paired lines (logged-in/joined, lost-connection/left)
 
-const taps = new Map(); // serverId -> { stop, buf }
-let pollTimer = null;
+interface LogTap {
+  stop: () => void;
+  buf: string;
+}
+
+const taps = new Map<string, LogTap>(); // serverId -> { stop, buf }
+let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // Docker prepends this RFC3339(Nano) receive time to each line when
 // `timestamps: true` — the authoritative event time, independent of the
 // container's TZ. (nanoseconds trimmed to ms for JS Date.)
 const DOCKER_TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s([\s\S]*)$/;
 
+interface SplitTimestamp {
+  ts: string | null;
+  rest: string;
+}
+
 /** Split a Docker-timestamped line into { ts: ISO|null, rest: line }. */
-function splitDockerTimestamp(line) {
+function splitDockerTimestamp(line: string): SplitTimestamp {
   const m = DOCKER_TS_RE.exec(line);
   if (!m) return { ts: null, rest: line };
-  const iso = m[1].replace(/(\.\d{3})\d*Z$/, '$1Z'); // trim ns → ms
+  const iso = (m[1] ?? '').replace(/(\.\d{3})\d*Z$/, '$1Z'); // trim ns → ms
   const d = new Date(iso);
-  return { ts: Number.isNaN(d.getTime()) ? null : d.toISOString(), rest: m[2] };
+  return { ts: Number.isNaN(d.getTime()) ? null : d.toISOString(), rest: m[2] ?? '' };
 }
 
 /**
@@ -35,15 +49,15 @@ function splitDockerTimestamp(line) {
  * absent: today's date + time; a result more than a minute in the future means
  * the line is from yesterday. Used only for lines with no Docker prefix.
  */
-function buildTs(hms, now = new Date()) {
+function buildTs(hms: string | null | undefined, now: Date = new Date()): string {
   if (!hms) return now.toISOString();
   const [h, m, s] = hms.split(':').map(Number);
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m, s));
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h ?? 0, m ?? 0, s ?? 0));
   if (d.getTime() - now.getTime() > 60_000) d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString();
 }
 
-function openSession(serverId, player, ts) {
+function openSession(serverId: string, player: string, ts: string): void {
   // A dangling open session means we missed the leave — close it at the new join.
   db.run(
     'UPDATE player_sessions SET ended_at = ? WHERE server_id = ? AND player = ? AND ended_at IS NULL',
@@ -59,7 +73,7 @@ function openSession(serverId, player, ts) {
   );
 }
 
-function closeSession(serverId, player, ts) {
+function closeSession(serverId: string, player: string, ts: string): void {
   db.run(
     'UPDATE player_sessions SET ended_at = ? WHERE server_id = ? AND player = ? AND ended_at IS NULL',
     ts,
@@ -69,16 +83,22 @@ function closeSession(serverId, player, ts) {
 }
 
 /** Close every open session for a server (server stopped / log tap ended). */
-function closeAllSessions(serverId, ts = new Date().toISOString()) {
+function closeAllSessions(serverId: string, ts: string = new Date().toISOString()): void {
   db.run('UPDATE player_sessions SET ended_at = ? WHERE server_id = ? AND ended_at IS NULL', ts, serverId);
 }
 
 /**
  * Insert one classified event. Collapses paired join/leave variants that land
  * within DEDUPE_WINDOW_MS of an identical-type event for the same player.
- * @returns {boolean} true when a row was inserted
+ * Returns true when a row was inserted.
  */
-function insertEvent(serverId, evt, ts, raw, { sessions = true } = {}) {
+function insertEvent(
+  serverId: string,
+  evt: ClassifiedEvent,
+  ts: string,
+  raw: string,
+  { sessions = true }: { sessions?: boolean } = {}
+): boolean {
   if (evt.type === 'join' || evt.type === 'leave') {
     const prev = db.get(
       'SELECT ts, type, target FROM player_events WHERE server_id = ? AND player = ? ORDER BY id DESC LIMIT 1',
@@ -106,7 +126,7 @@ function insertEvent(serverId, evt, ts, raw, { sessions = true } = {}) {
   return true;
 }
 
-function handleLine(serverId, line) {
+function handleLine(serverId: string, line: string): void {
   const { ts: dockerTs, rest } = splitDockerTimestamp(line.replace(/\r$/, ''));
   const raw = rest;
   const evt = classify(raw);
@@ -114,7 +134,7 @@ function handleLine(serverId, line) {
   try {
     insertEvent(serverId, evt, dockerTs || buildTs(evt.time), raw);
   } catch (err) {
-    console.error(`[analytics] insert failed for ${serverId}:`, err.message);
+    console.error(`[analytics] insert failed for ${serverId}:`, err instanceof Error ? err.message : err);
   }
   // Custom chat commands (!rtp2 …): fire-and-forget — a broken command handler
   // must never break log ingestion. Lazy require avoids any module cycle.
@@ -122,20 +142,22 @@ function handleLine(serverId, line) {
     try {
       require('../services/chatCommands')
         .handleChat(serverId, evt.player, evt.message)
-        .catch((err) => console.error(`[chat-commands] ${serverId}:`, err.message));
+        .catch((err: unknown) =>
+          console.error(`[chat-commands] ${serverId}:`, err instanceof Error ? err.message : err)
+        );
     } catch (err) {
-      console.error(`[chat-commands] ${serverId}:`, err.message);
+      console.error(`[chat-commands] ${serverId}:`, err instanceof Error ? err.message : err);
     }
   }
 }
 
-async function attach(serverId) {
+async function attach(serverId: string): Promise<void> {
   // timestamps:true so each line carries Docker's authoritative UTC receive
   // time — TZ-independent, unlike the container's bare HH:MM:SS console prefix.
   const { stream, stop } = await followLogs(serverId, { tail: 0, timestamps: true });
-  const tap = { stop, buf: '' };
+  const tap: LogTap = { stop, buf: '' };
   taps.set(serverId, tap);
-  stream.on('data', (chunk) => {
+  stream.on('data', (chunk: Buffer) => {
     tap.buf += chunk.toString('utf8');
     let nl;
     while ((nl = tap.buf.indexOf('\n')) !== -1) {
@@ -157,7 +179,7 @@ async function attach(serverId) {
 let syncing = false;
 
 /** Attach taps to running servers, drop taps for stopped ones. */
-async function syncTaps() {
+async function syncTaps(): Promise<void> {
   // Re-entrancy guard: a slow attach() can outlive the 60s poll interval and
   // a second concurrent sync would double-attach taps (duplicate events,
   // leaked streams).
@@ -167,15 +189,17 @@ async function syncTaps() {
     const running = new Set(
       serversService
         .listServers()
-        .filter((s) => RUNNING.has(s.status))
-        .map((s) => s.id)
+        .filter((s: { status: string }) => RUNNING.has(s.status))
+        .map((s: { id: string }) => s.id)
     );
     for (const [id, tap] of taps) {
       if (!running.has(id)) tap.stop(); // stream end handler does the cleanup
     }
-    for (const id of running) {
+    for (const id of running as Set<string>) {
       if (!taps.has(id)) {
-        await attach(id).catch((err) => console.error(`[analytics] tap ${id} failed:`, err.message));
+        await attach(id).catch((err) =>
+          console.error(`[analytics] tap ${id} failed:`, err instanceof Error ? err.message : err)
+        );
       }
     }
   } finally {
@@ -184,13 +208,15 @@ async function syncTaps() {
 }
 
 /** Start live ingestion; re-syncs taps every 60 s as servers start/stop. */
-async function startIngest() {
-  await syncTaps().catch((err) => console.error('[analytics] initial tap sync failed:', err.message));
+async function startIngest(): Promise<void> {
+  await syncTaps().catch((err) =>
+    console.error('[analytics] initial tap sync failed:', err instanceof Error ? err.message : err)
+  );
   pollTimer = setInterval(() => syncTaps().catch(() => {}), 60_000);
   if (pollTimer.unref) pollTimer.unref();
 }
 
-function stopIngest() {
+function stopIngest(): void {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
   for (const tap of taps.values()) tap.stop();
@@ -201,7 +227,10 @@ function stopIngest() {
  * than the newest recorded event and exact raw duplicates at the same second.
  * Sessions are not touched — replayed historical joins would reopen them.
  */
-async function backfillFromLogs(serverId, { tail = 5000 } = {}) {
+async function backfillFromLogs(
+  serverId: string,
+  { tail = 5000 }: { tail?: number } = {}
+): Promise<{ inserted: number }> {
   const raw = await fetchLogs(serverId, { tail, timestamps: true });
   const newest = db.get('SELECT ts FROM player_events WHERE server_id = ? ORDER BY ts DESC LIMIT 1', serverId);
   const now = new Date();
@@ -212,7 +241,7 @@ async function backfillFromLogs(serverId, { tail = 5000 } = {}) {
     const evt = classify(line);
     if (!evt) continue;
     const ts = dockerTs || buildTs(evt.time, now);
-    if (newest && ts < newest.ts) continue;
+    if (newest && ts < String(newest.ts)) continue;
     if (db.get('SELECT 1 FROM player_events WHERE server_id = ? AND ts = ? AND raw = ?', serverId, ts, line)) continue;
     if (insertEvent(serverId, evt, ts, line, { sessions: false })) inserted++;
   }
@@ -220,7 +249,7 @@ async function backfillFromLogs(serverId, { tail = 5000 } = {}) {
 }
 
 /** Prune old timeline rows and closed sessions. Returns deleted counts. */
-function pruneOlderThan(days) {
+function pruneOlderThan(days: number): { events: number; sessions: number } {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   const events = Number(db.run('DELETE FROM player_events WHERE ts < ?', cutoff).changes);
   const sessions = Number(
@@ -229,7 +258,7 @@ function pruneOlderThan(days) {
   return { events, sessions };
 }
 
-module.exports = {
+export = {
   startIngest,
   stopIngest,
   backfillFromLogs,

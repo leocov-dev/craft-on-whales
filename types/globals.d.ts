@@ -10,4 +10,10 @@
 interface Error {
   status?: number;
   code?: string;
+  // src/updates/upgrade.js's version-change confirmation gate and rollback
+  // signal — read back by src/services/tasks.js and src/web/routes/api.js.
+  requiresVersionConfirm?: boolean;
+  fromMcVersion?: string;
+  toMcVersion?: string;
+  rollbackAvailable?: boolean;
 }

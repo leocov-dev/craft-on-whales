@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Blueprints: portable .mcserver.zip snapshots of a server's full recipe
@@ -6,6 +5,8 @@
 // optionally embedded jars and world). Export produces the zip + a DB row;
 // import validates the manifest (zod, zip-slip-guarded) and reproduces the
 // server on any Minecraft Server Manager install. Secrets are never written to a blueprint.
+
+import type { z } from 'zod';
 
 const httpError = require('../utils/httpError');
 const fs = require('node:fs');
@@ -15,7 +16,7 @@ const crypto = require('node:crypto');
 const archiver = require('archiver');
 const yauzl = require('yauzl');
 const { nanoid } = require('nanoid');
-const { z } = require('zod');
+const { z: zod } = require('zod');
 const db = require('../db');
 const config = require('../config');
 const { dataPath, safeJoin } = require('../storage/pathGuard');
@@ -30,7 +31,7 @@ function starterResources() {
     cpus: d.cpus,
     diskQuotaGb: d.diskQuotaGb,
     quotaStrict: false,
-    updatePolicy: 'manual',
+    updatePolicy: 'manual' as const,
   };
 }
 const { recordEvent } = require('../events');
@@ -68,77 +69,90 @@ const KNOWN_TYPES = new Set([
 
 // ---- Manifest schema (msm: 1) ----
 
-const overlayEntrySchema = z.object({
-  name: z.string().min(1).max(200),
-  kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).default('mod'),
-  filename: z.string().max(200).nullable().default(null),
-  sourceUrl: z.string().max(1000).nullable().default(null),
-  platform: z.string().max(20).nullable().default(null),
-  projectId: z.string().max(60).nullable().default(null),
-  fileId: z.string().max(60).nullable().default(null),
-  version: z.string().max(120).nullable().default(null),
+const overlayEntrySchema = zod.object({
+  name: zod.string().min(1).max(200),
+  kind: zod.enum(['mod', 'plugin', 'datapack', 'resourcepack']).default('mod'),
+  filename: zod.string().max(200).nullable().default(null),
+  sourceUrl: zod.string().max(1000).nullable().default(null),
+  platform: zod.string().max(20).nullable().default(null),
+  projectId: zod.string().max(60).nullable().default(null),
+  fileId: zod.string().max(60).nullable().default(null),
+  version: zod.string().max(120).nullable().default(null),
   // null = skip verification (e.g. starter blueprints resolve "latest compatible" at import time)
-  sha256: z
+  sha256: zod
     .string()
     .regex(/^[0-9a-f]{64}$/)
     .nullable()
     .default(null),
 });
 
-const manifestSchema = z.object({
-  msm: z.literal(1),
-  name: z.string().trim().min(1).max(120),
-  createdAt: z.string().max(40),
-  panelVersion: z.string().max(20),
-  notes: z.string().max(4000).default(''),
-  identity: z.object({
-    name: z.string().trim().min(1).max(80),
-    description: z.string().max(4000).default(''),
-    icon: z.string().max(64).default('grass'),
-    accent: z
+const manifestSchema = zod.object({
+  msm: zod.literal(1),
+  name: zod.string().trim().min(1).max(120),
+  createdAt: zod.string().max(40),
+  panelVersion: zod.string().max(20),
+  notes: zod.string().max(4000).default(''),
+  identity: zod.object({
+    name: zod.string().trim().min(1).max(80),
+    description: zod.string().max(4000).default(''),
+    icon: zod.string().max(64).default('grass'),
+    accent: zod
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
       .default('#3fa62b'),
-    tags: z.array(z.string().max(24)).max(16).default([]),
+    tags: zod.array(zod.string().max(24)).max(16).default([]),
   }),
-  config: z.object({
-    type: z.string().trim().min(1).max(32),
-    mcVersion: z.string().trim().min(1).max(32),
-    javaTag: z.string().max(16).default(''),
-    env: z.record(z.string(), z.string()).default({}),
+  config: zod.object({
+    type: zod.string().trim().min(1).max(32),
+    mcVersion: zod.string().trim().min(1).max(32),
+    javaTag: zod.string().max(16).default(''),
+    env: zod.record(zod.string(), zod.string()).default({}),
   }),
-  resources: z.object({
-    heapMb: z.number().int().min(512).max(262144),
-    containerMemoryMb: z.number().int().min(1024).max(524288),
-    cpus: z.number().min(0).max(128),
-    diskQuotaGb: z.number().min(0).max(16384),
-    quotaStrict: z.boolean().default(false),
-    updatePolicy: z.enum(['manual', 'notify', 'auto']).default('manual'),
+  resources: zod.object({
+    heapMb: zod.number().int().min(512).max(262144),
+    containerMemoryMb: zod.number().int().min(1024).max(524288),
+    cpus: zod.number().min(0).max(128),
+    diskQuotaGb: zod.number().min(0).max(16384),
+    quotaStrict: zod.boolean().default(false),
+    updatePolicy: zod.enum(['manual', 'notify', 'auto']).default('manual'),
   }),
-  pack: z
+  pack: zod
     .object({
-      platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
-      projectRef: z.string().min(1).max(400),
-      projectName: z.string().max(200).default(''),
-      versionId: z.string().min(1).max(60),
-      versionName: z.string().max(200).default(''),
+      platform: zod.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
+      projectRef: zod.string().min(1).max(400),
+      projectName: zod.string().max(200).default(''),
+      versionId: zod.string().min(1).max(60),
+      versionName: zod.string().max(200).default(''),
     })
     .nullable()
     .default(null),
-  overlay: z.array(overlayEntrySchema).max(500).default([]),
-  configFiles: z.array(z.string().min(1).max(300)).max(2000).default([]),
-  embedFiles: z.boolean().default(false),
-  world: z.boolean().default(false),
+  overlay: zod.array(overlayEntrySchema).max(500).default([]),
+  configFiles: zod.array(zod.string().min(1).max(300)).max(2000).default([]),
+  embedFiles: zod.boolean().default(false),
+  world: zod.boolean().default(false),
 });
 
+type BlueprintManifest = z.infer<typeof manifestSchema>;
+type OverlayEntry = z.infer<typeof overlayEntrySchema>;
+
 // ---- Export ----
+
+interface ExportOptions {
+  includeConfig?: boolean;
+  embedFiles?: boolean;
+  includeWorld?: boolean;
+}
 
 /**
  * Export a server as a .mcserver.zip in data/blueprints.
  * options: { includeConfig (server.properties + config/), embedFiles (bundle
  * overlay jars for offline portability), includeWorld }.
  */
-async function exportBlueprint(serverId, options = {}, { actor = 'system' } = {}) {
+async function exportBlueprint(
+  serverId: string,
+  options: ExportOptions = {},
+  { actor = 'system' }: { actor?: string } = {}
+) {
   const server = servers.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   const includeConfig = options.includeConfig !== false;
@@ -165,7 +179,7 @@ async function exportBlueprint(serverId, options = {}, { actor = 'system' } = {}
     }
   }
 
-  const manifest = {
+  const manifest: BlueprintManifest = {
     msm: 1,
     name: server.display_name,
     createdAt: new Date().toISOString(),
@@ -201,7 +215,7 @@ async function exportBlueprint(serverId, options = {}, { actor = 'system' } = {}
           versionName: pack.pinned_version_name,
         }
       : null,
-    overlay: overlayRows.map((r) => ({
+    overlay: overlayRows.map((r: any): OverlayEntry => ({
       name: r.name,
       kind: r.kind,
       filename: r.filename,
@@ -223,7 +237,7 @@ async function exportBlueprint(serverId, options = {}, { actor = 'system' } = {}
   const absPath = dataPath(relPath);
   await fsp.mkdir(path.dirname(absPath), { recursive: true });
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const output = fs.createWriteStream(absPath);
     const archive = archiver('zip', { zlib: { level: 6 } });
     output.on('close', resolve);
@@ -268,11 +282,17 @@ async function exportBlueprint(serverId, options = {}, { actor = 'system' } = {}
 
 // ---- Import ----
 
+interface ImportPreviewResult {
+  manifest: BlueprintManifest;
+  warnings: string[];
+  entries: { count: number; payloadBytes: number };
+}
+
 /**
  * Validate a .mcserver.zip and return { manifest, warnings, entries }.
  * Rejects zip-slip entry names and schema violations before anything is created.
  */
-async function importPreview(zipPath) {
+async function importPreview(zipPath: string): Promise<ImportPreviewResult> {
   const { entries, manifestText } = await readZipIndex(zipPath);
   if (!manifestText) throw httpError(400, 'Not a Minecraft Server Manager blueprint: manifest.json is missing');
 
@@ -286,11 +306,11 @@ async function importPreview(zipPath) {
   if (!parsed.success) {
     const detail = parsed.error.issues
       .slice(0, 3)
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .map((i: { path: (string | number)[]; message: string }) => `${i.path.join('.')}: ${i.message}`)
       .join('; ');
     throw httpError(400, `Blueprint manifest failed validation — ${detail}`);
   }
-  const manifest = parsed.data;
+  const manifest: BlueprintManifest = parsed.data;
   for (const rel of manifest.configFiles) {
     if (rel.split('/').includes('..') || path.isAbsolute(rel)) {
       throw httpError(400, `Blueprint config file path escapes the server directory: ${rel}`);
@@ -298,7 +318,7 @@ async function importPreview(zipPath) {
   }
 
   const entryNames = new Set(entries.map((e) => e.name));
-  const warnings = [];
+  const warnings: string[] = [];
   if (!KNOWN_TYPES.has(manifest.config.type)) {
     warnings.push(`Unknown server type "${manifest.config.type}" — this panel may not know how to run it.`);
   }
@@ -307,7 +327,9 @@ async function importPreview(zipPath) {
     warnings.push(`Minecraft ${manifest.config.mcVersion} is very old — expect Java and mod availability quirks.`);
   }
   if (manifest.embedFiles) {
-    const missing = manifest.overlay.filter((o) => o.filename && !entryNames.has(`payload/overlay/${o.filename}`));
+    const missing = manifest.overlay.filter(
+      (o: OverlayEntry) => o.filename && !entryNames.has(`payload/overlay/${o.filename}`)
+    );
     if (missing.length)
       warnings.push(
         `${missing.length} embedded overlay file(s) are missing from the archive — they will be downloaded instead.`
@@ -338,6 +360,29 @@ async function importPreview(zipPath) {
   };
 }
 
+interface ImportReportItem {
+  name: string;
+  status: 'ok' | 'hash-mismatch' | 'failed';
+  error?: string;
+}
+
+interface ImportOverrides {
+  name?: string;
+  description?: string;
+  icon?: string;
+  accent?: string;
+  tags?: string[];
+  mcVersion?: string;
+  heapMb?: number;
+  containerMemoryMb?: number;
+  cpus?: number;
+  diskQuotaGb?: number;
+  containerName?: string;
+  networkName?: string;
+  extraPorts?: unknown;
+  extraBinds?: unknown;
+}
+
 /**
  * Create a NEW server from a blueprint. `zipRef` is a blueprint id (bp_…) or a
  * zip path inside the data dir. Fresh ports and RCON password are always
@@ -346,7 +391,11 @@ async function importPreview(zipPath) {
  * pack/overlay item ('ok' | 'hash-mismatch' | 'failed'); failures never abort
  * the rest of the import.
  */
-async function importBlueprint(zipRef, overrides = {}, { actor = 'system', onProgress = () => {} } = {}) {
+async function importBlueprint(
+  zipRef: string,
+  overrides: ImportOverrides = {},
+  { actor = 'system', onProgress = (_msg: string) => {} }: { actor?: string; onProgress?: (msg: string) => void } = {}
+) {
   let zipPath = zipRef;
   if (/^bp_/.test(zipRef)) {
     zipPath = getBlueprintPath(zipRef);
@@ -384,7 +433,7 @@ async function importBlueprint(zipRef, overrides = {}, { actor = 'system', onPro
     servers.updateServer(server.id, { quotaStrict: true }, { actor });
   }
 
-  const report = [];
+  const report: ImportReportItem[] = [];
   const hasPayload = entries.payloadBytes > 0;
   const tmpDir = dataPath('tmp', `bpimp-${nanoid(8)}`);
 
@@ -407,7 +456,7 @@ async function importBlueprint(zipRef, overrides = {}, { actor = 'system', onPro
         report.push({
           name: `Modpack: ${manifest.pack.projectName || manifest.pack.projectRef}`,
           status: 'failed',
-          error: err.message,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -416,6 +465,7 @@ async function importBlueprint(zipRef, overrides = {}, { actor = 'system', onPro
     const freshServer = servers.getServer(server.id);
     for (let i = 0; i < manifest.overlay.length; i += 1) {
       const entry = manifest.overlay[i];
+      if (!entry) continue;
       onProgress(`Overlay ${i + 1}/${manifest.overlay.length}: ${entry.name}…`);
       report.push(await installOverlayItem(entry, freshServer, tmpDir, { actor }));
     }
@@ -452,7 +502,12 @@ async function importBlueprint(zipRef, overrides = {}, { actor = 'system', onPro
 }
 
 /** One overlay item → {name, status: 'ok'|'hash-mismatch'|'failed', error?}. */
-async function installOverlayItem(entry, server, tmpDir, { actor }) {
+async function installOverlayItem(
+  entry: OverlayEntry,
+  server: any,
+  tmpDir: string,
+  { actor }: { actor: string }
+): Promise<ImportReportItem> {
   const dirRel = mods.contentDir(server, entry.kind);
   try {
     let lib = null;
@@ -494,12 +549,15 @@ async function installOverlayItem(entry, server, tmpDir, { actor }) {
     );
     return { name: entry.name, status: 'ok' };
   } catch (err) {
-    return { name: entry.name, status: 'failed', error: err.message };
+    return { name: entry.name, status: 'failed', error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 /** Turn an overlay manifest entry into a direct download URL + library meta. */
-async function resolveOverlaySource(entry, server) {
+async function resolveOverlaySource(
+  entry: OverlayEntry,
+  server: any
+): Promise<{ url: string; meta: Record<string, unknown> }> {
   const loader = mods.loaderOf(server);
   const mcVersion = ['LATEST', 'SNAPSHOT'].includes(server.mc_version) ? undefined : server.mc_version;
 
@@ -572,7 +630,7 @@ async function resolveOverlaySource(entry, server) {
 }
 
 /** Register an extracted payload file in the shared library (dedupe by hash). */
-async function ingestLocalFile(absFile, entry, sha256) {
+async function ingestLocalFile(absFile: string, entry: OverlayEntry, sha256: string) {
   const category = entry.kind || 'mod';
   const existing = db.get('SELECT * FROM library_files WHERE sha256 = ? AND category = ?', sha256, category);
   if (existing) return existing;
@@ -607,7 +665,14 @@ async function ingestLocalFile(absFile, entry, sha256) {
 // ---- Clone ----
 
 /** One-click duplicate: full export (embedded files) + immediate import. */
-async function cloneServer(serverId, { includeWorld = false, actor = 'system', onProgress = () => {} } = {}) {
+async function cloneServer(
+  serverId: string,
+  {
+    includeWorld = false,
+    actor = 'system',
+    onProgress = (_msg: string) => {},
+  }: { includeWorld?: boolean; actor?: string; onProgress?: (msg: string) => void } = {}
+) {
   const original = servers.getServer(serverId);
   if (!original) throw httpError(404, 'Server not found');
   onProgress('Exporting blueprint…');
@@ -626,18 +691,18 @@ function listBlueprints() {
   return db.all('SELECT * FROM blueprints ORDER BY builtin DESC, created_at DESC').map(decorate);
 }
 
-function getBlueprint(id) {
+function getBlueprint(id: string) {
   const row = db.get('SELECT * FROM blueprints WHERE id = ?', id);
   return row ? decorate(row) : null;
 }
 
-function getBlueprintPath(id) {
+function getBlueprintPath(id: string): string {
   const row = db.get('SELECT * FROM blueprints WHERE id = ?', id);
   if (!row) throw httpError(404, 'Blueprint not found');
   return dataPath(row.rel_path);
 }
 
-async function deleteBlueprint(id, { actor = 'system' } = {}) {
+async function deleteBlueprint(id: string, { actor = 'system' }: { actor?: string } = {}) {
   const row = db.get('SELECT * FROM blueprints WHERE id = ?', id);
   if (!row) throw httpError(404, 'Blueprint not found');
   await fsp.rm(dataPath(row.rel_path), { force: true });
@@ -652,8 +717,8 @@ async function deleteBlueprint(id, { actor = 'system' } = {}) {
 }
 
 /** Row + fields derived from the cached manifest for lists/cards. */
-function decorate(row) {
-  let manifest = {};
+function decorate(row: any) {
+  let manifest: Partial<BlueprintManifest> = {};
   try {
     manifest = JSON.parse(row.manifest_json);
   } catch {
@@ -678,7 +743,7 @@ function decorate(row) {
 // ---- Starter blueprints (first-run seed) ----
 
 /** Ship two preset blueprints once. A settings flag prevents re-seeding after the user deletes them. */
-async function seedStarters() {
+async function seedStarters(): Promise<{ seeded: number; blueprints?: unknown[] }> {
   if (db.get("SELECT 1 FROM settings WHERE key = 'blueprints_seeded'")) return { seeded: 0 };
   if (db.get('SELECT 1 FROM blueprints WHERE builtin = 1')) return { seeded: 0 };
 
@@ -695,7 +760,7 @@ async function seedStarters() {
   return { seeded: created.length, blueprints: created };
 }
 
-function paperStarterManifest() {
+function paperStarterManifest(): BlueprintManifest {
   return {
     msm: 1,
     name: 'Optimized Paper Survival',
@@ -724,10 +789,10 @@ function paperStarterManifest() {
   };
 }
 
-function fabricStarterManifest() {
+function fabricStarterManifest(): BlueprintManifest {
   // Manifest-only overlay refs: sha256 null = skip verification, the latest
   // compatible build is resolved from the project page at import time.
-  const mod = (name, slug) => ({
+  const mod = (name: string, slug: string): OverlayEntry => ({
     name,
     kind: 'mod',
     filename: null,
@@ -766,12 +831,15 @@ function fabricStarterManifest() {
   };
 }
 
-async function writeManifestOnlyBlueprint(manifest, { builtin = false } = {}) {
+async function writeManifestOnlyBlueprint(
+  manifest: BlueprintManifest,
+  { builtin = false }: { builtin?: boolean } = {}
+) {
   const filename = `${slugify(manifest.name)}.mcserver.zip`;
   const relPath = `blueprints/${filename}`;
   const absPath = dataPath(relPath);
   await fsp.mkdir(path.dirname(absPath), { recursive: true });
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const output = fs.createWriteStream(absPath);
     const archive = archiver('zip', { zlib: { level: 6 } });
     output.on('close', resolve);
@@ -797,32 +865,37 @@ async function writeManifestOnlyBlueprint(manifest, { builtin = false } = {}) {
 
 // ---- Zip helpers (all zip-slip-guarded) ----
 
-function safeEntryName(name) {
+function safeEntryName(name: string): boolean {
   if (!name || name.includes('\0') || name.includes('\\')) return false;
   if (path.isAbsolute(name) || /^[a-zA-Z]:/.test(name)) return false;
   return !name.split('/').includes('..');
 }
 
+interface ZipEntry {
+  name: string;
+  size: number;
+}
+
 /** List entries and stream out manifest.json without extracting anything. */
-function readZipIndex(zipPath) {
+function readZipIndex(zipPath: string): Promise<{ entries: ZipEntry[]; manifestText: string | null }> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err: Error | null, zip: any) => {
       if (err) return reject(httpError(400, 'Not a valid zip archive'));
-      const entries = [];
-      let manifestText = null;
+      const entries: ZipEntry[] = [];
+      let manifestText: string | null = null;
       zip.on('error', reject);
       zip.on('end', () => resolve({ entries, manifestText }));
-      zip.on('entry', (entry) => {
+      zip.on('entry', (entry: any) => {
         if (!safeEntryName(entry.fileName)) {
           zip.close();
           return reject(httpError(400, `Archive entry escapes its destination: ${entry.fileName}`));
         }
         entries.push({ name: entry.fileName, size: entry.uncompressedSize });
         if (entry.fileName === 'manifest.json') {
-          zip.openReadStream(entry, (streamErr, readStream) => {
+          zip.openReadStream(entry, (streamErr: Error | null, readStream: NodeJS.ReadableStream) => {
             if (streamErr) return reject(streamErr);
-            const chunks = [];
-            readStream.on('data', (c) => chunks.push(c));
+            const chunks: Buffer[] = [];
+            readStream.on('data', (c: Buffer) => chunks.push(c));
             readStream.on('error', reject);
             readStream.on('end', () => {
               manifestText = Buffer.concat(chunks).toString('utf8');
@@ -839,13 +912,13 @@ function readZipIndex(zipPath) {
 }
 
 /** Extract a whole zip under destDir; every entry path is containment-checked. */
-function extractZipSafe(zipFile, destDir) {
+function extractZipSafe(zipFile: string, destDir: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
+    yauzl.open(zipFile, { lazyEntries: true }, (err: Error | null, zip: any) => {
       if (err) return reject(err);
       zip.on('error', reject);
       zip.on('end', resolve);
-      zip.on('entry', (entry) => {
+      zip.on('entry', (entry: any) => {
         if (!safeEntryName(entry.fileName)) {
           zip.close();
           return reject(new Error(`Archive entry escapes destination: ${entry.fileName}`));
@@ -860,7 +933,7 @@ function extractZipSafe(zipFile, destDir) {
           zip.readEntry();
         } else {
           fs.mkdirSync(path.dirname(target), { recursive: true });
-          zip.openReadStream(entry, (streamErr, readStream) => {
+          zip.openReadStream(entry, (streamErr: Error | null, readStream: NodeJS.ReadableStream) => {
             if (streamErr) return reject(streamErr);
             const out = fs.createWriteStream(target);
             out.on('close', () => zip.readEntry());
@@ -876,15 +949,15 @@ function extractZipSafe(zipFile, destDir) {
 
 // ---- Small helpers ----
 
-function sanitizeEnv(env) {
+function sanitizeEnv(env: Record<string, string> | null | undefined): Record<string, string> {
   return Object.fromEntries(Object.entries(env || {}).filter(([k]) => !SECRET_ENV_RE.test(k)));
 }
 
-function collectConfigFiles(serverDir) {
-  const rels = [];
+function collectConfigFiles(serverDir: string): string[] {
+  const rels: string[] = [];
   if (fs.existsSync(path.join(serverDir, 'server.properties'))) rels.push('server.properties');
-  const walk = (abs, rel) => {
-    let entries = [];
+  const walk = (abs: string, rel: string) => {
+    let entries: import('node:fs').Dirent[] = [];
     try {
       entries = fs.readdirSync(abs, { withFileTypes: true });
     } catch {
@@ -901,7 +974,7 @@ function collectConfigFiles(serverDir) {
 }
 
 /** World dirs to embed: the active level dir plus its Bukkit-style split siblings. */
-function worldDirsOf(server, serverDir) {
+function worldDirsOf(server: unknown, serverDir: string): { name: string; abs: string }[] {
   // activeLevelName honors LEVEL env AND server.properties level-name — a
   // renamed/activated world would otherwise be silently missing from exports.
   const level = require('../services/worlds').activeLevelName(server);
@@ -910,17 +983,17 @@ function worldDirsOf(server, serverDir) {
     .filter((d) => fs.existsSync(d.abs) && fs.statSync(d.abs).isDirectory());
 }
 
-function hashFile(absFile) {
+function hashFile(absFile: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
     fs.createReadStream(absFile)
-      .on('data', (c) => hash.update(c))
+      .on('data', (c: Buffer) => hash.update(c))
       .on('error', reject)
       .on('end', () => resolve(hash.digest('hex')));
   });
 }
 
-function slugify(name) {
+function slugify(name: string): string {
   return (
     String(name)
       .toLowerCase()
@@ -930,11 +1003,11 @@ function slugify(name) {
   );
 }
 
-function sanitizeFilename(name) {
+function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|\0]/g, '_').slice(0, 180);
 }
 
-module.exports = {
+export = {
   exportBlueprint,
   importPreview,
   importBlueprint,

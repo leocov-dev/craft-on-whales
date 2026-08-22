@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Update checker: compares pinned packs, overlay mods, and the itzg image
@@ -13,8 +12,16 @@ const modrinth = require('../services/modrinthApi');
 const curseforge = require('../services/curseforgeApi');
 const modsService = require('../services/mods');
 
-async function checkAll({ actor = 'scheduler' } = {}) {
-  const findings = [];
+interface Finding {
+  server: string;
+  kind: 'pack' | 'mod';
+  subject: string;
+  current: string | null;
+  latest: string | null;
+}
+
+async function checkAll({ actor = 'scheduler' }: { actor?: string } = {}): Promise<Finding[]> {
+  const findings: Finding[] = [];
   for (const server of serversService.listServers()) {
     // Pack updates
     try {
@@ -57,8 +64,8 @@ async function checkAll({ actor = 'scheduler' } = {}) {
     const loader = modsService.loaderOf(server);
     for (const row of rows) {
       try {
-        let latest = null;
-        let changelogUrl = null;
+        let latest: { id: string; name: string } | null = null;
+        let changelogUrl: string | null = null;
         if (row.platform === 'modrinth') {
           const versions = await modrinth.getVersions(row.project_id, { loader, mcVersion });
           if (versions.length) latest = { id: versions[0].id, name: versions[0].version_number };
@@ -109,13 +116,25 @@ async function checkAll({ actor = 'scheduler' } = {}) {
   return findings;
 }
 
+interface UpsertCheckOptions {
+  isNew: boolean;
+  latestId: string | null;
+  latestName: string | null;
+  changelogUrl: string | null;
+}
+
 /**
  * Cache one check result. The latest_* columns are only populated when the
  * subject is ACTUALLY outdated (isNew) — latest_version holds the platform id,
  * latest_name the human-readable version name. Up-to-date subjects get NULLs,
  * so `latest_version IS NOT NULL` cleanly means "update available".
  */
-function upsertCheck(subjectType, subjectId, current, { isNew, latestId, latestName, changelogUrl }) {
+function upsertCheck(
+  subjectType: 'pack' | 'content',
+  subjectId: string,
+  current: string,
+  { isNew, latestId, latestName, changelogUrl }: UpsertCheckOptions
+): void {
   db.run(
     `INSERT INTO update_checks (subject_type, subject_id, current_version, latest_version, latest_name, changelog_url, checked_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -131,7 +150,7 @@ function upsertCheck(subjectType, subjectId, current, { isNew, latestId, latestN
   );
 }
 
-function packChangelogUrl(platform, projectRef) {
+function packChangelogUrl(platform: string, projectRef: string): string | null {
   if (platform === 'modrinth') return `https://modrinth.com/project/${projectRef}/changelog`;
   if (platform === 'curseforge') return `https://www.curseforge.com/minecraft/modpacks/${projectRef}/files`;
   // Fallback only: latestFor's gtnh branch normally supplies a real per-version
@@ -142,9 +161,21 @@ function packChangelogUrl(platform, projectRef) {
   return null;
 }
 
+interface OutdatedRow {
+  serverId: string;
+  server: string;
+  kind: string;
+  subject: string;
+  current: string | null;
+  latest: string | null;
+  versionId?: string | null;
+  contentId?: string;
+  changelogUrl: string | null;
+}
+
 /** Everything outdated, joined for the Updates page. */
-function listOutdated() {
-  const rows = [];
+function listOutdated(): OutdatedRow[] {
+  const rows: OutdatedRow[] = [];
   for (const c of db.all('SELECT * FROM update_checks WHERE latest_version IS NOT NULL')) {
     if (c.subject_type === 'pack') {
       const server = db.get('SELECT id, display_name FROM servers WHERE id = ? AND deleted_at IS NULL', c.subject_id);
@@ -184,9 +215,9 @@ function listOutdated() {
   return rows;
 }
 
-function lastCheckedAt() {
+function lastCheckedAt(): string | null {
   const row = db.get("SELECT fetched_at FROM api_cache WHERE key = 'last-update-check'");
   return row ? row.fetched_at : null;
 }
 
-module.exports = { checkAll, listOutdated, lastCheckedAt };
+export = { checkAll, listOutdated, lastCheckedAt };

@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Invites & client modpack generation (MP7).
@@ -23,33 +22,33 @@ const { getVersionManifest } = require('../services/mojang');
 const { displayVersion, flavorLabel } = require('../web/viewModels');
 const players = require('../services/players');
 
-function mustGet(serverId) {
+function mustGet(serverId: string): any {
   const server = serversService.getServer(serverId);
   if (!server) throw httpError(404, 'Server not found');
   return server;
 }
 
 /** Non-internal local IPv4 addresses, LAN-looking ones first. */
-function localIPv4s() {
-  const ips = [];
+function localIPv4s(): string[] {
+  const ips: string[] = [];
   for (const ifaces of Object.values(os.networkInterfaces())) {
-    for (const iface of ifaces || []) {
+    for (const iface of (ifaces as { family: string; internal: boolean; address: string }[]) || []) {
       if (iface.family === 'IPv4' && !iface.internal) ips.push(iface.address);
     }
   }
   return ips.sort((a, b) => Number(isLan(b)) - Number(isLan(a)));
 }
 
-function isLan(ip) {
+function isLan(ip: string): boolean {
   return /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
 }
 
 // ---------------------------------------------------------------------------
 // Public IP detection (replaces UPnP — no new dependencies).
 
-let publicIpCache = { ip: null, at: 0 };
+let publicIpCache: { ip: string | null; at: number } = { ip: null, at: 0 };
 
-async function detectPublicIp() {
+async function detectPublicIp(): Promise<string | null> {
   if (Date.now() - publicIpCache.at < 60 * 60 * 1000) return publicIpCache.ip;
   try {
     const res = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(5000) });
@@ -61,7 +60,7 @@ async function detectPublicIp() {
   return publicIpCache.ip;
 }
 
-function portForwardGuidance(port) {
+function portForwardGuidance(port: number): string {
   return [
     `To let friends outside your network join, forward TCP port ${port} on your router to this machine.`,
     'Open your router admin page (usually 192.168.1.1 or 192.168.0.1), find "Port Forwarding" (sometimes under NAT or Virtual Server),',
@@ -73,7 +72,24 @@ function portForwardGuidance(port) {
 // ---------------------------------------------------------------------------
 // Invite info
 
-async function inviteInfo(serverId) {
+interface InviteInfo {
+  serverId: string;
+  name: string;
+  port: number;
+  candidates: string[];
+  publicIp: string | null;
+  publicAddress: string | null;
+  portForwardGuidance: string;
+  mcVersion: string;
+  flavor: string;
+  whitelistEnforced: boolean;
+  modCount: number;
+  manualMods: { name: string; filename: string | null }[];
+  inviteText: string;
+  modded: boolean;
+}
+
+async function inviteInfo(serverId: string): Promise<InviteInfo> {
   const server = mustGet(serverId);
   const port = server.port_game;
   const candidates = localIPv4s().map((ip) => `${ip}:${port}`);
@@ -83,7 +99,10 @@ async function inviteInfo(serverId) {
   const whitelistEnforced = players.getWhitelistEnforced(serverId);
 
   const content = await modsService.listContent(serverId).catch(() => []);
-  const activeMods = content.filter((m) => m.enabled && !m.missing && (m.kind === 'mod' || m.kind === 'plugin'));
+  const activeMods = content.filter(
+    (m: { enabled: boolean; missing: boolean; kind: string }) =>
+      m.enabled && !m.missing && (m.kind === 'mod' || m.kind === 'plugin')
+  );
   const { manual } = splitOverlay(serverId);
   const publicIp = await detectPublicIp();
 
@@ -120,21 +139,29 @@ async function inviteInfo(serverId) {
   };
 }
 
-function isPluginFlavor(type) {
+function isPluginFlavor(type: string): boolean {
   // Plugin servers (Paper & friends) need nothing on the client.
   return ['PAPER', 'PURPUR', 'PUFFERFISH', 'LEAF', 'FOLIA', 'SPIGOT', 'BUKKIT', 'CANYON'].includes(type);
 }
 
+interface OverlayRow {
+  name: string;
+  filename: string | null;
+  enabled: number;
+  platform: string | null;
+  file_id: string | null;
+}
+
 /** Overlay rows split into mrpack-embeddable (Modrinth) vs install-manually. */
-function splitOverlay(serverId) {
-  const rows = db
-    .all(
+function splitOverlay(serverId: string): { modrinth: OverlayRow[]; manual: OverlayRow[] } {
+  const rows = (
+    db.all(
       `SELECT sc.name, sc.filename, sc.enabled, lf.platform, lf.file_id
        FROM server_content sc LEFT JOIN library_files lf ON lf.id = sc.library_id
       WHERE sc.server_id = ? AND sc.managed_by = 'overlay' AND sc.kind IN ('mod', 'plugin')`,
       serverId
-    )
-    .filter((r) => r.enabled);
+    ) as OverlayRow[]
+  ).filter((r) => r.enabled);
   return {
     modrinth: rows.filter((r) => r.platform === 'modrinth' && r.file_id),
     manual: rows.filter((r) => !(r.platform === 'modrinth' && r.file_id)),
@@ -145,7 +172,7 @@ function splitOverlay(serverId) {
 // .mrpack generation
 
 /** Concrete MC version for the pack manifest (LATEST/SNAPSHOT resolved now). */
-async function resolvedMcVersion(server) {
+async function resolvedMcVersion(server: { mc_version: string }): Promise<string> {
   if (server.mc_version !== 'LATEST' && server.mc_version !== 'SNAPSHOT') return server.mc_version;
   try {
     const manifest = await getVersionManifest();
@@ -156,23 +183,36 @@ async function resolvedMcVersion(server) {
 }
 
 // itzg env var → Modrinth loader dependency id
-const LOADER_ENVS = {
+const LOADER_ENVS: Record<string, string> = {
   FABRIC_LOADER_VERSION: 'fabric-loader',
   QUILT_LOADER_VERSION: 'quilt-loader',
   FORGE_VERSION: 'forge',
   NEOFORGE_VERSION: 'neoforge',
 };
 
+interface GenerateMrpackResult {
+  absPath: string;
+  filename: string;
+  fileCount: number;
+  manual: string[];
+}
+
 /**
  * Build a client .mrpack into data/tmp and return { absPath, filename,
  * fileCount, manual }. Caller streams it to the user and deletes it after.
  * `host` is the address the user picked for the bundled servers.dat entry.
  */
-async function generateMrpack(serverId, { host } = {}) {
+async function generateMrpack(serverId: string, { host }: { host?: string } = {}): Promise<GenerateMrpackResult> {
   const server = mustGet(serverId);
   const { modrinth: embeddable, manual } = splitOverlay(serverId);
 
-  const files = [];
+  const files: {
+    path: string;
+    hashes: { sha1: string; sha512: string };
+    env: { client: string; server: string };
+    downloads: string[];
+    fileSize: number;
+  }[] = [];
   for (const row of embeddable) {
     let version;
     try {
@@ -191,7 +231,7 @@ async function generateMrpack(serverId, { host } = {}) {
     });
   }
 
-  const dependencies = { minecraft: await resolvedMcVersion(server) };
+  const dependencies: Record<string, string> = { minecraft: await resolvedMcVersion(server) };
   for (const [envVar, depId] of Object.entries(LOADER_ENVS)) {
     const v = server.env[envVar];
     if (v && v.toUpperCase() !== 'LATEST') dependencies[depId] = v;
@@ -214,7 +254,7 @@ async function generateMrpack(serverId, { host } = {}) {
   const filename = `${slugify(server.display_name)}.mrpack`;
   const absPath = dataPath('tmp', `invite-${serverId}-${Date.now()}.mrpack`);
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const out = fs.createWriteStream(absPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
     out.on('close', resolve);
@@ -228,7 +268,7 @@ async function generateMrpack(serverId, { host } = {}) {
   return { absPath, filename, fileCount: files.length, manual: manual.map((m) => m.name) };
 }
 
-function slugify(name) {
+function slugify(name: string): string {
   return (
     name
       .toLowerCase()
@@ -247,18 +287,18 @@ const TAG_STRING = 0x08;
 const TAG_LIST = 0x09;
 const TAG_COMPOUND = 0x0a;
 
-function nbtStr(s) {
+function nbtStr(s: unknown): Buffer {
   const bytes = Buffer.from(String(s), 'utf8');
   const len = Buffer.alloc(2);
   len.writeUInt16BE(Math.min(bytes.length, 0xffff));
   return Buffer.concat([len, bytes.subarray(0, 0xffff)]);
 }
 
-function namedTag(type, name, payload) {
+function namedTag(type: number, name: string, payload: Buffer): Buffer {
   return Buffer.concat([Buffer.from([type]), nbtStr(name), payload]);
 }
 
-function buildServersDat({ name, ip }) {
+function buildServersDat({ name, ip }: { name: string; ip: string }): Buffer {
   // List entries are compound PAYLOADS (no type byte / name of their own).
   const entry = Buffer.concat([
     namedTag(TAG_STRING, 'ip', nbtStr(ip)),
@@ -276,4 +316,4 @@ function buildServersDat({ name, ip }) {
   ]);
 }
 
-module.exports = { inviteInfo, generateMrpack, detectPublicIp, portForwardGuidance, buildServersDat };
+export = { inviteInfo, generateMrpack, detectPublicIp, portForwardGuidance, buildServersDat };
