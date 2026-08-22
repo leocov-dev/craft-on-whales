@@ -3,9 +3,19 @@
 // Live container stats for dashboards/metrics. One-shot and streaming forms;
 // numbers normalized to { cpuPct, memUsedBytes, memLimitBytes, netRx, netTx }.
 
-const { getContainer } = require('./containers');
+import type { ContainerStats } from 'dockerode';
 
-function normalize(stats) {
+const { getContainer } = require('./containers') as typeof import('./containers');
+
+interface NormalizedStats {
+  cpuPct: number;
+  memUsedBytes: number;
+  memLimitBytes: number;
+  netRx: number;
+  netTx: number;
+}
+
+function normalize(stats: ContainerStats): NormalizedStats {
   // CPU % per Docker's documented formula.
   let cpuPct = 0;
   try {
@@ -17,7 +27,9 @@ function normalize(stats) {
     /* fields absent on some platforms until second sample */
   }
 
-  const mem = stats.memory_stats || {};
+  // memory_stats is documented as always present, but is defensively guarded
+  // here since some platforms (Windows) omit sub-fields.
+  const mem: Partial<ContainerStats['memory_stats']> = stats.memory_stats || {};
   // Subtract page cache where reported so numbers match `docker stats`.
   const cache = (mem.stats && (mem.stats.inactive_file ?? mem.stats.cache)) || 0;
   const memUsed = Math.max(0, (mem.usage || 0) - cache);
@@ -37,28 +49,29 @@ function normalize(stats) {
   };
 }
 
-async function statsOnce(serverId) {
+async function statsOnce(serverId: string): Promise<NormalizedStats | null> {
   try {
-    const stats = await getContainer(serverId).stats({ stream: false });
+    const stats: ContainerStats = await getContainer(serverId).stats({ stream: false });
     return normalize(stats);
-  } catch (err) {
-    if (err.statusCode === 404 || err.statusCode === 409) return null;
+  } catch (err: unknown) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    if (statusCode === 404 || statusCode === 409) return null;
     throw err;
   }
 }
 
 /** Stream stats; onSample(normalized) per tick. Returns stop(). */
-async function statsStream(serverId, onSample) {
-  const raw = await getContainer(serverId).stats({ stream: true });
+async function statsStream(serverId: string, onSample: (stats: NormalizedStats) => void): Promise<() => void> {
+  const raw: NodeJS.ReadableStream = await getContainer(serverId).stats({ stream: true });
   let buffer = '';
   // Without this, a container removal mid-stream emits an unhandled 'error'
   // event that would crash the whole panel process.
   raw.on('error', () => {
     /* consumer notices via silence; stop() cleans up */
   });
-  raw.on('data', (chunk) => {
+  raw.on('data', (chunk: Buffer) => {
     buffer += chunk.toString('utf8');
-    let idx;
+    let idx: number;
     while ((idx = buffer.indexOf('\n')) !== -1) {
       const line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
@@ -72,11 +85,11 @@ async function statsStream(serverId, onSample) {
   });
   return () => {
     try {
-      raw.destroy();
+      (raw as NodeJS.ReadableStream & { destroy?: () => void }).destroy?.();
     } catch {
       /* closed */
     }
   };
 }
 
-module.exports = { statsOnce, statsStream, normalize };
+export = { statsOnce, statsStream, normalize };

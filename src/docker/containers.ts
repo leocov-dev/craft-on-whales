@@ -1,11 +1,14 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Container lifecycle for managed Minecraft servers. All containers are
 // labeled msm.id=<serverId> and named msm-<serverId>.
 
+import type Dockerode from 'dockerode';
+import type { Row } from '../db/types';
+
 const path = require('node:path');
-const { getDocker } = require('./connect');
+const { PassThrough } = require('node:stream');
+const { getDocker } = require('./connect') as typeof import('./connect');
 const { toHostPath } = require('./hostPath');
 const db = require('../db');
 
@@ -14,31 +17,54 @@ const GAME_PORT = '25565';
 const RCON_PORT = '25575';
 const BEDROCK_PORT = '19132';
 
-function containerName(serverId) {
+function containerName(serverId: string): string {
   return `msm-${serverId}`;
+}
+
+interface ExtraPort {
+  container: string;
+  host: number | string;
+}
+
+interface ExtraBind {
+  hostPath: string;
+  containerPath: string;
+  mode?: 'rw' | 'ro';
+}
+
+interface CreateContainerSpec {
+  serverId: string;
+  /** e.g. itzg/minecraft-server:java21 */
+  image: string;
+  /** flat { KEY: 'value' } */
+  env: Record<string, string>;
+  /** absolute panel-local data dir, re-rooted to the host and bind-mounted to /data */
+  dataDir: string;
+  /** { game, rcon, bedrock? } host ports */
+  ports: { game: number | string; rcon: number | string; bedrock?: number | string };
+  /** { memoryMb, swapMb, cpus } */
+  resources: { memoryMb: number; swapMb?: number; cpus?: number };
+  /** Docker container name override; default `msm-<serverId>` */
+  containerName?: string;
+  /** existing host Docker network to attach to; default bridge */
+  networkName?: string;
+  /** feature ports (e.g. BlueMap's web server) + user-defined extras */
+  extraPorts?: ExtraPort[];
+  /** RAW host paths, not re-rooted */
+  extraBinds?: ExtraBind[];
 }
 
 /**
  * Create (but do not start) a container for a server.
- * @param {object} spec
- * @param {string} spec.serverId
- * @param {string} spec.image            e.g. itzg/minecraft-server:java21
- * @param {object} spec.env              flat { KEY: 'value' }
- * @param {string} spec.dataDir          absolute panel-local data dir, re-rooted to the host and bind-mounted to /data
- * @param {object} spec.ports            { game, rcon, bedrock? } host ports
- * @param {object} spec.resources        { memoryMb, swapMb, cpus }
- * @param {string} [spec.containerName]  Docker container name override; default `msm-<serverId>`
- * @param {string} [spec.networkName]    existing host Docker network to attach to; default bridge
- * @param {Array}  [spec.extraBinds]     [{hostPath, containerPath, mode: 'rw'|'ro'}] — RAW host paths, not re-rooted
  */
-async function createContainer(spec) {
+async function createContainer(spec: CreateContainerSpec): Promise<string> {
   const docker = getDocker();
-  const exposed = {
+  const exposed: Record<string, Record<string, never>> = {
     [`${GAME_PORT}/tcp`]: {},
     [`${GAME_PORT}/udp`]: {}, // query protocol shares the game port
     [`${RCON_PORT}/tcp`]: {},
   };
-  const bindings = {
+  const bindings: Record<string, Array<{ HostPort: string }>> = {
     [`${GAME_PORT}/tcp`]: [{ HostPort: String(spec.ports.game) }],
     [`${GAME_PORT}/udp`]: [{ HostPort: String(spec.ports.game) }],
     [`${RCON_PORT}/tcp`]: [{ HostPort: String(spec.ports.rcon) }],
@@ -64,7 +90,7 @@ async function createContainer(spec) {
     (b) => `${b.hostPath}:${b.containerPath}${b.mode === 'ro' ? ':ro' : ''}`
   );
 
-  const hostConfig = {
+  const hostConfig: Dockerode.HostConfig = {
     Binds: [`${toHostPath(spec.dataDir)}:/data`, ...extraBindStrings],
     PortBindings: bindings,
     Memory: memoryBytes,
@@ -88,22 +114,33 @@ async function createContainer(spec) {
 }
 
 /** Resolve the actual Docker name for a server — its custom name if one was set, else msm-<id>. */
-function resolvedName(serverId) {
-  const row = db.get('SELECT container_name FROM servers WHERE id = ?', serverId);
-  return (row && row.container_name) || containerName(serverId);
+function resolvedName(serverId: string): string {
+  const row: Row | undefined = db.get('SELECT container_name FROM servers WHERE id = ?', serverId);
+  return (row && (row.container_name as string | null)) || containerName(serverId);
 }
 
-function getContainer(serverId) {
+function getContainer(serverId: string): Dockerode.Container {
   return getDocker().getContainer(resolvedName(serverId));
 }
 
+interface InspectStatusResult {
+  exists: boolean;
+  status: 'starting' | 'unhealthy' | 'running' | 'stopped' | 'crashed';
+  health?: string | null;
+  exitCode?: number | null;
+  startedAt?: string | null;
+  finishedAt?: string;
+  oomKilled?: boolean;
+  containerId?: string;
+}
+
 /** Inspect → panel status. Returns { status, health, exitCode, startedAt, pid }. */
-async function inspectStatus(serverId) {
+async function inspectStatus(serverId: string): Promise<InspectStatusResult> {
   try {
     const info = await getContainer(serverId).inspect();
     const s = info.State;
     const health = s.Health ? s.Health.Status : null; // starting | healthy | unhealthy
-    let status;
+    let status: InspectStatusResult['status'];
     if (s.Running) {
       if (health === 'starting') status = 'starting';
       else if (health === 'unhealthy') status = 'unhealthy';
@@ -123,14 +160,18 @@ async function inspectStatus(serverId) {
       oomKilled: Boolean(s.OOMKilled),
       containerId: info.Id,
     };
-  } catch (err) {
-    if (err.statusCode === 404) return { exists: false, status: 'stopped' };
+  } catch (err: unknown) {
+    if ((err as { statusCode?: number }).statusCode === 404) return { exists: false, status: 'stopped' };
     throw err;
   }
 }
 
-async function startContainer(serverId) {
+async function startContainer(serverId: string): Promise<void> {
   await getContainer(serverId).start();
+}
+
+interface StopContainerOptions {
+  graceSeconds?: number;
 }
 
 /**
@@ -138,7 +179,7 @@ async function startContainer(serverId) {
  * needed via exec), then wait; fall back to docker stop with a generous grace
  * period so the world always saves.
  */
-async function stopContainer(serverId, { graceSeconds = 90 } = {}) {
+async function stopContainer(serverId: string, { graceSeconds = 90 }: StopContainerOptions = {}): Promise<void> {
   const container = getContainer(serverId);
   try {
     // Send the in-game `stop` (saves the world). execCapture reads + destroys the
@@ -155,20 +196,31 @@ async function stopContainer(serverId, { graceSeconds = 90 } = {}) {
   }
 }
 
-async function killContainer(serverId) {
+async function killContainer(serverId: string): Promise<void> {
   try {
     await getContainer(serverId).kill();
-  } catch (err) {
-    if (err.statusCode !== 404 && err.statusCode !== 409) throw err; // 409 = not running
+  } catch (err: unknown) {
+    const statusCode = (err as { statusCode?: number }).statusCode;
+    if (statusCode !== 404 && statusCode !== 409) throw err; // 409 = not running
   }
 }
 
-async function removeContainer(serverId) {
+async function removeContainer(serverId: string): Promise<void> {
   try {
     await getContainer(serverId).remove({ force: true });
-  } catch (err) {
-    if (err.statusCode !== 404) throw err;
+  } catch (err: unknown) {
+    if ((err as { statusCode?: number }).statusCode !== 404) throw err;
   }
+}
+
+interface ExecRawOptions {
+  timeoutMs?: number;
+  wantExitCode?: boolean;
+}
+
+interface ExecRawResult {
+  stdout: string;
+  exitCode: number | null;
 }
 
 /**
@@ -178,17 +230,24 @@ async function removeContainer(serverId) {
  * liveCache fires this on an interval and hung calls would otherwise stack
  * without bound.
  */
-async function execRaw(serverId, cmd, { timeoutMs = 15000, wantExitCode = false } = {}) {
+async function execRaw(
+  serverId: string,
+  cmd: string[],
+  { timeoutMs = 15000, wantExitCode = false }: ExecRawOptions = {}
+): Promise<ExecRawResult> {
   const container = getContainer(serverId);
   const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
   const stream = await exec.start({});
-  const stdout = await new Promise((resolve, reject) => {
-    const chunks = [];
+  const stdout: string = await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
     // Demux the Docker stream framing (8-byte headers).
-    const out = { write: (b) => chunks.push(b) };
+    const out: NodeJS.WritableStream = new PassThrough();
+    out.on('data', (b: Buffer) => chunks.push(b));
     getDocker().modem.demuxStream(stream, out, out);
     let settled = false;
-    const finish = (fn, arg) => {
+    // fn is either `resolve` (string) or `reject` (Error) — genuinely
+    // polymorphic, so it's typed loosely rather than forcing a false union.
+    const finish = (fn: (arg: any) => void, arg: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -205,7 +264,7 @@ async function execRaw(serverId, cmd, { timeoutMs = 15000, wantExitCode = false 
     );
     timer.unref?.();
     stream.on('end', () => finish(resolve, Buffer.concat(chunks).toString('utf8')));
-    stream.on('error', (err) => finish(reject, err));
+    stream.on('error', (err: Error) => finish(reject, err));
   });
   // The inspect is a second daemon round trip, opted into by the one caller
   // that reads the code — everyone else skips both its cost and its failure
@@ -213,12 +272,12 @@ async function execRaw(serverId, cmd, { timeoutMs = 15000, wantExitCode = false 
   // never fail a command whose output was already captured: the exit code is
   // best-effort, and null means "unknown" (callers already treat non-zero and
   // unknown the same, as "not a confirmed success").
-  let exitCode = null;
+  let exitCode: number | null = null;
   if (wantExitCode) {
     try {
       const inspected = await Promise.race([
         exec.inspect(),
-        new Promise((resolve) => setTimeout(resolve, timeoutMs, null).unref?.()),
+        new Promise<null>((resolve) => setTimeout(resolve, timeoutMs, null).unref?.()),
       ]);
       if (inspected && typeof inspected.ExitCode === 'number') exitCode = inspected.ExitCode;
     } catch {
@@ -229,7 +288,7 @@ async function execRaw(serverId, cmd, { timeoutMs = 15000, wantExitCode = false 
 }
 
 /** Run a command via docker exec and capture its output (used for rcon-cli). */
-async function execCapture(serverId, cmd, opts = {}) {
+async function execCapture(serverId: string, cmd: string[], opts: ExecRawOptions = {}): Promise<string> {
   const { stdout } = await execRaw(serverId, cmd, opts);
   return stdout;
 }
@@ -244,7 +303,7 @@ async function execCapture(serverId, cmd, opts = {}) {
  * `exitCode` is null when the daemon didn't answer the inspect in time, which
  * callers must treat as "not a confirmed success", never as an error.
  */
-async function execCaptureChecked(serverId, cmd, opts = {}) {
+async function execCaptureChecked(serverId: string, cmd: string[], opts: ExecRawOptions = {}): Promise<ExecRawResult> {
   return execRaw(serverId, cmd, { ...opts, wantExitCode: true });
 }
 
@@ -257,7 +316,7 @@ async function execCaptureChecked(serverId, cmd, opts = {}) {
  * the PARENT directory and remove the target by name. `Cmd: []` is required so
  * the image's default CMD isn't appended as extra arguments to our entrypoint.
  */
-async function removeDataDir(dir, image) {
+async function removeDataDir(dir: string, image: string): Promise<void> {
   const docker = getDocker();
   const parent = path.dirname(dir);
   const base = path.basename(dir);
@@ -286,7 +345,7 @@ async function removeDataDir(dir, image) {
  * the panel (running as uid:gid) can manage them. Mounts the PARENT and chowns
  * the target by name; `Cmd: []` clears the image's default CMD (see removeDataDir).
  */
-async function chownDataDir(dir, image, uid, gid) {
+async function chownDataDir(dir: string, image: string, uid: number | string, gid: number | string): Promise<void> {
   const docker = getDocker();
   const parent = path.dirname(dir);
   const base = path.basename(dir);
@@ -309,7 +368,7 @@ async function chownDataDir(dir, image, uid, gid) {
   }
 }
 
-module.exports = {
+export = {
   LABEL,
   containerName,
   createContainer,

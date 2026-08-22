@@ -7,25 +7,28 @@
 //   DOCKER_HOST env var wins when set.
 // Exposes availability state the UI uses for the setup wizard.
 
+import type Dockerode from 'dockerode';
+import type { DockerOptions } from 'dockerode';
+
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const Docker = require('dockerode');
+const Docker = require('dockerode') as typeof Dockerode;
 
-let client = null;
+let client: Dockerode | null = null;
 
-function detectOptions() {
+function detectOptions(): DockerOptions {
   if (process.env.DOCKER_HOST) return {}; // dockerode reads DOCKER_HOST itself
   if (process.platform === 'win32') return { socketPath: '//./pipe/docker_engine' };
   // Prefer the classic system socket, but recent Docker Desktop (macOS) and
   // rootless Docker/Podman only expose a per-user socket — probe those too so a
   // stranger with a default install isn't told "daemon unavailable".
-  const candidates = [
+  const candidates: string[] = [
     '/var/run/docker.sock',
     path.join(os.homedir(), '.docker', 'run', 'docker.sock'),
     process.env.XDG_RUNTIME_DIR ? path.join(process.env.XDG_RUNTIME_DIR, 'docker.sock') : null,
   ].filter(Boolean);
-  const found = candidates.find((p) => {
+  const found = candidates.find((p: string) => {
     try {
       return fs.existsSync(p);
     } catch {
@@ -35,17 +38,28 @@ function detectOptions() {
   return { socketPath: found || '/var/run/docker.sock' };
 }
 
-function getDocker() {
+function getDocker(): Dockerode {
   if (!client) client = new Docker(detectOptions());
   return client;
+}
+
+interface DockerStatus {
+  available: boolean;
+  installed: boolean | null;
+  version: string | null;
+  os: string | null;
+  ncpu: number | null;
+  memTotal: number | null;
+  isDockerDesktop: boolean;
+  error: string | null;
 }
 
 /**
  * Probe the daemon. Never throws — returns a status object the setup wizard
  * renders directly.
  */
-async function checkDocker() {
-  const status = {
+async function checkDocker(): Promise<DockerStatus> {
+  const status: DockerStatus = {
     available: false,
     installed: null, // best-effort; null = unknown
     version: null,
@@ -64,9 +78,10 @@ async function checkDocker() {
     status.os = info.OperatingSystem || '';
     status.ncpu = info.NCPU;
     status.memTotal = info.MemTotal;
-    status.isDockerDesktop = /docker desktop/i.test(status.os);
-  } catch (err) {
-    status.error = err.code || err.message;
+    status.isDockerDesktop = /docker desktop/i.test(status.os || '');
+  } catch (err: unknown) {
+    const e = err as NodeJS.ErrnoException & { message?: string };
+    status.error = e.code || e.message || String(err);
     if (process.platform === 'win32') {
       status.installed = fs.existsSync(process.env.ProgramFiles + '\\Docker\\Docker\\Docker Desktop.exe');
     }
@@ -74,4 +89,4 @@ async function checkDocker() {
   return status;
 }
 
-module.exports = { getDocker, checkDocker };
+export = { getDocker, checkDocker };

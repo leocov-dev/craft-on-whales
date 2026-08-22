@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const config = require('../config');
 
-const LAYOUT = [
+const LAYOUT: string[] = [
   'servers',
   'backups',
   'blueprints',
@@ -19,27 +19,32 @@ const LAYOUT = [
   'tmp',
 ];
 
-function ensureDataRoot() {
+function ensureDataRoot(): void {
   try {
     for (const dir of LAYOUT) {
       fs.mkdirSync(path.join(config.dataDir, dir), { recursive: true });
     }
-  } catch (err) {
+  } catch (err: unknown) {
     // Turn a bare ENOENT/EACCES into an actionable message instead of a raw
     // stack trace at boot (e.g. DATA_DIR on a missing drive or a read-only path).
+    const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Could not create the data directory at ${config.dataDir}: ${err.message}. ` +
+      `Could not create the data directory at ${config.dataDir}: ${message}. ` +
         `Check that DATA_DIR points somewhere this user can write, then start the panel again.`
     );
   }
   cleanTmp();
 }
 
+interface CleanTmpOptions {
+  olderThanMs?: number;
+}
+
 /**
  * Clean tmp/. On boot (no args) everything goes — nothing can be in flight.
  * The scheduled sweep passes { olderThanMs } so in-progress transfers survive.
  */
-function cleanTmp({ olderThanMs = 0 } = {}) {
+function cleanTmp({ olderThanMs = 0 }: CleanTmpOptions = {}): void {
   const tmp = path.join(config.dataDir, 'tmp');
   const cutoff = Date.now() - olderThanMs;
   for (const entry of fs.readdirSync(tmp)) {
@@ -57,4 +62,4 @@ function cleanTmp({ olderThanMs = 0 } = {}) {
   }
 }
 
-module.exports = { ensureDataRoot, cleanTmp, LAYOUT };
+export = { ensureDataRoot, cleanTmp, LAYOUT };

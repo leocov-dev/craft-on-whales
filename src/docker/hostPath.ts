@@ -14,14 +14,14 @@ const config = require('../config');
 // separator than the panel's runtime (Linux container managing a Windows
 // Docker Desktop host, or vice versa) — so the joined suffix must follow the
 // host path's own convention, not path.sep.
-const HOST_SEP = /^[A-Za-z]:/.test(config.dataDirHost) || config.dataDirHost.includes('\\') ? '\\' : '/';
+const HOST_SEP: string = /^[A-Za-z]:/.test(config.dataDirHost) || config.dataDirHost.includes('\\') ? '\\' : '/';
 
 /**
  * Translate an absolute panel-local path under DATA_DIR into the equivalent
  * host path under DATA_DIR_HOST. Throws on paths outside DATA_DIR — those have
  * no host equivalent and binding them would silently mount the wrong directory.
  */
-function toHostPath(abs) {
+function toHostPath(abs: string): string {
   if (config.dataDirHost === config.dataDir) return abs;
   const rel = path.relative(config.dataDir, path.resolve(abs));
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -35,4 +35,4 @@ function toHostPath(abs) {
   return `${base}${HOST_SEP}${suffix}`;
 }
 
-module.exports = { toHostPath };
+export = { toHostPath };

@@ -4,37 +4,39 @@
 // containers into history events, updates cached status, and drives crash
 // detection with auto-restart backoff.
 
-const { getDocker } = require('./connect');
-const { LABEL, inspectStatus } = require('./containers');
+import type { Row } from '../db/types';
+
+const { getDocker } = require('./connect') as typeof import('./connect');
+const { LABEL, inspectStatus } = require('./containers') as typeof import('./containers');
 const { fetchLogs } = require('./logs');
 const { recordEvent } = require('../events');
 const db = require('../db');
 
 // serverId → recent crash timestamps (for backoff)
-const crashWindows = new Map();
+const crashWindows = new Map<string, number[]>();
 const MAX_RAPID_CRASHES = 3;
 const CRASH_WINDOW_MS = 10 * 60 * 1000;
 
-let stream = null;
-let retryTimer = null;
+let stream: NodeJS.ReadableStream | null = null;
+let retryTimer: NodeJS.Timeout | null = null;
 
-async function startWatcher() {
+async function startWatcher(): Promise<void> {
   if (stream) return;
   const docker = getDocker();
-  const s = await docker.getEvents({
+  const s: NodeJS.ReadableStream = await docker.getEvents({
     filters: { type: ['container'], label: ['msm.managed=true'] },
   });
   stream = s;
   let buffer = '';
-  s.on('data', (chunk) => {
+  s.on('data', (chunk: Buffer) => {
     buffer += chunk.toString('utf8');
-    let idx;
+    let idx: number;
     while ((idx = buffer.indexOf('\n')) !== -1) {
       const line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
       if (!line) continue;
       try {
-        handleEvent(JSON.parse(line)).catch((err) => console.error('[watcher]', err.message));
+        handleEvent(JSON.parse(line)).catch((err: Error) => console.error('[watcher]', err.message));
       } catch {
         /* partial frame */
       }
@@ -51,11 +53,11 @@ async function startWatcher() {
 }
 
 /** Schedule a reconnect. Keeps retrying forever; never dies after one failure. */
-function retryLater() {
+function retryLater(): void {
   if (retryTimer) return; // a retry is already scheduled
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    startWatcher().catch((err) => {
+    startWatcher().catch((err: Error) => {
       console.error('[watcher] reconnect failed, retrying in 5s:', err.message);
       retryLater();
     });
@@ -63,10 +65,17 @@ function retryLater() {
   retryTimer.unref();
 }
 
-async function handleEvent(evt) {
+interface DockerEvent {
+  status?: string;
+  Actor?: {
+    Attributes?: Record<string, string>;
+  };
+}
+
+async function handleEvent(evt: DockerEvent): Promise<void> {
   const serverId = evt.Actor && evt.Actor.Attributes && evt.Actor.Attributes[LABEL];
   if (!serverId) return;
-  const server = db.get('SELECT * FROM servers WHERE id = ?', serverId);
+  const server: Row | undefined = db.get('SELECT * FROM servers WHERE id = ?', serverId);
   if (!server) return;
 
   if (evt.status === 'start') {
@@ -87,7 +96,7 @@ async function handleEvent(evt) {
   }
   if (evt.status !== 'die') return;
 
-  const exitCode = Number(evt.Actor.Attributes.exitCode ?? -1);
+  const exitCode = Number(evt.Actor?.Attributes?.exitCode ?? -1);
   const stopRequested = db.get(
     "SELECT 1 AS x FROM events WHERE server_id = ? AND type IN ('stop-requested','restart-requested','kill-requested') AND created_at > datetime('now', '-3 minutes')",
     serverId
@@ -111,7 +120,7 @@ async function handleEvent(evt) {
   // Crash path — even inside a stop/restart window a non-zero, non-signal exit
   // is a crash and must be recorded as one.
   db.run("UPDATE servers SET status = 'crashed' WHERE id = ?", serverId);
-  const excerpt = await fetchLogs(serverId, { tail: 300 }).catch(() => '');
+  const excerpt: string = await fetchLogs(serverId, { tail: 300 }).catch(() => '');
 
   // Config errors never fix themselves — diagnose them so the crash event
   // says WHAT to do, and skip auto-restarts that would just burn cycles.
@@ -161,16 +170,23 @@ async function handleEvent(evt) {
           summary: `Auto-restart attempt ${window.length}/${MAX_RAPID_CRASHES} after crash`,
         });
       }
-    } catch (err) {
-      console.error('[watcher] auto-restart failed:', err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[watcher] auto-restart failed:', message);
     }
   }, delayMs).unref();
 }
 
+interface FatalDiagnosis {
+  key: string;
+  re: RegExp;
+  summary: string;
+}
+
 /** Match known unrecoverable startup errors → actionable message. */
-function diagnoseFatal(logText) {
+function diagnoseFatal(logText: string): FatalDiagnosis | null {
   if (!logText) return null;
-  const KNOWN = [
+  const KNOWN: FatalDiagnosis[] = [
     {
       key: 'cf-api-key',
       re: /API key is not set.*CF_API_KEY/is,
@@ -209,4 +225,4 @@ function diagnoseFatal(logText) {
   return null;
 }
 
-module.exports = { startWatcher };
+export = { startWatcher };

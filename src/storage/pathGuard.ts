@@ -8,7 +8,10 @@ const path = require('node:path');
 const config = require('../config');
 
 class PathEscapeError extends Error {
-  constructor(attempted) {
+  attempted: string;
+  status: number;
+
+  constructor(attempted: string) {
     super('Path escapes the panel data directory');
     this.name = 'PathEscapeError';
     this.attempted = attempted;
@@ -20,11 +23,11 @@ class PathEscapeError extends Error {
 // is on the hot path for nearly every filesystem op — so resolve each base once
 // and reuse it, instead of a realpath syscall per call. A base that doesn't yet
 // exist caches nothing and is retried next time.
-const realBaseCache = new Map();
-function realBaseOf(base) {
+const realBaseCache = new Map<string, string | null>();
+function realBaseOf(base: string): string | null {
   const cached = realBaseCache.get(base);
   if (cached !== undefined) return cached;
-  let real = null;
+  let real: string | null = null;
   try {
     real = fs.realpathSync.native(base);
   } catch {
@@ -42,7 +45,7 @@ function realBaseOf(base) {
  * host path would otherwise let a read — or, via a dangling link, a write —
  * follow it straight out.
  */
-function assertRealContainment(base, resolved, attempted) {
+function assertRealContainment(base: string, resolved: string, attempted: string): void {
   const realBase = realBaseOf(base);
   if (realBase === null) return; // base doesn't exist yet — nothing to escape
 
@@ -67,7 +70,7 @@ function assertRealContainment(base, resolved, attempted) {
   // chain, catching an existing link out of base. If the deepest entry is a
   // BROKEN symlink, realpath throws — resolve its target textually against the
   // (real) parent instead, so an escape through a dangling link is still caught.
-  let realDir;
+  let realDir: string;
   try {
     realDir = fs.realpathSync.native(dir);
   } catch {
@@ -89,7 +92,7 @@ function assertRealContainment(base, resolved, attempted) {
  * within `base`. Rejects NUL bytes and Windows alternate data streams, and
  * rejects symlinks that resolve outside `base`.
  */
-function safeJoin(base, ...parts) {
+function safeJoin(base: string, ...parts: string[]): string {
   const joined = parts.join('/');
   if (joined.includes('\0') || /(^|[\\/])[^\\/]*:[^\\/]*$/.test(joined.replace(/^[a-zA-Z]:/, ''))) {
     throw new PathEscapeError(joined);
@@ -102,14 +105,14 @@ function safeJoin(base, ...parts) {
 }
 
 /** Resolve a path under the panel data root. */
-function dataPath(...parts) {
+function dataPath(...parts: string[]): string {
   return safeJoin(config.dataDir, ...parts);
 }
 
 /** True when `candidate` (absolute) lies inside the data root. */
-function isInsideDataDir(candidate) {
+function isInsideDataDir(candidate: string): boolean {
   const rel = path.relative(config.dataDir, path.resolve(candidate));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-module.exports = { safeJoin, dataPath, isInsideDataDir, PathEscapeError };
+export = { safeJoin, dataPath, isInsideDataDir, PathEscapeError };
