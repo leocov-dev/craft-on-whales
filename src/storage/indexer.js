@@ -97,12 +97,12 @@ function startIndexer({ intervalMs = 15 * 60 * 1000 } = {}) {
 /** Instant size lookup from cache; 0 when not yet scanned. */
 function sizeOf(relPath) {
   const row = db.get('SELECT size_bytes FROM storage_index WHERE rel_path = ?', relPath);
-  return row ? row.size_bytes : 0;
+  return row ? Number(row.size_bytes) : 0;
 }
 
 function lastScan() {
   const row = db.get('SELECT MAX(scanned_at) AS t FROM storage_index');
-  return row ? row.t : null;
+  return row && row.t != null ? String(row.t) : null;
 }
 
 async function diskFree() {
@@ -130,11 +130,11 @@ async function enforceStrictQuotas() {
   );
   for (const s of servers) {
     const used = sizeOf(`servers/${s.id}`);
-    if (used > s.disk_quota_bytes * 1.1 && ['running', 'starting', 'unhealthy'].includes(s.status)) {
+    if (used > Number(s.disk_quota_bytes) * 1.1 && ['running', 'starting', 'unhealthy'].includes(String(s.status))) {
       const { stopServer } = require('../services/servers');
       const { recordEvent } = require('../events');
       recordEvent({
-        serverId: s.id,
+        serverId: String(s.id),
         type: 'quota-exceeded',
         summary: `Strict quota: usage ${(used / 1024 ** 3).toFixed(1)} GB exceeds quota by >10% — stopping server`,
       });

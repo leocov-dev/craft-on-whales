@@ -34,7 +34,7 @@ const SUPPORTED = new Set([
 function getMapConfig(serverId) {
   const row = db.get("SELECT * FROM integrations WHERE server_id = ? AND kind = 'bluemap'", serverId);
   if (!row) return { enabled: false, hostPort: null };
-  const cfg = JSON.parse(row.config_json || '{}');
+  const cfg = JSON.parse(String(row.config_json || '{}'));
   return { enabled: Boolean(row.enabled), hostPort: cfg.hostPort || null };
 }
 
@@ -170,7 +170,7 @@ async function freePort() {
   const used = new Set(
     db
       .all("SELECT config_json FROM integrations WHERE kind = 'bluemap'")
-      .map((r) => JSON.parse(r.config_json || '{}').hostPort)
+      .map((r) => JSON.parse(String(r.config_json || '{}')).hostPort)
   );
   for (let port = HOST_PORT_START; port < HOST_PORT_START + 500; port += 1) {
     if (used.has(port)) continue;

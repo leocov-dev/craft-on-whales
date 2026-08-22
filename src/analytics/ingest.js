@@ -85,7 +85,7 @@ function insertEvent(serverId, evt, ts, raw, { sessions = true } = {}) {
       serverId,
       evt.player
     );
-    if (prev && prev.type === evt.type && Math.abs(Date.parse(prev.ts) - Date.parse(ts)) <= DEDUPE_WINDOW_MS) {
+    if (prev && prev.type === evt.type && Math.abs(Date.parse(String(prev.ts)) - Date.parse(ts)) <= DEDUPE_WINDOW_MS) {
       return false;
     }
   }

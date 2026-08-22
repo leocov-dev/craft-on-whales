@@ -76,8 +76,8 @@ function pickLatest(entries, { includeBeta = false } = {}) {
 /** Fetch + cache the index. Serves the stale copy rather than failing. */
 async function fetchIndex() {
   const cached = db.get('SELECT value_json, fetched_at FROM api_cache WHERE key = ?', CACHE_KEY);
-  const stale = () => (cached ? normalizeIndex(JSON.parse(cached.value_json)) : null);
-  if (cached && Date.now() - Date.parse(cached.fetched_at + 'Z') < TTL_MS) return stale();
+  const stale = () => (cached ? normalizeIndex(JSON.parse(String(cached.value_json))) : null);
+  if (cached && Date.now() - Date.parse(String(cached.fetched_at) + 'Z') < TTL_MS) return stale();
 
   let res;
   try {

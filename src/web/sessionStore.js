@@ -10,11 +10,11 @@ class SqliteSessionStore extends Store {
     try {
       const row = db.get('SELECT data_json, expires_at FROM sessions WHERE sid = ?', sid);
       if (!row) return cb(null, null);
-      if (Date.parse(row.expires_at) < Date.now()) {
+      if (Date.parse(String(row.expires_at)) < Date.now()) {
         db.run('DELETE FROM sessions WHERE sid = ?', sid);
         return cb(null, null);
       }
-      cb(null, JSON.parse(row.data_json));
+      cb(null, JSON.parse(String(row.data_json)));
     } catch (err) {
       cb(err);
     }

@@ -5,17 +5,26 @@
 // and break deletion). Collapse any pre-existing duplicates first, re-pointing
 // server_content references to the surviving row, then add the UNIQUE index.
 
-function up(db) {
+import type { Db, SQLInputValue, SQLOutputValue } from '../types';
+
+interface DupGroup {
+  sha256: SQLOutputValue;
+  category: SQLOutputValue;
+  keep: SQLOutputValue;
+  n: SQLOutputValue;
+}
+
+function up(db: Db): void {
   const dups = db.all(
     `SELECT sha256, category, MIN(id) AS keep, COUNT(*) AS n
        FROM library_files
       GROUP BY sha256, category
      HAVING n > 1`
-  );
+  ) as unknown as DupGroup[];
   for (const d of dups) {
     const losers = db
       .all('SELECT id FROM library_files WHERE sha256 = ? AND category = ? AND id <> ?', d.sha256, d.category, d.keep)
-      .map((r) => r.id);
+      .map((r) => r.id as SQLInputValue);
     for (const lid of losers) {
       db.run('UPDATE server_content SET library_id = ? WHERE library_id = ?', d.keep, lid);
       db.run('DELETE FROM library_files WHERE id = ?', lid);
@@ -24,4 +33,4 @@ function up(db) {
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS uniq_library_sha_cat ON library_files(sha256, category)');
 }
 
-module.exports = { up };
+export = { up };

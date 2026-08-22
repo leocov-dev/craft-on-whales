@@ -12,6 +12,25 @@ const db = require('../db');
 const { dataPath } = require('../storage/pathGuard');
 const { recordEvent } = require('../events');
 
+/**
+ * A crash_reports row (see db/migrations/001_init.ts). Cast to this from the
+ * db layer's generic `Record<string, SQLOutputValue>` row shape so property
+ * access and spreads type-check normally.
+ * @typedef {{
+ *   id: string,
+ *   server_id: string,
+ *   filename: string,
+ *   file_mtime: string,
+ *   size_bytes: number,
+ *   summary: string,
+ *   exception: string,
+ *   suspected_json: string,
+ *   event_id: number|null,
+ *   viewed: number,
+ *   created_at: string
+ * }} CrashReportRow
+ */
+
 // Package roots that never identify a mod (JDK, Minecraft, common libraries).
 const BORING_ROOTS = [
   'java.',
@@ -248,13 +267,14 @@ function stopCrashWatcher() {
 }
 
 function listCrashes(serverId) {
-  return db
-    .all('SELECT * FROM crash_reports WHERE server_id = ? ORDER BY file_mtime DESC', serverId)
-    .map((row) => ({ ...row, suspected: JSON.parse(row.suspected_json || '[]') }));
+  return db.all('SELECT * FROM crash_reports WHERE server_id = ? ORDER BY file_mtime DESC', serverId).map((row) => {
+    const typed = /** @type {CrashReportRow} */ (row);
+    return { ...typed, suspected: JSON.parse(typed.suspected_json || '[]') };
+  });
 }
 
 function getCrash(crashId) {
-  const row = db.get('SELECT * FROM crash_reports WHERE id = ?', crashId);
+  const row = /** @type {CrashReportRow | undefined} */ (db.get('SELECT * FROM crash_reports WHERE id = ?', crashId));
   return row ? { ...row, suspected: JSON.parse(row.suspected_json || '[]') } : null;
 }
 

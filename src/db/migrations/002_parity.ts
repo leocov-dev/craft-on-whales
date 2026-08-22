@@ -3,7 +3,9 @@
 // Parity features: activity timeline, sessions, analytics snapshots,
 // integrations (Discord), and public status page flags.
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     -- Structured events parsed from server logs (chat, join, leave, death,
     -- advancement, pvp). Search uses indexed LIKE scans — node:sqlite (Node 23)
@@ -57,4 +59,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

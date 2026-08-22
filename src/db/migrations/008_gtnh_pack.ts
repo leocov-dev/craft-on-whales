@@ -6,11 +6,13 @@
 // offering a beta to a server that deliberately tracks stable). NULL for
 // CurseForge/Modrinth/FTB pins, which have neither concept.
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     ALTER TABLE server_packs ADD COLUMN max_java_version INTEGER;
     ALTER TABLE server_packs ADD COLUMN channel TEXT;
   `);
 }
 
-module.exports = { up };
+export = { up };

@@ -6,7 +6,9 @@
 //   msg_failure — sent if it fails
 // All optional; NULL means "use the built-in default message".
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     ALTER TABLE chat_commands ADD COLUMN msg_pending TEXT;
     ALTER TABLE chat_commands ADD COLUMN msg_success TEXT;
@@ -14,4 +16,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

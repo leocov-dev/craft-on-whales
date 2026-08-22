@@ -4,7 +4,9 @@
 // live log stream and executed as the player who typed them, plus a per-server
 // prefix setting. "trigger" is a reserved word in SQLite — always quoted.
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     CREATE TABLE chat_commands (
       id           TEXT PRIMARY KEY,             -- ccmd_xxxx
@@ -31,4 +33,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

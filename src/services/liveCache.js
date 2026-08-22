@@ -239,7 +239,7 @@ async function sync() {
   try {
     const rows = db.all('SELECT id, status FROM servers WHERE deleted_at IS NULL');
     const running = new Set(
-      rows.filter((r) => ['running', 'starting', 'unhealthy'].includes(r.status)).map((r) => r.id)
+      rows.filter((r) => ['running', 'starting', 'unhealthy'].includes(String(r.status))).map((r) => r.id)
     );
     for (const id of running) if (!entries.has(id)) await attach(id);
     for (const id of [...entries.keys()]) if (!running.has(id)) detach(id);

@@ -123,7 +123,8 @@ router.get(
   asyncHandler((req, res, next) => {
     const lib = db.get("SELECT * FROM library_files WHERE id = ? AND category = 'world'", req.params.id);
     if (!lib) throw notFound('World not found in the library');
-    res.download(dataPath(lib.rel_path), lib.filename.endsWith('.zip') ? lib.filename : `${lib.filename}.zip`);
+    const filename = String(lib.filename);
+    res.download(dataPath(String(lib.rel_path)), filename.endsWith('.zip') ? filename : `${filename}.zip`);
   })
 );
 

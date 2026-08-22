@@ -233,11 +233,11 @@ function profile(serverId, uuid) {
   const dashed = uuidToDashed(uuid) || uuid;
   const row = latestSnapshot(serverId, dashed);
   if (!row) return null;
-  const stats = JSON.parse(row.stats_json);
+  const stats = JSON.parse(String(row.stats_json));
   const deltas = {};
   for (const window of ['24h', '7d']) {
     const base = baselineSnapshot(serverId, dashed, windowCutoff(window));
-    deltas[window] = deltaBetween(stats, base ? JSON.parse(base.stats_json) : null);
+    deltas[window] = deltaBetween(stats, base ? JSON.parse(String(base.stats_json)) : null);
   }
 
   const name = row.name || '';
@@ -264,7 +264,9 @@ function profile(serverId, uuid) {
           endedAt: s.ended_at,
           durationSec: Math.max(
             0,
-            Math.round(((s.ended_at ? Date.parse(s.ended_at) : Date.now()) - Date.parse(s.started_at)) / 1000)
+            Math.round(
+              ((s.ended_at ? Date.parse(String(s.ended_at)) : Date.now()) - Date.parse(String(s.started_at))) / 1000
+            )
           ),
           open: !s.ended_at,
         }))
@@ -299,13 +301,13 @@ function scoreboard(serverId, { metric = 'playtimeTicks', window = 'all' } = {})
   const rows = [];
   for (const { uuid } of uuids) {
     const latest = latestSnapshot(serverId, uuid);
-    const stats = JSON.parse(latest.stats_json);
+    const stats = JSON.parse(String(latest.stats_json));
     let value = num(stats[metric]);
     if (cutoff) {
       const base = baselineSnapshot(serverId, uuid, cutoff);
-      value = Math.max(0, value - num(base ? JSON.parse(base.stats_json)[metric] : 0));
+      value = Math.max(0, value - num(base ? JSON.parse(String(base.stats_json))[metric] : 0));
     }
-    rows.push({ uuid, name: latest.name || uuid.slice(0, 8), value });
+    rows.push({ uuid, name: latest.name || String(uuid).slice(0, 8), value });
   }
   rows.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
   return rows.map((row, i) => ({ ...row, rank: i + 1, crown: i === 0 && row.value > 0 }));
@@ -327,10 +329,10 @@ function xrayReport(serverId) {
   const uuids = db.all('SELECT DISTINCT uuid FROM player_stat_snapshots WHERE server_id = ?', serverId);
   const players = uuids.map(({ uuid }) => {
     const latest = latestSnapshot(serverId, uuid);
-    const s = JSON.parse(latest.stats_json);
+    const s = JSON.parse(String(latest.stats_json));
     return {
       uuid,
-      name: latest.name || uuid.slice(0, 8),
+      name: latest.name || String(uuid).slice(0, 8),
       stoneMined: s.stoneMined,
       diamondsMined: s.diamondsMined,
       ancientDebrisMined: s.ancientDebrisMined,

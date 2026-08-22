@@ -6,7 +6,9 @@
 // one-time recovery codes, never plaintext. totp_last_step guards against replaying a
 // captured code within its own 30s window.
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     ALTER TABLE users ADD COLUMN totp_secret TEXT;
     ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
@@ -15,4 +17,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

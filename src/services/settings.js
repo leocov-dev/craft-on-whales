@@ -10,7 +10,7 @@ function get(key, fallback = null) {
   const row = db.get('SELECT value_json FROM settings WHERE key = ?', key);
   if (!row) return fallback;
   try {
-    return JSON.parse(row.value_json);
+    return JSON.parse(String(row.value_json));
   } catch {
     return fallback;
   }

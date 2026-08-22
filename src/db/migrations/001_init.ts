@@ -3,7 +3,9 @@
 // Initial schema. Conventions: TEXT ids (nanoid/slugs), ISO-8601 UTC datetimes,
 // JSON columns suffixed _json, sizes in bytes, memory in MB.
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     CREATE TABLE users (
       id            TEXT PRIMARY KEY,
@@ -237,4 +239,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

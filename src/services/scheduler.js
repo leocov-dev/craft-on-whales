@@ -13,6 +13,22 @@ const { getTimezone } = require('./settings');
 
 const jobs = new Map(); // schedule id -> Cron
 
+/**
+ * A schedules row (see db/migrations/001_init.ts). Cast to this from the db
+ * layer's generic `Record<string, SQLOutputValue>` row shape so property
+ * access type-checks normally.
+ * @typedef {{
+ *   id: string,
+ *   server_id: string|null,
+ *   task_type: string,
+ *   cron: string,
+ *   payload_json: string,
+ *   enabled: number,
+ *   last_run_at: string|null,
+ *   created_at: string
+ * }} ScheduleRow
+ */
+
 const TASK_TYPES = {
   restart: { label: 'Restart server', serverScoped: true },
   backup: { label: 'Backup', serverScoped: true },
@@ -76,6 +92,7 @@ async function runTask(schedule) {
   }
 }
 
+/** @param {ScheduleRow} job */
 function schedule(job) {
   stopJob(job.id);
   if (!job.enabled) return;
@@ -122,12 +139,12 @@ function stopJob(id) {
  *  in Settings, or already-running jobs keep firing on the old one until the
  *  panel restarts. */
 function rearmAll() {
-  for (const job of db.all('SELECT * FROM schedules')) schedule(job);
+  for (const job of /** @type {ScheduleRow[]} */ (db.all('SELECT * FROM schedules'))) schedule(job);
 }
 
 function startScheduler() {
   seedGlobalDefaults();
-  for (const job of db.all('SELECT * FROM schedules')) schedule(job);
+  for (const job of /** @type {ScheduleRow[]} */ (db.all('SELECT * FROM schedules'))) schedule(job);
   console.log(`[scheduler] ${jobs.size} job(s) armed`);
 }
 
@@ -165,7 +182,7 @@ function createSchedule({ serverId = null, taskType, cron, payload = {}, enabled
     JSON.stringify(payload),
     enabled ? 1 : 0
   );
-  const job = db.get('SELECT * FROM schedules WHERE id = ?', id);
+  const job = /** @type {ScheduleRow} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
   schedule(job);
   recordEvent({
     serverId,
@@ -178,7 +195,7 @@ function createSchedule({ serverId = null, taskType, cron, payload = {}, enabled
 
 function setEnabled(id, enabled, { actor = 'system' } = {}) {
   db.run('UPDATE schedules SET enabled = ? WHERE id = ?', enabled ? 1 : 0, id);
-  const job = db.get('SELECT * FROM schedules WHERE id = ?', id);
+  const job = /** @type {ScheduleRow | undefined} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
   if (job) schedule(job);
   recordEvent({
     serverId: job?.server_id || null,
@@ -189,7 +206,7 @@ function setEnabled(id, enabled, { actor = 'system' } = {}) {
 }
 
 function deleteSchedule(id, { actor = 'system' } = {}) {
-  const job = db.get('SELECT * FROM schedules WHERE id = ?', id);
+  const job = /** @type {ScheduleRow | undefined} */ (db.get('SELECT * FROM schedules WHERE id = ?', id));
   stopJob(id);
   db.run('DELETE FROM schedules WHERE id = ?', id);
   if (job)
@@ -202,7 +219,9 @@ function deleteSchedule(id, { actor = 'system' } = {}) {
 }
 
 function listSchedules() {
-  return db.all('SELECT * FROM schedules ORDER BY server_id IS NULL, server_id, task_type').map((s) => {
+  return /** @type {ScheduleRow[]} */ (
+    db.all('SELECT * FROM schedules ORDER BY server_id IS NULL, server_id, task_type')
+  ).map((s) => {
     let next = null;
     let nextMs = null;
     try {

@@ -186,8 +186,8 @@ function sessionUser(req) {
     const sid = signature.unsign(raw.slice(2), config.sessionSecret);
     if (!sid) return null;
     const row = db.get('SELECT data_json, expires_at FROM sessions WHERE sid = ?', sid);
-    if (!row || Date.parse(row.expires_at) < Date.now()) return null;
-    const data = JSON.parse(row.data_json);
+    if (!row || Date.parse(String(row.expires_at)) < Date.now()) return null;
+    const data = JSON.parse(String(row.data_json));
     if (!data.userId) return null;
     return require('../services/auth').getUser(data.userId);
   } catch {

@@ -28,14 +28,14 @@ function dbPortsInUse() {
     used.add(r.port_game);
     used.add(r.port_rcon);
     if (r.port_bedrock) used.add(r.port_bedrock);
-    for (const p of JSON.parse(r.extra_ports_json || '[]')) {
+    for (const p of JSON.parse(String(r.extra_ports_json || '[]'))) {
       if (p && p.hostPort) used.add(p.hostPort);
     }
   }
   // BlueMap's web-server port lives in `integrations`, not on the server row —
   // it must be unioned in too, or a fresh port allocation could collide with it.
   for (const row of db.all("SELECT config_json FROM integrations WHERE kind = 'bluemap' AND enabled = 1")) {
-    const hostPort = JSON.parse(row.config_json || '{}').hostPort;
+    const hostPort = JSON.parse(String(row.config_json || '{}')).hostPort;
     if (hostPort) used.add(hostPort);
   }
   used.add(config.port); // never hand out the panel's own port

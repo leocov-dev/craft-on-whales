@@ -5,7 +5,9 @@
 // game/rcon/bedrock ports and the single /data bind. NULL/'[]' = use the
 // panel's default behavior (msm-<id> name, bridge network, no extras).
 
-function up(db) {
+import type { Db } from '../types';
+
+function up(db: Db): void {
   db.exec(`
     ALTER TABLE servers ADD COLUMN container_name TEXT;
     ALTER TABLE servers ADD COLUMN network_name TEXT;
@@ -14,4 +16,4 @@ function up(db) {
   `);
 }
 
-module.exports = { up };
+export = { up };

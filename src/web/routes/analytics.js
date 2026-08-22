@@ -120,7 +120,9 @@ router.get(
         open: !s.ended_at,
         durationSec: Math.max(
           0,
-          Math.round(((s.ended_at ? Date.parse(s.ended_at) : Date.now()) - Date.parse(s.started_at)) / 1000)
+          Math.round(
+            ((s.ended_at ? Date.parse(String(s.ended_at)) : Date.now()) - Date.parse(String(s.started_at))) / 1000
+          )
         ),
       }));
     res.json({ ok: true, sessions });

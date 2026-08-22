@@ -11,7 +11,7 @@ const SLUG_RE = /^[a-z0-9-]{3,40}$/;
 
 function getStatusPage(serverId) {
   const r = db.get('SELECT * FROM integrations WHERE server_id = ? AND kind = ?', serverId, KIND);
-  const cfg = r ? JSON.parse(r.config_json || '{}') : {};
+  const cfg = r ? JSON.parse(String(r.config_json || '{}')) : {};
   return {
     enabled: Boolean(r && r.enabled),
     slug: cfg.slug || null,
@@ -37,7 +37,7 @@ function setStatusPage(serverId, { enabled, slug }) {
   if (!SLUG_RE.test(slug)) throw httpError(400, 'Slug must be 3–40 chars of lowercase letters, digits, or dashes');
   const clash = db
     .all('SELECT server_id, config_json FROM integrations WHERE kind = ?', KIND)
-    .find((r) => r.server_id !== serverId && JSON.parse(r.config_json || '{}').slug === slug);
+    .find((r) => r.server_id !== serverId && JSON.parse(String(r.config_json || '{}')).slug === slug);
   if (clash) throw httpError(409, `The slug "${slug}" is already used by another server`);
 
   db.run(
@@ -58,7 +58,7 @@ function findBySlug(slug) {
   if (!SLUG_RE.test(String(slug))) return null;
   const r = db
     .all('SELECT server_id, config_json FROM integrations WHERE kind = ? AND enabled = 1', KIND)
-    .find((row) => JSON.parse(row.config_json || '{}').slug === slug);
+    .find((row) => JSON.parse(String(row.config_json || '{}')).slug === slug);
   return r ? r.server_id : null;
 }
 
