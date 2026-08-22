@@ -9,7 +9,7 @@ const { Cron } = require('croner');
 const { nanoid } = require('nanoid');
 const db = require('../db');
 const { recordEvent } = require('../events');
-const { getTimezone } = require('./settings');
+const { getTimezone } = require('./settings') as typeof import('./settings');
 
 const jobs = new Map<string, InstanceType<typeof Cron>>();
 

@@ -5,17 +5,63 @@
 // Docker (a one-shot `docker stats` costs ~2s; `docker exec rcon-cli list`
 // ~0.5s). Everything reads from here; nothing user-facing calls Docker inline.
 
-const db = require('../db');
-const { statsStream, statsOnce } = require('../docker/stats');
-const { execCaptureChecked, inspectStatus } = require('../docker/containers');
-const { fetchLogs } = require('../docker/logs');
-const { parsePlayerList } = require('../utils/rconList');
-const { cleanText } = require('../utils/ansi');
+const db = require('../db') as typeof import('../db');
+const { statsStream, statsOnce } = require('../docker/stats') as typeof import('../docker/stats');
+const { execCaptureChecked, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
+const { fetchLogs } = require('../docker/logs') as typeof import('../docker/logs');
+const { parsePlayerList } = require('../utils/rconList') as typeof import('../utils/rconList');
+const { cleanText } = require('../utils/ansi') as typeof import('../utils/ansi');
+
+interface Phase {
+  key: string;
+  re: RegExp;
+  label: string;
+}
+
+interface ClassifiedPhase {
+  key: string;
+  label: string;
+}
+
+interface StatsSample {
+  cpuPct: number;
+  memUsedBytes: number;
+  memLimitBytes: number;
+  netRx: number;
+  netTx: number;
+  at: number;
+}
+
+interface PlayerSample {
+  online: number;
+  max: number;
+  names: string[];
+  at: number;
+}
+
+interface LiveEntryPublic {
+  stats: StatsSample | null;
+  players: PlayerSample | null;
+  startedAt: string | null;
+  phase: ClassifiedPhase | null;
+  upConfirmed: boolean;
+}
+
+interface LiveEntry {
+  stats: StatsSample | null;
+  players: PlayerSample | null;
+  startedAt: string | null;
+  upConfirmed: boolean;
+  stopStats: (() => void) | null;
+  playerTimer: ReturnType<typeof setInterval> | null;
+  phaseTimer?: ReturnType<typeof setInterval> | null;
+  phase?: ClassifiedPhase | null;
+}
 
 // Boot-phase detection: a modded first boot passes through many meaningful
 // states — surface them instead of a flat "starting/unhealthy". Ordered by
 // precedence (later pipeline stages win when several match the tail).
-const PHASES = [
+const PHASES: Phase[] = [
   {
     key: 'pack-download',
     re: /Downloading modpack|Downloading.*server pack|install-(curseforge|modrinth)/i,
@@ -45,8 +91,8 @@ const PHASES = [
   { key: 'done', re: /Done \([\d.]+s\)/, label: 'Finishing startup' },
 ];
 
-function classifyPhase(logTail) {
-  let found = null;
+function classifyPhase(logTail: string): ClassifiedPhase | null {
+  let found: Phase | null = null;
   for (const phase of PHASES) {
     if (phase.re.test(logTail)) found = phase; // last (deepest) match wins
   }
@@ -58,13 +104,13 @@ function classifyPhase(logTail) {
   return { key: found.key, label: found.label };
 }
 
-const entries = new Map(); // serverId -> {stats, players, uptimeStartedAt, stopStats, timers}
-let syncTimer = null;
+const entries = new Map<string, LiveEntry>();
+let syncTimer: ReturnType<typeof setInterval> | null = null;
 let syncing = false;
 
-const EMPTY = { stats: null, players: null, startedAt: null, phase: null, upConfirmed: false };
+const EMPTY: LiveEntryPublic = { stats: null, players: null, startedAt: null, phase: null, upConfirmed: false };
 
-function get(serverId) {
+function get(serverId: string): LiveEntryPublic {
   const e = entries.get(serverId);
   if (!e) return EMPTY;
   return {
@@ -76,8 +122,8 @@ function get(serverId) {
   };
 }
 
-function getAll() {
-  const out = {};
+function getAll(): Record<string, LiveEntryPublic> {
+  const out: Record<string, LiveEntryPublic> = {};
   for (const [id, e] of entries) {
     out[id] = {
       stats: e.stats || null,
@@ -98,16 +144,16 @@ function getAll() {
  * wins; "Player count unavailable" is the latched "rcon answers but /list is
  * unparseable" state; a parsed player list means neither applies.
  */
-function statusDetail(live) {
+function statusDetail(live: LiveEntryPublic): string | null {
   if (live.players) return null;
   if (live.phase) return live.phase.label;
   if (live.upConfirmed) return 'Player count unavailable';
   return null;
 }
 
-async function attach(serverId) {
+async function attach(serverId: string): Promise<void> {
   if (entries.has(serverId)) return;
-  const entry = {
+  const entry: LiveEntry = {
     stats: null,
     players: null,
     startedAt: null,
@@ -134,7 +180,7 @@ async function attach(serverId) {
 
   let playersInFlight = false;
   let lastRestartCheckAt = 0;
-  const refreshPlayers = async () => {
+  const refreshPlayers = async (): Promise<void> => {
     if (playersInFlight) return; // don't stack calls if one is slow/hung
     playersInFlight = true;
     try {
@@ -217,7 +263,7 @@ async function attach(serverId) {
   entry.phaseTimer.unref();
 }
 
-function detach(serverId) {
+function detach(serverId: string): void {
   const entry = entries.get(serverId);
   if (!entry) return;
   if (entry.stopStats) {
@@ -233,31 +279,31 @@ function detach(serverId) {
 }
 
 /** Reconcile taps with the set of running servers. */
-async function sync() {
+async function sync(): Promise<void> {
   if (syncing) return;
   syncing = true;
   try {
     const rows = db.all('SELECT id, status FROM servers WHERE deleted_at IS NULL');
     const running = new Set(
-      rows.filter((r) => ['running', 'starting', 'unhealthy'].includes(String(r.status))).map((r) => r.id)
+      rows.filter((r) => ['running', 'starting', 'unhealthy'].includes(String(r.status))).map((r) => String(r.id))
     );
     for (const id of running) if (!entries.has(id)) await attach(id);
     for (const id of [...entries.keys()]) if (!running.has(id)) detach(id);
   } catch (err) {
-    console.error('[liveCache]', err.message);
+    console.error('[liveCache]', (err as Error).message);
   } finally {
     syncing = false;
   }
 }
 
-function startLiveCache({ intervalMs = 10000 } = {}) {
+function startLiveCache({ intervalMs = 10000 }: { intervalMs?: number } = {}): void {
   sync();
   syncTimer = setInterval(sync, intervalMs);
   syncTimer.unref();
 }
 
 /** One-shot fallback for servers not yet in the cache (e.g. just started). */
-async function sampleOnce(serverId) {
+async function sampleOnce(serverId: string): ReturnType<typeof statsOnce> {
   try {
     return await statsOnce(serverId);
   } catch {
@@ -265,4 +311,4 @@ async function sampleOnce(serverId) {
   }
 }
 
-module.exports = { get, getAll, statusDetail, startLiveCache, sync, detach, sampleOnce };
+export = { get, getAll, statusDetail, startLiveCache, sync, detach, sampleOnce };

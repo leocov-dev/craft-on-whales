@@ -3,15 +3,15 @@
 // Third-party API key storage (encrypted at rest) + validity testing.
 // The CurseForge key from .env is imported once on boot if none is stored.
 
-const db = require('../db');
-const config = require('../config');
-const secrets = require('./secrets');
-const { recordEvent } = require('../events');
+const db = require('../db') as typeof import('../db');
+const config = require('../config') as typeof import('../config');
+const secrets = require('./secrets') as typeof import('./secrets');
+const { recordEvent } = require('../events') as typeof import('../events');
 
-function getKey(provider) {
+function getKey(provider: string): string | null {
   const row = db.get('SELECT key_cipher FROM api_keys WHERE provider = ?', provider);
   if (!row) return null;
-  const key = secrets.tryDecrypt(row.key_cipher);
+  const key = secrets.tryDecrypt(String(row.key_cipher));
   if (key === null) {
     // SESSION_SECRET changed — treat as "no key" so features degrade to their
     // friendly "add your key in Settings" paths instead of crashing.
@@ -22,7 +22,7 @@ function getKey(provider) {
   return key;
 }
 
-function setKey(provider, key, { actor = 'system' } = {}) {
+function setKey(provider: string, key: string, { actor = 'system' }: { actor?: string } = {}): void {
   db.run(
     `INSERT INTO api_keys (provider, key_cipher) VALUES (?, ?)
      ON CONFLICT(provider) DO UPDATE SET key_cipher = excluded.key_cipher, added_at = datetime('now')`,
@@ -47,19 +47,21 @@ function setKey(provider, key, { actor = 'system' } = {}) {
   }
 }
 
-function deleteKey(provider, { actor = 'system' } = {}) {
+function deleteKey(provider: string, { actor = 'system' }: { actor?: string } = {}): void {
   db.run('DELETE FROM api_keys WHERE provider = ?', provider);
   recordEvent({ actor, type: 'api-key-removed', summary: `API key removed for ${provider}` });
 }
 
-function maskedKey(provider) {
+function maskedKey(provider: string): string | null {
   const key = getKey(provider);
   if (!key) return null;
   return key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••';
 }
 
 /** Live-test the CurseForge key against their games endpoint. */
-async function testCurseForgeKey(key = getKey('curseforge')) {
+async function testCurseForgeKey(
+  key: string | null = getKey('curseforge')
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!key) return { ok: false, error: 'No key stored' };
   try {
     const res = await fetch('https://api.curseforge.com/v1/games?index=0&pageSize=1', {
@@ -73,16 +75,16 @@ async function testCurseForgeKey(key = getKey('curseforge')) {
     );
     return ok ? { ok: true } : { ok: false, error: `CurseForge answered HTTP ${res.status} — check the key` };
   } catch (err) {
-    return { ok: false, error: `Could not reach CurseForge: ${err.message}` };
+    return { ok: false, error: `Could not reach CurseForge: ${(err as Error).message}` };
   }
 }
 
 /** One-time import from .env so the user's key lands in the encrypted store. */
-function importFromEnvOnce() {
+function importFromEnvOnce(): void {
   if (config.cfApiKeySeed && !db.get("SELECT 1 AS x FROM api_keys WHERE provider = 'curseforge'")) {
     setKey('curseforge', config.cfApiKeySeed.replace(/^'|'$/g, ''), { actor: 'system' });
     console.log('[keys] imported CurseForge API key from .env into encrypted store');
   }
 }
 
-module.exports = { getKey, setKey, deleteKey, maskedKey, testCurseForgeKey, importFromEnvOnce };
+export = { getKey, setKey, deleteKey, maskedKey, testCurseForgeKey, importFromEnvOnce };

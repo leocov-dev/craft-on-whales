@@ -1,4 +1,3 @@
-// @ts-nocheck — dynamic Docker/NBT/HTTP-JSON interop; not yet under checkJs (incremental typing).
 'use strict';
 
 // Player god-mode service: whitelist / ops / bans / kicks / teleports.
@@ -6,25 +5,74 @@
 // where the file format allows, while it is stopped (direct JSON edits under
 // the server's data dir, applied on next start).
 
-const httpError = require('../utils/httpError');
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const fs = require('node:fs');
-const { dataPath } = require('../storage/pathGuard');
-const { recordEvent } = require('../events');
-const { execCapture } = require('../docker/containers');
-const mojangProfiles = require('./mojangProfiles');
-const { PLAYER_NAME_RE, isBedrockName } = require('../utils/playerName');
-const { parsePlayerList } = require('../utils/rconList');
+const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
+const { recordEvent } = require('../events') as typeof import('../events');
+const { execCapture } = require('../docker/containers') as typeof import('../docker/containers');
+const mojangProfiles = require('./mojangProfiles') as typeof import('./mojangProfiles');
+const { PLAYER_NAME_RE, isBedrockName } = require('../utils/playerName') as typeof import('../utils/playerName');
+const { parsePlayerList } = require('../utils/rconList') as typeof import('../utils/rconList');
 // Aliased: this file already has its own cleanText() below (strips control
 // chars from RCON-bound messages) — this one strips ANSI/§ colour codes.
-const { cleanText: cleanAnsiText } = require('../utils/ansi');
+const { cleanText: cleanAnsiText } = require('../utils/ansi') as typeof import('../utils/ansi');
+
+/** A raw entry from one of the vanilla player JSON files (usercache/whitelist/ops/bans). */
+interface PlayerFileEntry {
+  name?: string;
+  uuid?: string;
+  level?: number;
+  bypassesPlayerLimit?: boolean;
+  reason?: string;
+  created?: string;
+  source?: string;
+  expires?: string;
+  expiresOn?: string;
+  ip?: string;
+}
+
+interface Identity {
+  uuid: string;
+  name: string;
+}
+
+interface RunOptions {
+  running?: boolean;
+  actor?: string;
+}
+
+/** Merged player-list entry — everything ever seen about one player. */
+interface PlayerListEntry {
+  name: string;
+  bedrock: boolean;
+  uuid: string | null;
+  online: boolean;
+  whitelisted: boolean;
+  op: boolean;
+  opLevel: number | null;
+  bypassesPlayerLimit: boolean;
+  banned: boolean;
+  banReason: string | null;
+  banDate: string | null;
+  banSource: string | null;
+  lastSeen: string | null;
+}
+
+interface BannedIpEntry {
+  ip: string;
+  reason: string | null;
+  created: string | null;
+  source: string | null;
+  expires: string;
+}
 
 // Only these fixed filenames are ever touched — no user input reaches a path.
 const FILES = new Set(['usercache.json', 'whitelist.json', 'ops.json', 'banned-players.json', 'banned-ips.json']);
 
 const IP_RE = /^[0-9a-fA-F.:]{3,45}$/;
-const DIMENSIONS = new Set(['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end']);
+const DIMENSIONS = new Set<string>(['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end']);
 
-function assertName(name) {
+function assertName(name: unknown): string {
   if (!PLAYER_NAME_RE.test(String(name)))
     throw httpError(
       400,
@@ -33,32 +81,32 @@ function assertName(name) {
   return String(name);
 }
 
-function assertIp(ip) {
+function assertIp(ip: unknown): string {
   if (!IP_RE.test(String(ip))) throw httpError(400, 'Invalid IP address');
   return String(ip);
 }
 
 /** Reasons/messages travel through RCON — strip control chars so they can't smuggle commands. */
-function cleanText(text, fallback) {
+function cleanText(text: unknown, fallback: string): string {
   const t = String(text || '')
     .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
     .trim();
   return t || fallback;
 }
 
-const DIMENSION_NAMES = {
+const DIMENSION_NAMES: Record<string, string> = {
   'minecraft:overworld': 'the Overworld',
   'minecraft:the_nether': 'the Nether',
   'minecraft:the_end': 'the End',
 };
 /** "minecraft:the_nether" -> "the Nether" (friendly label for messages). */
-function prettyDimension(dim) {
+function prettyDimension(dim: string | null | undefined): string {
   return (
-    DIMENSION_NAMES[dim] ||
+    DIMENSION_NAMES[dim || ''] ||
     String(dim || '')
       .split(':')
       .pop()
-      .replace(/_/g, ' ') ||
+      ?.replace(/_/g, ' ') ||
     'this dimension'
   );
 }
@@ -66,19 +114,19 @@ function prettyDimension(dim) {
 // ---------------------------------------------------------------------------
 // JSON file helpers (atomic writes: tmp file + rename)
 
-function readJson(serverId, file) {
+function readJson(serverId: string, file: string): PlayerFileEntry[] {
   if (!FILES.has(file)) throw httpError(400, `Unsupported player file: ${file}`);
   try {
     const raw = fs.readFileSync(dataPath('servers', serverId, file), 'utf8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw httpError(500, `Could not read ${file}: ${err.message}`);
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw httpError(500, `Could not read ${file}: ${(err as Error).message}`);
   }
 }
 
-function writeJson(serverId, file, data) {
+function writeJson(serverId: string, file: string, data: unknown): void {
   if (!FILES.has(file)) throw httpError(400, `Unsupported player file: ${file}`);
   const target = dataPath('servers', serverId, file);
   const tmp = dataPath('servers', serverId, `${file}.tmp`);
@@ -90,7 +138,7 @@ function writeJson(serverId, file, data) {
 // ---------------------------------------------------------------------------
 // RCON
 
-async function rcon(serverId, ...args) {
+async function rcon(serverId: string, ...args: (string | number)[]): Promise<string> {
   // '--' terminates flag parsing: args like '-5' (coords) or names starting
   // with '-' would otherwise be eaten by rcon-cli as flags.
   const out = await execCapture(serverId, ['rcon-cli', '--', ...args.map(String)]);
@@ -99,20 +147,20 @@ async function rcon(serverId, ...args) {
 
 // Same, but strip the ANSI/§ colour codes rcon-cli injects — REQUIRED before
 // regex-parsing any rcon output (e.g. "\x1b[0m" otherwise becomes a stray "[0m").
-async function rconClean(serverId, ...args) {
+async function rconClean(serverId: string, ...args: (string | number)[]): Promise<string> {
   return cleanAnsiText(await rcon(serverId, ...args));
 }
 
 // ANSI-clean rcon with an explicit timeout — /locate and spreadplayers can be slow
 // on big modpacks; the default 15s would abandon them (and the user would retry,
 // stacking searches that freeze the server). Give teleport commands more room.
-async function rconT(serverId, timeoutMs, ...args) {
+async function rconT(serverId: string, timeoutMs: number, ...args: (string | number)[]): Promise<string> {
   const out = await execCapture(serverId, ['rcon-cli', '--', ...args.map(String)], { timeoutMs });
   return cleanAnsiText(String(out || '').trim());
 }
 const TP_TIMEOUT_MS = 45000;
 
-function assertRunning(running, what) {
+function assertRunning(running: boolean, what: string): void {
   if (!running) throw httpError(409, `Server must be running to ${what}`);
 }
 
@@ -122,7 +170,10 @@ function assertRunning(running, what) {
  * caller must distinguish "confirmed nobody online" from "couldn't ask" (e.g. before
  * an offline .dat edit, where guessing wrong risks corrupting a live player's save).
  */
-async function listOnlineNames(serverId, { throwOnError = false } = {}) {
+async function listOnlineNames(
+  serverId: string,
+  { throwOnError = false }: { throwOnError?: boolean } = {}
+): Promise<string[]> {
   try {
     // rcon-cli colorizes output — strip ANSI/§ codes before parsing, and only
     // accept strict Minecraft name shapes so escapes never become "players".
@@ -142,8 +193,8 @@ async function listOnlineNames(serverId, { throwOnError = false } = {}) {
 // Identity resolution
 
 /** 'yyyy-MM-dd HH:mm:ss +0000' — the vanilla ban-file timestamp format. */
-function banTimestamp(date = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
+function banTimestamp(date: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
   return (
     `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())} ` +
     `${p(date.getUTCHours())}:${p(date.getUTCMinutes())}:${p(date.getUTCSeconds())} +0000`
@@ -151,21 +202,21 @@ function banTimestamp(date = new Date()) {
 }
 
 /** Find {uuid, name} in the server's own files (usercache + role files). */
-function localIdentity(serverId, name) {
+function localIdentity(serverId: string, name: string): Identity | null {
   const lower = name.toLowerCase();
   for (const file of ['usercache.json', 'whitelist.json', 'ops.json', 'banned-players.json']) {
     const hit = readJson(serverId, file).find((e) => e.name && e.name.toLowerCase() === lower && e.uuid);
-    if (hit) return { uuid: hit.uuid, name: hit.name };
+    if (hit) return { uuid: hit.uuid as string, name: hit.name as string };
   }
   return null;
 }
 
 /** Resolve a name to {uuid, name}: server files first, Mojang API second. */
-async function resolveIdentity(serverId, name) {
+async function resolveIdentity(serverId: string, name: string): Promise<Identity> {
   assertName(name);
   const local = localIdentity(serverId, name);
   if (local) return local;
-  let profile = null;
+  let profile: { uuid: string | null; name: string } | null = null;
   try {
     profile = await mojangProfiles.resolveProfile(name);
   } catch {
@@ -175,7 +226,7 @@ async function resolveIdentity(serverId, name) {
     );
   }
   if (!profile || !profile.uuid) throw httpError(404, `No Minecraft account named "${name}" exists`);
-  return profile;
+  return { uuid: profile.uuid, name: profile.name };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,12 +237,16 @@ async function resolveIdentity(serverId, name) {
  * @param {string} serverId
  * @param {string[]} onlineNames  live names from `list` (caller-provided)
  */
-function listPlayers(serverId, onlineNames = []) {
-  const entries = [];
-  const byUuid = new Map();
-  const byName = new Map(); // lowercase name — dedupes uuid-less `list` names
+function listPlayers(serverId: string, onlineNames: string[] = []): PlayerListEntry[] {
+  const entries: PlayerListEntry[] = [];
+  const byUuid = new Map<string, PlayerListEntry>();
+  const byName = new Map<string, PlayerListEntry>(); // lowercase name — dedupes uuid-less `list` names
 
-  const upsert = (name, uuid, patch) => {
+  const upsert = (
+    name: string | null | undefined,
+    uuid: string | null | undefined,
+    patch: Partial<PlayerListEntry>
+  ): void => {
     if (!name && !uuid) return;
     let entry = (uuid && byUuid.get(uuid)) || (name && byName.get(name.toLowerCase())) || null;
     if (!entry) {
@@ -246,13 +301,13 @@ function listPlayers(serverId, onlineNames = []) {
   }
 
   return entries.sort(
-    (a, b) => b.online - a.online || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    (a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
   );
 }
 
-function listBannedIps(serverId) {
+function listBannedIps(serverId: string): BannedIpEntry[] {
   return readJson(serverId, 'banned-ips.json').map((e) => ({
-    ip: e.ip,
+    ip: e.ip as string,
     reason: e.reason || null,
     created: e.created || null,
     source: e.source || null,
@@ -263,7 +318,12 @@ function listBannedIps(serverId) {
 // ---------------------------------------------------------------------------
 // Whitelist
 
-async function setWhitelisted(serverId, name, on, { running = false, actor = 'system' } = {}) {
+async function setWhitelisted(
+  serverId: string,
+  name: string,
+  on: boolean,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ name: string; uuid: string; whitelisted: boolean }> {
   const who = await resolveIdentity(serverId, name);
   if (running) {
     await rcon(serverId, 'whitelist', on ? 'add' : 'remove', who.name);
@@ -283,7 +343,11 @@ async function setWhitelisted(serverId, name, on, { running = false, actor = 'sy
 }
 
 /** Toggle whitelist enforcement: RCON when running, server.properties otherwise. */
-async function setWhitelistEnforced(serverId, on, { running = false, actor = 'system' } = {}) {
+async function setWhitelistEnforced(
+  serverId: string,
+  on: boolean,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ whitelistEnforced: boolean }> {
   if (running) {
     await rcon(serverId, 'whitelist', on ? 'on' : 'off');
   } else {
@@ -315,11 +379,11 @@ async function setWhitelistEnforced(serverId, on, { running = false, actor = 'sy
 }
 
 /** Parse server.properties for white-list= (defaults false when absent). */
-function getWhitelistEnforced(serverId) {
+function getWhitelistEnforced(serverId: string): boolean {
   try {
     const text = fs.readFileSync(dataPath('servers', serverId, 'server.properties'), 'utf8');
     const m = /^white-list=(.*)$/m.exec(text);
-    return m ? m[1].trim() === 'true' : false;
+    return m?.[1] ? m[1].trim() === 'true' : false;
   } catch {
     return false;
   }
@@ -328,10 +392,16 @@ function getWhitelistEnforced(serverId) {
 // ---------------------------------------------------------------------------
 // Ops
 
-async function setOp(serverId, name, on, level = 4, { running = false, actor = 'system' } = {}) {
+async function setOp(
+  serverId: string,
+  name: string,
+  on: boolean,
+  level: number = 4,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ name: string; uuid: string; op: boolean; opLevel: number | null; note: string | null }> {
   const who = await resolveIdentity(serverId, name);
   level = Math.min(4, Math.max(1, Number(level) || 4));
-  let note = null;
+  let note: string | null = null;
 
   const patchOpsFile = () => {
     const list = readJson(serverId, 'ops.json').filter((e) => e.uuid !== who.uuid);
@@ -365,9 +435,14 @@ async function setOp(serverId, name, on, level = 4, { running = false, actor = '
 // ---------------------------------------------------------------------------
 // Bans
 
-async function banPlayer(serverId, name, reason, { running = false, actor = 'system' } = {}) {
+async function banPlayer(
+  serverId: string,
+  name: string,
+  reasonInput: unknown,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ name: string; uuid: string; banned: true; banReason: string }> {
   const who = await resolveIdentity(serverId, name);
-  reason = cleanText(reason, 'Banned by an operator.');
+  const reason = cleanText(reasonInput, 'Banned by an operator.');
   if (running) {
     await rcon(serverId, 'ban', who.name, reason);
   } else {
@@ -392,7 +467,11 @@ async function banPlayer(serverId, name, reason, { running = false, actor = 'sys
   return { name: who.name, uuid: who.uuid, banned: true, banReason: reason };
 }
 
-async function pardonPlayer(serverId, name, { running = false, actor = 'system' } = {}) {
+async function pardonPlayer(
+  serverId: string,
+  name: string,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ name: string; uuid: string; banned: false }> {
   const who = await resolveIdentity(serverId, name);
   if (running) {
     await rcon(serverId, 'pardon', who.name);
@@ -412,9 +491,14 @@ async function pardonPlayer(serverId, name, { running = false, actor = 'system' 
   return { name: who.name, uuid: who.uuid, banned: false };
 }
 
-async function banIp(serverId, ip, reason, { running = false, actor = 'system' } = {}) {
-  assertIp(ip);
-  reason = cleanText(reason, 'Banned by an operator.');
+async function banIp(
+  serverId: string,
+  ipInput: unknown,
+  reasonInput: unknown,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ ip: string; banned: true }> {
+  const ip = assertIp(ipInput);
+  const reason = cleanText(reasonInput, 'Banned by an operator.');
   if (running) {
     await rcon(serverId, 'ban-ip', ip, reason);
   } else {
@@ -432,8 +516,12 @@ async function banIp(serverId, ip, reason, { running = false, actor = 'system' }
   return { ip, banned: true };
 }
 
-async function pardonIp(serverId, ip, { running = false, actor = 'system' } = {}) {
-  assertIp(ip);
+async function pardonIp(
+  serverId: string,
+  ipInput: unknown,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ ip: string; banned: false }> {
+  const ip = assertIp(ipInput);
   if (running) {
     await rcon(serverId, 'pardon-ip', ip);
   } else {
@@ -456,10 +544,15 @@ async function pardonIp(serverId, ip, { running = false, actor = 'system' } = {}
 // ---------------------------------------------------------------------------
 // Kick (online-only by nature)
 
-async function kickPlayer(serverId, name, message, { running = false, actor = 'system' } = {}) {
+async function kickPlayer(
+  serverId: string,
+  name: string,
+  messageInput: unknown,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ name: string; kicked: true }> {
   assertName(name);
   assertRunning(running, 'kick a player');
-  message = cleanText(message, 'Kicked by an operator.');
+  const message = cleanText(messageInput, 'Kicked by an operator.');
   const out = await rcon(serverId, 'kick', name, message);
   if (/No player was found/i.test(out)) throw httpError(404, `${name} is not online`);
   recordEvent({
@@ -478,8 +571,8 @@ async function kickPlayer(serverId, name, message, { running = false, actor = 's
 // /locate runs on the server's main thread and can stall it for seconds —
 // firing several concurrently freezes the tick loop long enough to TIME OUT
 // every online player. One teleport at a time per server; extras get a 429.
-const teleportBusy = new Set();
-async function withTeleportSlot(serverId, fn) {
+const teleportBusy = new Set<string>();
+async function withTeleportSlot<T>(serverId: string, fn: () => Promise<T>): Promise<T> {
   if (teleportBusy.has(serverId)) {
     throw httpError(429, 'A teleport is already searching on this server — give it a second and try again.');
   }
@@ -491,7 +584,7 @@ async function withTeleportSlot(serverId, fn) {
   }
 }
 
-function assertTpOutput(out, player) {
+function assertTpOutput(out: string, player: string): void {
   if (/No entity was found|No player was found/i.test(out)) {
     throw httpError(404, `${player} is not online — teleport needs a live player`);
   }
@@ -506,7 +599,20 @@ function assertTpOutput(out, player) {
  * inside another dimension.
  */
 const POS_RE = /\[\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*\]/;
-const ALL_DIMENSIONS = ['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end'];
+const ALL_DIMENSIONS: string[] = ['minecraft:overworld', 'minecraft:the_nether', 'minecraft:the_end'];
+
+interface LivePosition {
+  x: number;
+  y: number;
+  z: number;
+  dimension: string;
+}
+
+interface SavedPosition {
+  x: number;
+  z: number;
+  dimension: string;
+}
 
 /**
  * Player's live position + dimension. Can't use `data get entity <player>` — on
@@ -515,7 +621,7 @@ const ALL_DIMENSIONS = ['minecraft:overworld', 'minecraft:the_nether', 'minecraf
  * (a marker's NBT always serializes), read the marker's Pos, and detect the
  * dimension via the dimension-scoped `kill` (which also cleans the marker up).
  */
-async function getPlayerPosition(serverId, player) {
+async function getPlayerPosition(serverId: string, player: string): Promise<LivePosition> {
   assertName(player);
   const tag = `cd_pos_${Math.random().toString(36).slice(2, 10)}`;
   try {
@@ -552,7 +658,7 @@ async function getPlayerPosition(serverId, player) {
     }
     // Whichever dimension reports "Killed" is where the player is — and this
     // removes the marker at the same time. Run all three so nothing is left behind.
-    let dimension = null;
+    let dimension: string | null = null;
     for (const dim of ALL_DIMENSIONS) {
       const k = await rconClean(
         serverId,
@@ -566,9 +672,9 @@ async function getPlayerPosition(serverId, player) {
       if (!dimension && /Killed/i.test(k)) dimension = dim;
     }
     return {
-      x: Math.round(Number(pm[1])),
-      y: Math.round(Number(pm[2])),
-      z: Math.round(Number(pm[3])),
+      x: Math.round(Number(pm[1]!)),
+      y: Math.round(Number(pm[2]!)),
+      z: Math.round(Number(pm[3]!)),
       dimension: dimension || 'minecraft:overworld',
     };
   } catch (err) {
@@ -587,11 +693,11 @@ async function getPlayerPosition(serverId, player) {
  * modded servers and times players out.) Slightly stale (last autosave), which is
  * fine for a search centre. Returns null when there's no saved data.
  */
-async function getPlayerSavedPos(serverId, player) {
+async function getPlayerSavedPos(serverId: string, player: string): Promise<SavedPosition | null> {
   const id = localIdentity(serverId, player);
   if (!id || !id.uuid) return null;
   try {
-    const data = await require('./inventory').readPlayerData(serverId, id.uuid);
+    const data = await (require('./inventory') as typeof import('./inventory')).readPlayerData(serverId, id.uuid);
     if (!data.pos) return null;
     return {
       x: Math.round(data.pos.x),
@@ -604,7 +710,7 @@ async function getPlayerSavedPos(serverId, player) {
 }
 
 /** Run a /locate (with a generous timeout) and 404 cleanly if the id isn't registered here. */
-async function runLocate(serverId, prefix, type, id) {
+async function runLocate(serverId: string, prefix: string[], type: string, id: string): Promise<string> {
   const located = await rconT(serverId, TP_TIMEOUT_MS, ...prefix, 'run', 'locate', type, id);
   if (/there is no \w+ with type|isn'?t a valid|unknown \w+ type/i.test(located)) {
     throw httpError(
@@ -615,7 +721,13 @@ async function runLocate(serverId, prefix, type, id) {
   return located;
 }
 
-async function surfaceTeleport(serverId, player, x, z, dimension) {
+async function surfaceTeleport(
+  serverId: string,
+  player: string,
+  x: number | string,
+  z: number | string,
+  dimension: string | null
+): Promise<string> {
   // An explicit dimension runs the landing THERE (cross-dimension teleports carry
   // the player across); null runs it AT the player, i.e. their current dimension —
   // no position/dimension read needed (a `data get`/marker round-trip freezes heavy
@@ -644,7 +756,7 @@ async function surfaceTeleport(serverId, player, x, z, dimension) {
     }
     if (!/Could not spread|error/i.test(out)) return out;
   }
-  const err = httpError(
+  const err: Error & { status?: number; output?: string } = httpError(
     409,
     `No safe ground within 512 blocks of ${x}, ${z}${dimension ? ` in ${prettyDimension(dimension)}` : ''} (open water or void) — try different coordinates or give an explicit Y.`
   );
@@ -682,7 +794,7 @@ const VANILLA_STRUCTURES = [
 
 // Home dimension per structure — `locate` must run IN it and the teleport
 // carries the player across (a Village is Overworld even if you ask from the End).
-const STRUCTURE_DIMENSION = new Map([
+const STRUCTURE_DIMENSION = new Map<string, string>([
   ['minecraft:fortress', 'minecraft:the_nether'],
   ['minecraft:nether_fortress', 'minecraft:the_nether'],
   ['minecraft:bastion_remnant', 'minecraft:the_nether'],
@@ -690,37 +802,45 @@ const STRUCTURE_DIMENSION = new Map([
   ['minecraft:end_city', 'minecraft:the_end'],
 ]);
 /** Best-effort home dimension for a structure id/#tag (defaults to Overworld). */
-function structureDim(ref) {
+function structureDim(ref: unknown): string {
   const id = String(ref || '').replace(/^#/, '');
-  if (STRUCTURE_DIMENSION.has(id)) return STRUCTURE_DIMENSION.get(id);
+  if (STRUCTURE_DIMENSION.has(id)) return STRUCTURE_DIMENSION.get(id)!;
   const short = id.split(':').pop() || '';
   if (/(^|_)(nether|bastion|fortress|fossil)($|_)/.test(short)) return 'minecraft:the_nether';
   if (/(^|_)end($|_)|end_city/.test(short)) return 'minecraft:the_end';
   return 'minecraft:overworld';
 }
 
-const structureCache = new Map(); // serverId -> {at, structures: [{id, dimension}]}
-const registryInflight = new Map(); // "biomes:<id>" / "structures:<id>" -> Promise
+interface StructureEntry {
+  id: string;
+  dimension: string;
+}
+
+const structureCache = new Map<string, { at: number; structures: StructureEntry[] }>();
+const registryInflight = new Map<string, Promise<unknown>>(); // "biomes:<id>" / "structures:<id>" -> Promise
 
 /** Structure options: server registry tags (usable as #tag) + bundled vanilla list. */
-async function getServerStructures(serverId, { running = false } = {}) {
+async function getServerStructures(
+  serverId: string,
+  { running = false }: { running?: boolean } = {}
+): Promise<StructureEntry[]> {
   const cached = structureCache.get(serverId);
   if (cached && Date.now() - cached.at < BIOME_CACHE_MS) return cached.structures;
   // Single-flight: the tag scan is dozens of RCON round-trips — concurrent
   // callers (rapid modal opens) share one scan instead of stacking storms.
   const key = `structures:${serverId}`;
-  if (registryInflight.has(key)) return registryInflight.get(key);
+  if (registryInflight.has(key)) return registryInflight.get(key) as Promise<StructureEntry[]>;
   const promise = scanServerStructures(serverId, running).finally(() => registryInflight.delete(key));
   registryInflight.set(key, promise);
   return promise;
 }
 
-async function scanServerStructures(serverId, running) {
+async function scanServerStructures(serverId: string, running: boolean): Promise<StructureEntry[]> {
   let structures = [...VANILLA_STRUCTURES];
   if (running) {
     for (const prefix of ['neoforge', 'forge']) {
       try {
-        const tags = [];
+        const tags: string[] = [];
         let page = 1;
         let totalPages = 1;
         do {
@@ -728,7 +848,7 @@ async function scanServerStructures(serverId, running) {
             await execCapture(serverId, ['rcon-cli', prefix, 'tags', 'worldgen/structure', 'list', String(page)])
           );
           const pm = /<page (\d+) \/ (\d+)>/.exec(out);
-          totalPages = pm ? Number(pm[2]) : 1;
+          totalPages = pm?.[2] ? Number(pm[2]) : 1;
           for (const m of out.matchAll(/^\s*-\s*([a-z0-9_.-]+:[a-z0-9_/.-]+)\s*$/gim)) tags.push(`#${m[1]}`);
           page += 1;
         } while (page <= totalPages && page <= 20);
@@ -757,13 +877,22 @@ async function scanServerStructures(serverId, running) {
  * from a RANDOM ring point for "surprise me" exploration — then land on the
  * surface beside it.
  */
+interface TpToStructureResult {
+  player: string;
+  structure: string;
+  x: number;
+  z: number;
+  dimension: string;
+  output: string;
+}
+
 async function tpToStructure(
-  serverId,
-  player,
-  structureRef,
-  { random = false, maxDistance = 5000 } = {},
-  { running = false, actor = 'system' } = {}
-) {
+  serverId: string,
+  player: string,
+  structureRef: string,
+  { random = false, maxDistance = 5000 }: { random?: boolean; maxDistance?: number } = {},
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<TpToStructureResult> {
   assertName(player);
   assertRunning(running, 'teleport a player');
   if (!/^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/.test(String(structureRef))) throw httpError(400, 'Invalid structure id');
@@ -813,21 +942,35 @@ async function tpToStructure(
   return { player, structure: structureRef, x, z, dimension: searchDim, output: out };
 }
 
+interface RtpResult {
+  player: string;
+  x: number;
+  z: number;
+  dimension: string | null;
+  distance: number;
+  attempts: number;
+  output: string;
+}
+
 /**
  * Custom RTP — no mod dependency: pick a random point in the ring
  * [minDistance, maxDistance] around the player (or world origin) and land on
  * the surface via spreadplayers; ocean/void picks retry with a fresh point.
  */
 async function rtpPlayer(
-  serverId,
-  player,
-  { minDistance = 500, maxDistance = 5000, center = 'player' } = {},
-  { running = false, actor = 'system' } = {}
-) {
+  serverId: string,
+  player: string,
+  {
+    minDistance: minDistanceInput = 500,
+    maxDistance: maxDistanceInput = 5000,
+    center = 'player',
+  }: { minDistance?: number; maxDistance?: number; center?: 'player' | 'origin' } = {},
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<RtpResult> {
   assertName(player);
   assertRunning(running, 'randomly teleport a player');
-  minDistance = Math.max(0, Math.floor(minDistance));
-  maxDistance = Math.max(minDistance + 16, Math.floor(maxDistance));
+  const minDistance = Math.max(0, Math.floor(minDistanceInput));
+  const maxDistance = Math.max(minDistance + 16, Math.floor(maxDistanceInput));
 
   // Centre on the player's last-saved spot (disk read — no server load) or origin.
   const saved = center === 'origin' ? null : await getPlayerSavedPos(serverId, player);
@@ -836,7 +979,7 @@ async function rtpPlayer(
   const dim = saved ? saved.dimension : null; // explicit → nether-roof cap; null → at-player
 
   const ATTEMPTS = 6;
-  let lastErr = null;
+  let lastErr: unknown = null;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     const angle = Math.random() * Math.PI * 2;
     const dist = minDistance + Math.random() * (maxDistance - minDistance);
@@ -853,7 +996,7 @@ async function rtpPlayer(
       });
       return { player, x, z, dimension: dim, distance: Math.round(dist), attempts: attempt, output: out };
     } catch (err) {
-      if (err.status === 404) throw err; // player left — stop immediately
+      if ((err as { status?: number }).status === 404) throw err; // player left — stop immediately
       lastErr = err; // no safe ground here — roll a new point
     }
   }
@@ -867,16 +1010,27 @@ async function rtpPlayer(
 // NeoForge/Forge expose the registry via `/neoforge tags worldgen/biome get
 // <dim tag>` — extracted per dimension and cached; falls back to the bundled
 // vanilla list on servers without that command.
-const biomeCache = new Map(); // serverId -> {at, biomes: [{id, dimension}], byId: Map}
+interface BiomeEntry {
+  id: string;
+  dimension: string;
+}
+
+interface BiomeCacheEntry {
+  at: number;
+  biomes: BiomeEntry[];
+  byId: Map<string, string[]>;
+}
+
+const biomeCache = new Map<string, BiomeCacheEntry>();
 const BIOME_CACHE_MS = 60 * 60 * 1000;
-const DIM_TAGS = [
+const DIM_TAGS: [string, string][] = [
   ['minecraft:is_overworld', 'minecraft:overworld'],
   ['minecraft:is_nether', 'minecraft:the_nether'],
   ['minecraft:is_end', 'minecraft:the_end'],
 ];
 
-async function fetchTagElements(serverId, prefix, tag) {
-  const ids = [];
+async function fetchTagElements(serverId: string, prefix: string, tag: string): Promise<string[]> {
+  const ids: string[] = [];
   let page = 1;
   let totalPages = 1;
   do {
@@ -884,29 +1038,32 @@ async function fetchTagElements(serverId, prefix, tag) {
       await execCapture(serverId, ['rcon-cli', prefix, 'tags', 'worldgen/biome', 'get', tag, String(page)])
     );
     const pm = /<page (\d+) \/ (\d+)>/.exec(out);
-    totalPages = pm ? Number(pm[2]) : 1;
-    for (const m of out.matchAll(/^\s*-\s*([a-z0-9_.-]+:[a-z0-9_/.-]+)\s*$/gim)) ids.push(m[1]);
+    totalPages = pm?.[2] ? Number(pm[2]) : 1;
+    for (const m of out.matchAll(/^\s*-\s*([a-z0-9_.-]+:[a-z0-9_/.-]+)\s*$/gim)) ids.push(m[1]!);
     page += 1;
   } while (page <= totalPages && page <= 40);
   return ids;
 }
 
-async function getServerBiomes(serverId, { running = false } = {}) {
+async function getServerBiomes(
+  serverId: string,
+  { running = false }: { running?: boolean } = {}
+): Promise<BiomeCacheEntry> {
   const cached = biomeCache.get(serverId);
   if (cached && Date.now() - cached.at < BIOME_CACHE_MS) return cached;
   const key = `biomes:${serverId}`;
-  if (registryInflight.has(key)) return registryInflight.get(key);
+  if (registryInflight.has(key)) return registryInflight.get(key) as Promise<BiomeCacheEntry>;
   const promise = scanServerBiomes(serverId, running).finally(() => registryInflight.delete(key));
   registryInflight.set(key, promise);
   return promise;
 }
 
-async function scanServerBiomes(serverId, running) {
-  let biomes = null;
+async function scanServerBiomes(serverId: string, running: boolean): Promise<BiomeCacheEntry> {
+  let biomes: BiomeEntry[] | null = null;
   if (running) {
     for (const prefix of ['neoforge', 'forge']) {
       try {
-        const collected = [];
+        const collected: BiomeEntry[] = [];
         for (const [tag, dimension] of DIM_TAGS) {
           const ids = await fetchTagElements(serverId, prefix, tag);
           for (const id of ids) collected.push({ id, dimension });
@@ -922,26 +1079,26 @@ async function scanServerBiomes(serverId, running) {
   }
   if (!biomes) {
     // Fallback: bundled vanilla registry.
-    biomes = require('../config/biomes').map((id) => ({
+    biomes = (require('../config/biomes') as typeof import('../config/biomes')).map((id) => ({
       id,
       dimension: BIOME_DIMENSION.get(id) || 'minecraft:overworld',
     }));
   }
   // A biome can belong to several dimension tags — keep them all so the
   // teleport can prefer the dimension the player is already standing in.
-  const byId = new Map();
+  const byId = new Map<string, string[]>();
   for (const b of biomes) {
     const dims = byId.get(b.id) || [];
     if (b.dimension && !dims.includes(b.dimension)) dims.push(b.dimension);
     byId.set(b.id, dims);
   }
-  const entry = { at: Date.now(), biomes, byId };
+  const entry: BiomeCacheEntry = { at: Date.now(), biomes, byId };
   biomeCache.set(serverId, entry);
   return entry;
 }
 
 /** Dimensions a biome generates in: server registry first, static vanilla fallback. */
-function biomeDims(serverId, biomeId) {
+function biomeDims(serverId: string, biomeId: string): string[] {
   const cached = biomeCache.get(serverId);
   const dims = cached && cached.byId.get(biomeId);
   if (dims && dims.length) return dims;
@@ -951,7 +1108,7 @@ function biomeDims(serverId, biomeId) {
 
 // Biomes that only exist outside the Overworld — locate must run IN their
 // home dimension, and the teleport carries the player across.
-const BIOME_DIMENSION = new Map([
+const BIOME_DIMENSION = new Map<string, string>([
   ['minecraft:the_end', 'minecraft:the_end'],
   ['minecraft:end_highlands', 'minecraft:the_end'],
   ['minecraft:end_midlands', 'minecraft:the_end'],
@@ -964,12 +1121,27 @@ const BIOME_DIMENSION = new Map([
   ['minecraft:basalt_deltas', 'minecraft:the_nether'],
 ]);
 
+interface TpToCoordsResult {
+  player: string;
+  x: number;
+  y: number | 'surface';
+  z: number;
+  dimension: string | null;
+  output: string;
+}
+
 async function tpToCoords(
-  serverId,
-  player,
-  { x, y, z, dimension, safe = true },
-  { running = false, actor = 'system' } = {}
-) {
+  serverId: string,
+  player: string,
+  {
+    x,
+    y,
+    z,
+    dimension,
+    safe = true,
+  }: { x: number | string; y?: number | string | null; z: number | string; dimension?: string | null; safe?: boolean },
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<TpToCoordsResult> {
   assertName(player);
   assertRunning(running, 'teleport a player');
   const hasY = y !== undefined && y !== null && String(y).trim() !== '';
@@ -978,17 +1150,19 @@ async function tpToCoords(
   }
   if (dimension && !DIMENSIONS.has(dimension)) throw httpError(400, 'Unknown dimension');
 
-  let out;
-  let landedY = hasY ? Number(y) : 'surface';
+  let out: string;
+  const landedY: number | 'surface' = hasY ? Number(y) : 'surface';
   if (!hasY) {
     // No Y given → snap to the surface instead of guessing an altitude.
-    out = await surfaceTeleport(serverId, player, x, z, dimension);
+    out = await surfaceTeleport(serverId, player, x, z, dimension || null);
   } else {
     if (safe) {
       // Fatal-fall insurance for explicit altitudes: 15s of slow falling.
       await rcon(serverId, 'effect', 'give', player, 'minecraft:slow_falling', '15', '0', 'true').catch(() => {});
     }
-    const args = dimension ? ['execute', 'in', dimension, 'run', 'tp', player, x, y, z] : ['tp', player, x, y, z];
+    const args = dimension
+      ? ['execute', 'in', dimension, 'run', 'tp', player, String(x), String(y), String(z)]
+      : ['tp', player, String(x), String(y), String(z)];
     out = await rcon(serverId, ...args);
     assertTpOutput(out, player);
   }
@@ -1013,7 +1187,12 @@ async function tpToCoords(
   return { player, x: Number(x), y: landedY, z: Number(z), dimension: dimension || null, output: out };
 }
 
-async function tpToPlayer(serverId, player, target, { running = false, actor = 'system' } = {}) {
+async function tpToPlayer(
+  serverId: string,
+  player: string,
+  target: string,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<{ player: string; target: string; output: string }> {
   assertName(player);
   assertName(target);
   assertRunning(running, 'teleport a player');
@@ -1029,7 +1208,21 @@ async function tpToPlayer(serverId, player, target, { running = false, actor = '
   return { player, target, output: out };
 }
 
-async function tpToBiome(serverId, player, biomeId, { running = false, actor = 'system' } = {}) {
+interface TpToBiomeResult {
+  player: string;
+  biome: string;
+  x: number;
+  z: number;
+  dimension: string;
+  output: string;
+}
+
+async function tpToBiome(
+  serverId: string,
+  player: string,
+  biomeId: string,
+  { running = false, actor = 'system' }: RunOptions = {}
+): Promise<TpToBiomeResult> {
   assertName(player);
   assertRunning(running, 'teleport a player');
   if (!/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/.test(String(biomeId))) throw httpError(400, 'Invalid biome id');
@@ -1092,7 +1285,7 @@ async function tpToBiome(serverId, player, biomeId, { running = false, actor = '
   return { player, biome: biomeId, x, z, dimension: searchDim, output: out };
 }
 
-module.exports = {
+export = {
   readJson,
   writeJson,
   listPlayers,

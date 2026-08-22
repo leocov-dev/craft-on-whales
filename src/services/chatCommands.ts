@@ -6,14 +6,96 @@
 // commands) runs AS that player, with per-command permissions and cooldowns.
 // Zero mods — detection is log-based, execution is RCON-based.
 
-const httpError = require('../utils/httpError');
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const { nanoid } = require('nanoid');
-const db = require('../db');
-const players = require('./players');
-const { recordEvent } = require('../events');
-const { execCapture } = require('../docker/containers');
-const { cleanText } = require('../utils/ansi');
-const { PLAYER_NAME_RE } = require('../utils/playerName');
+const db = require('../db') as typeof import('../db');
+const players = require('./players') as typeof import('./players');
+const { recordEvent } = require('../events') as typeof import('../events');
+const { execCapture } = require('../docker/containers') as typeof import('../docker/containers');
+const { cleanText } = require('../utils/ansi') as typeof import('../utils/ansi');
+const { PLAYER_NAME_RE } = require('../utils/playerName') as typeof import('../utils/playerName');
+
+type ChatAction = 'rtp' | 'structure' | 'biome' | 'console';
+type ChatPermission = 'everyone' | 'whitelist' | 'ops';
+
+/** Loose per-action parameter bag: only the fields relevant to `action` are set. */
+interface ActionParams {
+  minDistance?: number;
+  maxDistance?: number;
+  center?: 'origin' | 'player';
+  structure?: string;
+  random?: boolean;
+  biome?: string;
+  commands?: string[];
+}
+
+/** A `chat_commands` row (see db/migrations/003_chat_commands.ts + 005_chat_command_messages.ts). */
+interface ChatCommandRow {
+  id: string;
+  server_id: string;
+  trigger: string;
+  description: string;
+  action: ChatAction;
+  params: string;
+  permission: ChatPermission;
+  cooldown_sec: number;
+  enabled: number;
+  uses: number;
+  last_used_at: string | null;
+  created_at: string;
+  msg_pending: string | null;
+  msg_success: string | null;
+  msg_failure: string | null;
+}
+
+/** A chat_commands row with `params` parsed and `enabled` coerced to boolean. */
+interface HydratedCommand extends Omit<ChatCommandRow, 'params' | 'enabled'> {
+  params: ActionParams;
+  enabled: boolean;
+}
+
+interface CommandSpec {
+  trigger: string;
+  description: string;
+  action: ChatAction;
+  params: ActionParams;
+  permission: ChatPermission;
+  cooldownSec: number;
+  msgPending: string | null;
+  msgSuccess: string | null;
+  msgFailure: string | null;
+}
+
+interface ValidateSpecInput {
+  trigger: unknown;
+  description?: unknown;
+  action: ChatAction;
+  params?: ActionParams | Record<string, unknown>;
+  permission: ChatPermission;
+  cooldownSec: unknown;
+  msgPending?: unknown;
+  msgSuccess?: unknown;
+  msgFailure?: unknown;
+}
+
+/** Result fields an executed action may report — feeds resultVars()'s templates. */
+interface ActionResult {
+  x?: number;
+  y?: number;
+  z?: number;
+  distance?: number;
+  dimension?: string | null;
+  structure?: string;
+  biome?: string;
+  commands?: number;
+  output?: string;
+}
+
+/** Matches the `{ running?, actor? }` third/fourth arg shared by players.ts's mutators. */
+interface RunOptions {
+  running?: boolean;
+  actor?: string;
+}
 
 const TRIGGER_RE = /^[a-z0-9_-]{1,24}$/i;
 // 1-2 chars from a safe set. '/' is deliberately absent — real commands never
@@ -41,7 +123,7 @@ const CACHE_MS = 60_000;
 // for semantics so direct service callers get the same guarantees)
 
 function validateSpec({
-  trigger,
+  trigger: rawTrigger,
   description,
   action,
   params,
@@ -50,8 +132,8 @@ function validateSpec({
   msgPending,
   msgSuccess,
   msgFailure,
-}) {
-  trigger = String(trigger || '')
+}: ValidateSpecInput): CommandSpec {
+  const trigger = String(rawTrigger || '')
     .trim()
     .toLowerCase();
   if (!TRIGGER_RE.test(trigger)) {
@@ -64,8 +146,8 @@ function validateSpec({
     throw httpError(400, 'Cooldown must be 0-86400 seconds');
   }
 
-  const p = params && typeof params === 'object' ? params : {};
-  let clean;
+  const p: ActionParams = params && typeof params === 'object' ? params : {};
+  let clean: ActionParams;
   if (action === 'rtp') {
     const minDistance = Math.max(0, Math.floor(Number(p.minDistance ?? 500) || 0));
     const maxDistance = Math.max(16, Math.floor(Number(p.maxDistance ?? 5000) || 5000));
@@ -120,7 +202,7 @@ function validateSpec({
 }
 
 // Feedback templates: strip control chars, cap length, empty -> null (use default).
-function cleanMessage(v) {
+function cleanMessage(v: unknown): string | null {
   const s = String(v ?? '')
     .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
     .trim()
@@ -129,21 +211,21 @@ function cleanMessage(v) {
 }
 
 /** Fill {placeholder} tokens from a values map; unknown tokens are left as-is. */
-function renderTemplate(template, vars) {
+function renderTemplate(template: unknown, vars: Record<string, unknown>): string {
   return String(template).replace(/\{(\w+)\}/g, (m, key) => (key in vars && vars[key] != null ? String(vars[key]) : m));
 }
 
-const DIM_LABEL = {
+const DIM_LABEL: Record<string, string> = {
   'minecraft:overworld': 'the Overworld',
   'minecraft:the_nether': 'the Nether',
   'minecraft:the_end': 'the End',
 };
-const prettyDim = (d) => DIM_LABEL[d] || (d ? pretty(d) : '');
+const prettyDim = (d: string | null | undefined): string => DIM_LABEL[d || ''] || (d ? pretty(d) : '');
 
 /** Placeholder values available to a command's success message, from its result. */
-function resultVars(result = {}) {
-  const v = {};
-  for (const k of ['x', 'y', 'z', 'distance']) if (result[k] != null) v[k] = result[k];
+function resultVars(result: ActionResult = {}): Record<string, string | number> {
+  const v: Record<string, string | number> = {};
+  for (const k of ['x', 'y', 'z', 'distance'] as const) if (result[k] != null) v[k] = result[k];
   if (result.dimension) v.dimension = prettyDim(result.dimension);
   if (result.structure) v.structure = pretty(result.structure);
   if (result.biome) v.biome = pretty(result.biome);
@@ -153,9 +235,11 @@ function resultVars(result = {}) {
 // ---------------------------------------------------------------------------
 // CRUD + prefix
 
-function hydrate(row) {
+function hydrate(row: ChatCommandRow): HydratedCommand;
+function hydrate(row: ChatCommandRow | undefined): HydratedCommand | null;
+function hydrate(row: ChatCommandRow | undefined): HydratedCommand | null {
   if (!row) return null;
-  let params = {};
+  let params: ActionParams = {};
   try {
     params = JSON.parse(row.params || '{}');
   } catch {
@@ -164,21 +248,33 @@ function hydrate(row) {
   return { ...row, params, enabled: Boolean(row.enabled) };
 }
 
-function listCommands(serverId) {
-  return db.all('SELECT * FROM chat_commands WHERE server_id = ? ORDER BY "trigger"', serverId).map(hydrate);
+function listCommands(serverId: string): HydratedCommand[] {
+  return (
+    db.all(
+      'SELECT * FROM chat_commands WHERE server_id = ? ORDER BY "trigger"',
+      serverId
+    ) as unknown as ChatCommandRow[]
+  ).map((row) => hydrate(row));
 }
 
-function getCommand(serverId, cmdId) {
-  return hydrate(db.get('SELECT * FROM chat_commands WHERE id = ? AND server_id = ?', cmdId, serverId));
+function getCommand(serverId: string, cmdId: string): HydratedCommand | null {
+  return hydrate(
+    db.get('SELECT * FROM chat_commands WHERE id = ? AND server_id = ?', cmdId, serverId) as unknown as
+      ChatCommandRow | undefined
+  );
 }
 
-function getPrefix(serverId) {
+function getPrefix(serverId: string): string {
   const row = db.get('SELECT prefix FROM chat_command_settings WHERE server_id = ?', serverId);
-  return row ? row.prefix : '!';
+  return row ? String(row.prefix) : '!';
 }
 
-function setPrefix(serverId, prefix, { actor = 'system' } = {}) {
-  prefix = String(prefix || '').trim();
+function setPrefix(
+  serverId: string,
+  prefixInput: unknown,
+  { actor = 'system' }: { actor?: string } = {}
+): { prefix: string } {
+  const prefix = String(prefixInput || '').trim();
   if (!PREFIX_RE.test(prefix)) {
     throw httpError(400, 'Prefix must be 1-2 characters from ! . # + ? $ % & * ~ ^ = - (never /)');
   }
@@ -199,7 +295,11 @@ function setPrefix(serverId, prefix, { actor = 'system' } = {}) {
   return { prefix };
 }
 
-function createCommand(serverId, input, { actor = 'system' } = {}) {
+function createCommand(
+  serverId: string,
+  input: ValidateSpecInput & { enabled?: boolean },
+  { actor = 'system' }: { actor?: string } = {}
+): HydratedCommand | null {
   const spec = validateSpec(input);
   const enabled = input.enabled === false ? 0 : 1;
   const id = `ccmd_${nanoid(8)}`;
@@ -221,7 +321,7 @@ function createCommand(serverId, input, { actor = 'system' } = {}) {
       spec.msgFailure
     );
   } catch (err) {
-    if (/UNIQUE/i.test(err.message)) {
+    if (/UNIQUE/i.test((err as Error).message)) {
       throw httpError(409, `A command named "${spec.trigger}" already exists on this server`);
     }
     throw err;
@@ -237,12 +337,19 @@ function createCommand(serverId, input, { actor = 'system' } = {}) {
   return getCommand(serverId, id);
 }
 
-function updateCommand(serverId, cmdId, changes, { actor = 'system' } = {}) {
+type CommandChanges = Partial<ValidateSpecInput> & { enabled?: boolean };
+
+function updateCommand(
+  serverId: string,
+  cmdId: string,
+  changes: CommandChanges,
+  { actor = 'system' }: { actor?: string } = {}
+): HydratedCommand | null {
   const existing = getCommand(serverId, cmdId);
   if (!existing) throw httpError(404, 'Chat command not found');
 
   // Enabled-only toggles skip full re-validation (fast path for the UI toggle).
-  const keys = Object.keys(changes).filter((k) => changes[k] !== undefined);
+  const keys = (Object.keys(changes) as (keyof CommandChanges)[]).filter((k) => changes[k] !== undefined);
   if (keys.length === 1 && keys[0] === 'enabled') {
     db.run('UPDATE chat_commands SET enabled = ? WHERE id = ?', changes.enabled ? 1 : 0, cmdId);
     cache.delete(serverId);
@@ -286,7 +393,7 @@ function updateCommand(serverId, cmdId, changes, { actor = 'system' } = {}) {
       cmdId
     );
   } catch (err) {
-    if (/UNIQUE/i.test(err.message)) {
+    if (/UNIQUE/i.test((err as Error).message)) {
       throw httpError(409, `A command named "${spec.trigger}" already exists on this server`);
     }
     throw err;
@@ -302,7 +409,11 @@ function updateCommand(serverId, cmdId, changes, { actor = 'system' } = {}) {
   return getCommand(serverId, cmdId);
 }
 
-function deleteCommand(serverId, cmdId, { actor = 'system' } = {}) {
+function deleteCommand(
+  serverId: string,
+  cmdId: string,
+  { actor = 'system' }: { actor?: string } = {}
+): { deleted: true } {
   const existing = getCommand(serverId, cmdId);
   if (!existing) throw httpError(404, 'Chat command not found');
   db.run('DELETE FROM chat_commands WHERE id = ?', cmdId);
@@ -318,7 +429,7 @@ function deleteCommand(serverId, cmdId, { actor = 'system' } = {}) {
 }
 
 /** "rtp 500-5000" / "structure #minecraft:village" / "console ×2" — for events + UI. */
-function actionSummary(cmd) {
+function actionSummary(cmd: { action: ChatAction; params: ActionParams }): string {
   const p = cmd.params || {};
   if (cmd.action === 'rtp')
     return `rtp ${p.minDistance ?? 500}-${p.maxDistance ?? 5000}${p.center === 'origin' ? ' around 0,0' : ''}`;
@@ -331,24 +442,30 @@ function actionSummary(cmd) {
 // ---------------------------------------------------------------------------
 // Runtime: cache, cooldowns, concurrency
 
-const cache = new Map(); // serverId -> { at, prefix, byTrigger }
+interface RuntimeEntry {
+  at: number;
+  prefix: string;
+  byTrigger: Map<string, HydratedCommand>;
+}
 
-function getRuntime(serverId) {
+const cache = new Map<string, RuntimeEntry>();
+
+function getRuntime(serverId: string): RuntimeEntry {
   const hit = cache.get(serverId);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit;
-  const byTrigger = new Map();
+  const byTrigger = new Map<string, HydratedCommand>();
   for (const cmd of listCommands(serverId)) byTrigger.set(cmd.trigger, cmd);
-  const entry = { at: Date.now(), prefix: getPrefix(serverId), byTrigger };
+  const entry: RuntimeEntry = { at: Date.now(), prefix: getPrefix(serverId), byTrigger };
   cache.set(serverId, entry);
   return entry;
 }
 
-const cooldowns = new Map(); // `${serverId}:${trigger}:${playerLower}` -> last run ts
-const inflight = new Set(); // `${serverId}:${playerLower}` — one execution per player
-const triggerThrottle = new Map(); // `${serverId}:${playerLower}` -> last-processed ts (spam guard)
+const cooldowns = new Map<string, number>(); // `${serverId}:${trigger}:${playerLower}` -> last run ts
+const inflight = new Set<string>(); // `${serverId}:${playerLower}` — one execution per player
+const triggerThrottle = new Map<string, number>(); // `${serverId}:${playerLower}` -> last-processed ts (spam guard)
 const THROTTLE_MS = 400;
 
-function pruneCooldowns() {
+function pruneCooldowns(): void {
   if (cooldowns.size >= 2000) {
     const cutoff = Date.now() - 86_400_000;
     for (const [k, ts] of cooldowns) if (ts < cutoff) cooldowns.delete(k);
@@ -360,7 +477,7 @@ function pruneCooldowns() {
 }
 
 /** Whisper to a player via RCON `tell`; never throws (fire-and-forget feedback). */
-async function whisper(serverId, player, message) {
+async function whisper(serverId: string, player: string, message: unknown): Promise<void> {
   const text = String(message || '')
     .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
     .trim()
@@ -373,12 +490,12 @@ async function whisper(serverId, player, message) {
   }
 }
 
-function isOp(serverId, player) {
+function isOp(serverId: string, player: string): boolean {
   const lower = player.toLowerCase();
   return players.readJson(serverId, 'ops.json').some((e) => (e.name || '').toLowerCase() === lower);
 }
 
-function isWhitelisted(serverId, player) {
+function isWhitelisted(serverId: string, player: string): boolean {
   const lower = player.toLowerCase();
   return (
     players.readJson(serverId, 'whitelist.json').some((e) => (e.name || '').toLowerCase() === lower) ||
@@ -386,7 +503,7 @@ function isWhitelisted(serverId, player) {
   );
 }
 
-function hasPermission(serverId, player, permission) {
+function hasPermission(serverId: string, player: string, permission: ChatPermission): boolean {
   if (permission === 'ops') return isOp(serverId, player);
   if (permission === 'whitelist') return isWhitelisted(serverId, player);
   return true;
@@ -400,7 +517,18 @@ function hasPermission(serverId, player, permission) {
  * Teleport actions run inside the server-wide teleport slot; console commands
  * run sequentially over rcon with sanitized placeholder substitution.
  */
-async function executeAction(serverId, cmd, player, args, ctx) {
+interface ExecuteActionResult {
+  message: string;
+  result: ActionResult;
+}
+
+async function executeAction(
+  serverId: string,
+  cmd: HydratedCommand,
+  player: string,
+  args: (string | undefined)[],
+  ctx: RunOptions
+): Promise<ExecuteActionResult> {
   const p = cmd.params || {};
   if (cmd.action === 'rtp') {
     const result = await players.withTeleportSlot(serverId, () =>
@@ -412,7 +540,7 @@ async function executeAction(serverId, cmd, player, args, ctx) {
       )
     );
     return {
-      message: `Whoosh! You landed ${result.distance} blocks away at ${result.x}, ${result.z} in ${prettyDim(result.dimension)}.`,
+      message: `Whoosh! You landed ${result.distance} blocks away at ${result.x}, ${result.z} in ${prettyDim(result.dimension || '')}.`,
       result,
     };
   }
@@ -421,7 +549,7 @@ async function executeAction(serverId, cmd, player, args, ctx) {
       players.tpToStructure(
         serverId,
         player,
-        p.structure,
+        p.structure!,
         { random: p.random !== false, maxDistance: p.maxDistance },
         ctx
       )
@@ -432,7 +560,7 @@ async function executeAction(serverId, cmd, player, args, ctx) {
     };
   }
   if (cmd.action === 'biome') {
-    const result = await players.withTeleportSlot(serverId, () => players.tpToBiome(serverId, player, p.biome, ctx));
+    const result = await players.withTeleportSlot(serverId, () => players.tpToBiome(serverId, player, p.biome!, ctx));
     return {
       message: `Teleported to ${pretty(result.biome)} in ${prettyDim(result.dimension)} at ${result.x}, ${result.z}.`,
       result,
@@ -440,7 +568,7 @@ async function executeAction(serverId, cmd, player, args, ctx) {
   }
 
   // console: placeholders substituted with sanitized values, run sequentially.
-  const values = {
+  const values: Record<string, string> = {
     player,
     arg1: sanitizeArg(args[0]),
     arg2: sanitizeArg(args[1]),
@@ -448,7 +576,7 @@ async function executeAction(serverId, cmd, player, args, ctx) {
   };
   let lastOut = '';
   for (const template of p.commands || []) {
-    const line = template.replace(/\{(player|arg1|arg2|arg3)\}/g, (_, key) => values[key]).trim();
+    const line = template.replace(/\{(player|arg1|arg2|arg3)\}/g, (_, key: string) => values[key] ?? '').trim();
     if (!line) continue;
     const out = cleanText(await execCapture(serverId, ['rcon-cli', '--', ...line.split(/\s+/)]));
     if (out.trim()) lastOut = out.trim();
@@ -456,23 +584,24 @@ async function executeAction(serverId, cmd, player, args, ctx) {
   return { message: lastOut || 'Done!', result: { commands: (p.commands || []).length, output: lastOut } };
 }
 
-function sanitizeArg(value) {
+function sanitizeArg(value: unknown): string {
   const v = String(value ?? '').trim();
   return ARG_RE.test(v) ? v : '';
 }
 
-function pretty(id) {
-  const base = String(id || '')
-    .replace(/^#/, '')
-    .split(':')
-    .pop()
-    .split('/')
-    .pop()
-    .replace(/_/g, ' ');
+function pretty(id: unknown): string {
+  const base =
+    String(id || '')
+      .replace(/^#/, '')
+      .split(':')
+      .pop()
+      ?.split('/')
+      .pop()
+      ?.replace(/_/g, ' ') || '';
   return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
-function bumpUsage(serverId, cmd) {
+function bumpUsage(serverId: string, cmd: HydratedCommand): void {
   db.run("UPDATE chat_commands SET uses = uses + 1, last_used_at = datetime('now') WHERE id = ?", cmd.id);
   cache.delete(serverId);
 }
@@ -481,7 +610,7 @@ function bumpUsage(serverId, cmd) {
  * Entry point for the log ingester. Fire-and-forget: every failure is handled
  * here (whisper + event) — nothing propagates back into log ingestion.
  */
-async function handleChat(serverId, player, message) {
+async function handleChat(serverId: string, player: string, message: unknown): Promise<void> {
   const text = String(message || '').trim();
   if (!text || !PLAYER_RE.test(String(player))) return;
 
@@ -541,7 +670,7 @@ async function handleChat(serverId, player, message) {
   cooldowns.set(cdKey, Date.now());
   pruneCooldowns();
 
-  const ctx = { running: true, actor: `chat:${player}` };
+  const ctx: RunOptions = { running: true, actor: `chat:${player}` };
   const baseVars = {
     player,
     trigger,
@@ -567,21 +696,22 @@ async function handleChat(serverId, player, message) {
       details: { trigger, action: cmd.action, params: cmd.params, player, args, success: true },
     });
   } catch (err) {
+    const e = err as Error & { status?: number };
     const friendly =
-      err.status === 429
+      e.status === 429
         ? 'The server is busy with another teleport — try again in a few seconds.'
-        : err.message || 'That command failed — tell the server owner.';
+        : e.message || 'That command failed — tell the server owner.';
     // State 3 — failure: custom template (with {error}) or the built-in message.
     const failMsg = cmd.msg_failure
-      ? renderTemplate(cmd.msg_failure, { ...baseVars, error: err.message || 'error' })
+      ? renderTemplate(cmd.msg_failure, { ...baseVars, error: e.message || 'error' })
       : friendly;
     whisper(serverId, player, failMsg);
     recordEvent({
       serverId,
       actor: `chat:${player}`,
       type: 'chat-command',
-      summary: `${player} ran ${label} — failed: ${String(err.message || err).slice(0, 140)}`,
-      details: { trigger, action: cmd.action, player, args, success: false, reason: err.message },
+      summary: `${player} ran ${label} — failed: ${String(e.message || e).slice(0, 140)}`,
+      details: { trigger, action: cmd.action, player, args, success: false, reason: e.message },
     });
   } finally {
     inflight.delete(flightKey);
@@ -593,7 +723,12 @@ async function handleChat(serverId, player, message) {
  * path minus permission and cooldown checks. Throws on failure (the route
  * turns it into a friendly JSON error); records an event either way.
  */
-async function testCommand(serverId, cmdId, player, { actor = 'system' } = {}) {
+async function testCommand(
+  serverId: string,
+  cmdId: string,
+  player: string,
+  { actor = 'system' }: { actor?: string } = {}
+): Promise<{ message: string; result: ActionResult }> {
   const cmd = getCommand(serverId, cmdId);
   if (!cmd) throw httpError(404, 'Chat command not found');
   if (!PLAYER_RE.test(String(player))) throw httpError(400, 'Invalid player name');
@@ -601,7 +736,7 @@ async function testCommand(serverId, cmdId, player, { actor = 'system' } = {}) {
   const flightKey = `${serverId}:${String(player).toLowerCase()}`;
   if (inflight.has(flightKey)) throw httpError(429, 'That player already has a command running — wait a moment.');
   inflight.add(flightKey);
-  const ctx = { running: true, actor };
+  const ctx: RunOptions = { running: true, actor };
   const baseVars = { player, trigger: cmd.trigger, arg1: '', arg2: '', arg3: '' };
   if (cmd.msg_pending) whisper(serverId, player, renderTemplate(cmd.msg_pending, baseVars));
   try {
@@ -620,14 +755,15 @@ async function testCommand(serverId, cmdId, player, { actor = 'system' } = {}) {
     });
     return { message, result };
   } catch (err) {
+    const e = err as Error;
     if (cmd.msg_failure)
-      whisper(serverId, player, renderTemplate(cmd.msg_failure, { ...baseVars, error: err.message || 'error' }));
+      whisper(serverId, player, renderTemplate(cmd.msg_failure, { ...baseVars, error: e.message || 'error' }));
     recordEvent({
       serverId,
       actor,
       type: 'chat-command',
-      summary: `Panel test of ${getPrefix(serverId)}${cmd.trigger} as ${player} failed: ${String(err.message || err).slice(0, 140)}`,
-      details: { trigger: cmd.trigger, action: cmd.action, player, success: false, reason: err.message, via: 'test' },
+      summary: `Panel test of ${getPrefix(serverId)}${cmd.trigger} as ${player} failed: ${String(e.message || e).slice(0, 140)}`,
+      details: { trigger: cmd.trigger, action: cmd.action, player, success: false, reason: e.message, via: 'test' },
     });
     throw err;
   } finally {
@@ -635,7 +771,7 @@ async function testCommand(serverId, cmdId, player, { actor = 'system' } = {}) {
   }
 }
 
-module.exports = {
+export = {
   listCommands,
   getCommand,
   createCommand,

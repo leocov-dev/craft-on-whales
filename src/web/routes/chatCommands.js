@@ -94,7 +94,14 @@ router.post(
   asyncHandler((req, res, next) => {
     requireServer(req.params.id);
     const input = createSchema.parse(req.body);
-    const command = chatCommands.createCommand(req.params.id, input, { actor: req.user.username });
+    // zod's inferred output type marks defaulted fields as optional even though
+    // .parse() always fills them — createCommand's stricter ValidateSpecInput
+    // (shared with direct service callers) wants them required.
+    const command = chatCommands.createCommand(
+      req.params.id,
+      /** @type {Parameters<typeof chatCommands.createCommand>[1]} */ (input),
+      { actor: req.user.username }
+    );
     res.status(201).json({ ok: true, command });
   })
 );

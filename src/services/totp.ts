@@ -16,7 +16,7 @@ const BACKUP_CODE_COUNT = 10;
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
-function base32Encode(buf) {
+function base32Encode(buf: Buffer): string {
   let bits = 0;
   let value = 0;
   let out = '';
@@ -32,13 +32,13 @@ function base32Encode(buf) {
   return out;
 }
 
-function base32Decode(str) {
+function base32Decode(str: string): Buffer {
   const clean = String(str || '')
     .toUpperCase()
     .replace(/[^A-Z2-7]/g, '');
   let bits = 0;
   let value = 0;
-  const bytes = [];
+  const bytes: number[] = [];
   for (const ch of clean) {
     const idx = BASE32_ALPHABET.indexOf(ch);
     if (idx === -1) continue;
@@ -53,31 +53,33 @@ function base32Decode(str) {
 }
 
 /** A fresh random base32 secret, ready to embed in an otpauth:// URI. */
-function generateSecret() {
+function generateSecret(): string {
   return base32Encode(crypto.randomBytes(SECRET_BYTES));
 }
 
 /** otpauth:// URI for QR/manual enrollment — issuer + account label, standard params. */
-function buildOtpauthUrl(secret, { issuer = 'Minecraft Server Manager', account }) {
+function buildOtpauthUrl(
+  secret: string,
+  { issuer = 'Minecraft Server Manager', account }: { issuer?: string; account: string }
+): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
   // Build the query with encodeURIComponent, NOT URLSearchParams: the latter
   // form-encodes a space as '+', but per RFC 3986 a '+' in a URI query is a
   // literal plus, so apps that don't apply x-www-form-urlencoded decoding
   // (Google Authenticator among them) show the issuer as "Minecraft+Server+
   // Manager" and see it as conflicting with the %20-encoded label prefix.
-  const params = [
+  const params: [string, string][] = [
     ['secret', secret],
     ['issuer', issuer],
     ['algorithm', 'SHA1'],
     ['digits', String(DIGITS)],
     ['period', String(STEP_SECONDS)],
-  ]
-    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-    .join('&');
-  return `otpauth://totp/${label}?${params}`;
+  ];
+  const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return `otpauth://totp/${label}?${query}`;
 }
 
-function hotp(secretBytes, counter) {
+function hotp(secretBytes: Buffer, counter: number): string {
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64BE(BigInt(counter));
   const hmac = crypto.createHmac('sha1', secretBytes).update(buf).digest();
@@ -90,7 +92,7 @@ function hotp(secretBytes, counter) {
   return String(bin % 10 ** DIGITS).padStart(DIGITS, '0');
 }
 
-function currentStep(atMs = Date.now()) {
+function currentStep(atMs: number = Date.now()): number {
   return Math.floor(atMs / 1000 / STEP_SECONDS);
 }
 
@@ -101,7 +103,11 @@ function currentStep(atMs = Date.now()) {
  * stays valid for the rest of its 30s window even after legitimate use.
  * Returns the matched step on success (persist as the new lastStep), or null.
  */
-function verify(secret, code, { lastStep = null, window = 1, atMs = Date.now() } = {}) {
+function verify(
+  secret: string,
+  code: string | number | null | undefined,
+  { lastStep = null, window = 1, atMs = Date.now() }: { lastStep?: number | null; window?: number; atMs?: number } = {}
+): number | null {
   const cleanCode = String(code || '').replace(/\s+/g, '');
   if (!/^\d{6}$/.test(cleanCode)) return null;
   const secretBytes = base32Decode(secret);
@@ -124,13 +130,13 @@ function verify(secret, code, { lastStep = null, window = 1, atMs = Date.now() }
 }
 
 /** The current 6-digit code for `secret` — exported for tests; never used at runtime. */
-function codeAt(secret, atMs = Date.now()) {
+function codeAt(secret: string, atMs: number = Date.now()): string {
   return hotp(base32Decode(secret), currentStep(atMs));
 }
 
 /** `n` random backup codes, formatted xxxx-xxxx for readability. */
-function generateBackupCodes(n = BACKUP_CODE_COUNT) {
-  const codes = [];
+function generateBackupCodes(n: number = BACKUP_CODE_COUNT): string[] {
+  const codes: string[] = [];
   for (let i = 0; i < n; i++) {
     const raw = crypto.randomBytes(5).toString('hex'); // 10 hex chars
     codes.push(`${raw.slice(0, 5)}-${raw.slice(5, 10)}`);
@@ -138,7 +144,7 @@ function generateBackupCodes(n = BACKUP_CODE_COUNT) {
   return codes;
 }
 
-module.exports = {
+export = {
   STEP_SECONDS,
   generateSecret,
   buildOtpauthUrl,

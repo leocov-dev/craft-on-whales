@@ -4,21 +4,21 @@
 // derived from SESSION_SECRET. Ciphertext format: base64(iv).base64(tag).base64(data)
 
 const crypto = require('node:crypto');
-const config = require('../config');
+const config = require('../config') as typeof import('../config');
 
 if (!config.sessionSecret) {
   console.warn('[secrets] SESSION_SECRET is empty — set it in .env before storing real credentials');
 }
 const KEY = crypto.scryptSync(config.sessionSecret, 'msm.secrets.v1', 32);
 
-function encrypt(plaintext) {
+function encrypt(plaintext: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', KEY, iv);
   const data = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
   return [iv, cipher.getAuthTag(), data].map((b) => b.toString('base64')).join('.');
 }
 
-function decrypt(ciphertext) {
+function decrypt(ciphertext: string): string {
   try {
     const [iv, tag, data] = ciphertext.split('.').map((s) => Buffer.from(s, 'base64'));
     const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
@@ -26,7 +26,7 @@ function decrypt(ciphertext) {
     return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
   } catch {
     // Almost always: SESSION_SECRET changed since this value was stored.
-    const err = new Error(
+    const err: Error & { status?: number; code?: string } = new Error(
       'A stored secret could not be decrypted — SESSION_SECRET has changed since it was saved. ' +
         'Re-enter the affected credential (API key / RCON password), or restore the old SESSION_SECRET in .env.'
     );
@@ -37,7 +37,7 @@ function decrypt(ciphertext) {
 }
 
 /** decrypt() that returns null instead of throwing — for callers with a fallback. */
-function tryDecrypt(ciphertext) {
+function tryDecrypt(ciphertext: string): string | null {
   try {
     return decrypt(ciphertext);
   } catch {
@@ -45,8 +45,8 @@ function tryDecrypt(ciphertext) {
   }
 }
 
-function generatePassword(bytes = 18) {
+function generatePassword(bytes = 18): string {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-module.exports = { encrypt, decrypt, tryDecrypt, generatePassword };
+export = { encrypt, decrypt, tryDecrypt, generatePassword };

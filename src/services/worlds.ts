@@ -27,7 +27,7 @@ const { dataPath } = require('../storage/pathGuard') as typeof import('../storag
 const { recordEvent } = require('../events') as typeof import('../events');
 const { execCapture, inspectStatus } = require('../docker/containers') as typeof import('../docker/containers');
 const indexer = require('../storage/indexer') as typeof import('../storage/indexer');
-const library = require('./library');
+const library = require('./library') as typeof import('./library');
 const { withSaveLock } = require('./serverLocks') as typeof import('./serverLocks');
 
 // Run the save-off/flush → copy → save-on dance under the shared per-server save

@@ -4,9 +4,9 @@
 // JSON values. Secrets (API keys, RCON passwords) live in api_keys/servers,
 // encrypted — never here.
 
-const db = require('../db');
+const db = require('../db') as typeof import('../db');
 
-function get(key, fallback = null) {
+function get(key: string, fallback: unknown = null): unknown {
   const row = db.get('SELECT value_json FROM settings WHERE key = ?', key);
   if (!row) return fallback;
   try {
@@ -16,7 +16,7 @@ function get(key, fallback = null) {
   }
 }
 
-function set(key, value) {
+function set(key: string, value: unknown): void {
   db.run(
     `INSERT INTO settings (key, value_json) VALUES (?, ?)
      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
@@ -25,7 +25,7 @@ function set(key, value) {
   );
 }
 
-function remove(key) {
+function remove(key: string): void {
   db.run('DELETE FROM settings WHERE key = ?', key);
 }
 
@@ -33,7 +33,7 @@ function remove(key) {
 // Public host / domain: shown in connect addresses instead of the LAN IP, so
 // players can be handed "mc.example.com:25565" instead of a raw IP. Optional.
 
-function normalizeHost(host) {
+function normalizeHost(host: unknown): string {
   let h = String(host || '').trim();
   if (!h) return '';
   h = h
@@ -45,20 +45,22 @@ function normalizeHost(host) {
   const valid =
     /^[a-z0-9.-]{1,253}$/.test(h) && !h.startsWith('.') && !h.endsWith('.') && !h.startsWith('-') && !h.includes('..');
   if (!valid) {
-    const err = new Error('Enter a valid domain or hostname, e.g. mc.example.com (no scheme, path or port).');
+    const err: Error & { status?: number } = new Error(
+      'Enter a valid domain or hostname, e.g. mc.example.com (no scheme, path or port).'
+    );
     err.status = 400;
     throw err;
   }
   return h;
 }
 
-function getPublicHost() {
+function getPublicHost(): string {
   const v = get('public_host', '');
   return typeof v === 'string' ? v : '';
 }
 
 /** Store (or clear, when empty) the public host. Returns the normalized value. */
-function setPublicHost(host) {
+function setPublicHost(host: unknown): string {
   const clean = normalizeHost(host);
   if (clean) set('public_host', clean);
   else remove('public_host');
@@ -66,7 +68,7 @@ function setPublicHost(host) {
 }
 
 /** "host:port" using the configured public host, or null when none is set. */
-function publicAddress(port) {
+function publicAddress(port: number | string): string | null {
   const h = getPublicHost();
   return h ? `${h}:${port}` : null;
 }
@@ -77,7 +79,7 @@ function publicAddress(port) {
 // without any setup. Stored values (when set) override the detection.
 
 /** The host's IANA time zone (e.g. "America/New_York"), or UTC if undetectable. */
-function detectSystemTimezone() {
+function detectSystemTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   } catch {
@@ -86,11 +88,11 @@ function detectSystemTimezone() {
 }
 
 /** Best-effort ISO-3166 alpha-2 country from the host locale (e.g. "US"). */
-function detectSystemCountry() {
+function detectSystemCountry(): string {
   try {
     const loc = Intl.DateTimeFormat().resolvedOptions().locale || '';
     const m = /-([A-Za-z]{2})\b/.exec(loc);
-    if (m) return m[1].toUpperCase();
+    if (m?.[1]) return m[1].toUpperCase();
     const region = new Intl.Locale(loc).maximize().region;
     return region ? region.toUpperCase() : '';
   } catch {
@@ -98,7 +100,7 @@ function detectSystemCountry() {
   }
 }
 
-function isValidTimezone(tz) {
+function isValidTimezone(tz: unknown): boolean {
   if (!tz || typeof tz !== 'string') return false;
   try {
     // Resolving a formatter throws RangeError for an unknown zone.
@@ -109,25 +111,27 @@ function isValidTimezone(tz) {
   }
 }
 
-function isValidCountry(cc) {
+function isValidCountry(cc: unknown): boolean {
   return typeof cc === 'string' && /^[A-Za-z]{2}$/.test(cc);
 }
 
 /** Effective time zone: the stored value, else the detected host zone. */
-function getTimezone() {
+function getTimezone(): string {
   const v = get('timezone', '');
   return typeof v === 'string' && v ? v : detectSystemTimezone();
 }
 
 /** Store (or clear, when blank/"auto") the time zone. Returns the effective value. */
-function setTimezone(tz) {
+function setTimezone(tz: unknown): string {
   const clean = String(tz || '').trim();
   if (!clean || clean.toLowerCase() === 'auto') {
     remove('timezone');
     return getTimezone();
   }
   if (!isValidTimezone(clean)) {
-    const err = new Error(`Unknown time zone "${clean}". Use an IANA name like "America/New_York" or "Europe/Paris".`);
+    const err: Error & { status?: number } = new Error(
+      `Unknown time zone "${clean}". Use an IANA name like "America/New_York" or "Europe/Paris".`
+    );
     err.status = 400;
     throw err;
   }
@@ -136,13 +140,13 @@ function setTimezone(tz) {
 }
 
 /** Effective country: the stored value, else the detected host country. */
-function getCountry() {
+function getCountry(): string {
   const v = get('country', '');
   return typeof v === 'string' && v ? v : detectSystemCountry();
 }
 
 /** Store (or clear, when blank/"auto") the country. Returns the effective value. */
-function setCountry(cc) {
+function setCountry(cc: unknown): string {
   const clean = String(cc || '')
     .trim()
     .toUpperCase();
@@ -151,7 +155,7 @@ function setCountry(cc) {
     return getCountry();
   }
   if (!isValidCountry(clean)) {
-    const err = new Error('Country must be a 2-letter ISO code, e.g. US, GB, DE.');
+    const err: Error & { status?: number } = new Error('Country must be a 2-letter ISO code, e.g. US, GB, DE.');
     err.status = 400;
     throw err;
   }
@@ -160,7 +164,7 @@ function setCountry(cc) {
 }
 
 /** A BCP-47 locale for date/number formatting, from host language + chosen country. */
-function resolveLocale() {
+function resolveLocale(): string {
   let sysLoc = 'en-US';
   try {
     sysLoc = Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
@@ -172,8 +176,18 @@ function resolveLocale() {
   return country ? `${lang}-${country}` : sysLoc;
 }
 
+interface Localization {
+  timezone: string;
+  country: string;
+  locale: string;
+  timezoneAuto: boolean;
+  countryAuto: boolean;
+  systemTimezone: string;
+  systemCountry: string;
+}
+
 /** Everything the UI needs to render + edit localization. */
-function localization() {
+function localization(): Localization {
   const storedTz = get('timezone', '');
   const storedCc = get('country', '');
   return {
@@ -188,11 +202,11 @@ function localization() {
 }
 
 /** Slim object exposed to the browser (window.MSM) for client-side formatting. */
-function clientLocalization() {
+function clientLocalization(): { timezone: string; locale: string } {
   return { timezone: getTimezone(), locale: resolveLocale() };
 }
 
-module.exports = {
+export = {
   get,
   set,
   remove,

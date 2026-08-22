@@ -14,14 +14,14 @@ const db = require('../db') as typeof import('../db');
 const config = require('../config') as typeof import('../config');
 const { dataPath } = require('../storage/pathGuard') as typeof import('../storage/pathGuard');
 const { recordEvent } = require('../events') as typeof import('../events');
-const secrets = require('./secrets');
+const secrets = require('./secrets') as typeof import('./secrets');
 const { pickJavaTag } = require('./javaMatrix') as typeof import('./javaMatrix');
 const { suggestPorts, isPortFree } = require('./ports') as typeof import('./ports');
 const containers = require('../docker/containers') as typeof import('../docker/containers');
 const images = require('../docker/images') as typeof import('../docker/images');
 const { fetchLogs } = require('../docker/logs') as typeof import('../docker/logs');
 const dockerSpec = require('./dockerSpec') as typeof import('./dockerSpec');
-const settings = require('./settings');
+const settings = require('./settings') as typeof import('./settings');
 
 function rowToServer(row: Row | undefined): Server | null {
   if (!row) return null;

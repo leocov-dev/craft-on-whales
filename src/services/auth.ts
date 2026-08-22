@@ -2,36 +2,50 @@
 
 // Users + credentials. bcryptjs hashes; roles admin/operator/viewer.
 
-const httpError = require('../utils/httpError');
+const httpError = require('../utils/httpError') as typeof import('../utils/httpError');
 const bcrypt = require('bcryptjs');
 const { nanoid } = require('nanoid');
-const db = require('../db');
-const { recordEvent } = require('../events');
-const totp = require('./totp');
-const secrets = require('./secrets');
+const db = require('../db') as typeof import('../db');
+const { recordEvent } = require('../events') as typeof import('../events');
+const totp = require('./totp') as typeof import('./totp');
+const secrets = require('./secrets') as typeof import('./secrets');
+
+type Role = 'admin' | 'operator' | 'viewer';
 
 /**
  * A users row (see db/migrations/001_init.ts + 009_totp.ts). Cast to this from
  * the db layer's generic `Record<string, SQLOutputValue>` row shape so
  * property access type-checks normally.
- * @typedef {{
- *   id: string,
- *   username: string,
- *   password_hash: string,
- *   role: 'admin'|'operator'|'viewer',
- *   created_at: string,
- *   totp_secret: string|null,
- *   totp_enabled: number,
- *   totp_backup_codes_json: string|null,
- *   totp_last_step: number|null
- * }} UserRow
  */
+interface UserRow {
+  id: string;
+  username: string;
+  password_hash: string;
+  role: Role;
+  created_at: string;
+  totp_secret: string | null;
+  totp_enabled: number;
+  totp_backup_codes_json: string | null;
+  totp_last_step: number | null;
+}
 
-function firstRunNeeded() {
+/** The user shape returned to callers/routes — never the password hash or raw TOTP secret. */
+interface PublicUser {
+  id: string;
+  username: string;
+  role: Role;
+  createdAt: string;
+  totpEnabled: boolean;
+}
+
+function firstRunNeeded(): boolean {
   return !db.get('SELECT 1 AS x FROM users LIMIT 1');
 }
 
-function createUser({ username, password, role = 'admin' }, { actor = 'system' } = {}) {
+function createUser(
+  { username, password, role = 'admin' }: { username: string; password: string; role?: Role },
+  { actor = 'system' }: { actor?: string } = {}
+): PublicUser | null {
   if (!/^[a-zA-Z0-9_.-]{2,32}$/.test(username)) throw httpError(400, 'Username: 2–32 letters, numbers, _ . -');
   if (typeof password !== 'string' || password.length < 8)
     throw httpError(400, 'Password must be at least 8 characters');
@@ -48,8 +62,8 @@ function createUser({ username, password, role = 'admin' }, { actor = 'system' }
   return getUser(id);
 }
 
-function verifyCredentials(username, password) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE username = ?', username));
+function verifyCredentials(username: string, password: string): PublicUser | null {
+  const user = db.get('SELECT * FROM users WHERE username = ?', username) as unknown as UserRow | undefined;
   if (!user) {
     bcrypt.compareSync(password, '$2a$11$invalidsaltinvalidsaltinvalidsaltuFakeHash1234567890ab'); // constant-time-ish
     return null;
@@ -57,26 +71,26 @@ function verifyCredentials(username, password) {
   return bcrypt.compareSync(password, user.password_hash) ? publicUser(user) : null;
 }
 
-function getUser(id) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+function getUser(id: string): PublicUser | null {
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   return user ? publicUser(user) : null;
 }
 
-function listUsers() {
-  return /** @type {UserRow[]} */ (db.all('SELECT * FROM users ORDER BY created_at')).map(publicUser);
+function listUsers(): PublicUser[] {
+  return (db.all('SELECT * FROM users ORDER BY created_at') as unknown as UserRow[]).map(publicUser);
 }
 
-function setPassword(id, password, { actor = 'system' } = {}) {
+function setPassword(id: string, password: string, { actor = 'system' }: { actor?: string } = {}): void {
   if (typeof password !== 'string' || password.length < 8)
     throw httpError(400, 'Password must be at least 8 characters');
   db.run('UPDATE users SET password_hash = ? WHERE id = ?', bcrypt.hashSync(password, 11), id);
   recordEvent({ actor, type: 'user-password-changed', summary: `Password changed for ${getUser(id)?.username}` });
 }
 
-function setRole(id, role, { actor = 'system' } = {}) {
+function setRole(id: string, role: Role, { actor = 'system' }: { actor?: string } = {}): void {
   if (!['admin', 'operator', 'viewer'].includes(role)) throw httpError(400, 'Invalid role');
   const admins = Number(db.get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")?.n);
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   if (user && user.role === 'admin' && role !== 'admin' && admins <= 1) {
     throw httpError(409, 'Cannot demote the last admin');
   }
@@ -84,8 +98,8 @@ function setRole(id, role, { actor = 'system' } = {}) {
   recordEvent({ actor, type: 'user-role-changed', summary: `${user?.username} role → ${role}` });
 }
 
-function deleteUser(id, { actor = 'system' } = {}) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+function deleteUser(id: string, { actor = 'system' }: { actor?: string } = {}): void {
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   if (!user) return;
   if (user.role === 'admin' && Number(db.get("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")?.n) <= 1) {
     throw httpError(409, 'Cannot delete the last admin');
@@ -94,8 +108,7 @@ function deleteUser(id, { actor = 'system' } = {}) {
   recordEvent({ actor, type: 'user-deleted', summary: `User deleted: ${user.username}` });
 }
 
-/** @param {UserRow} u */
-function publicUser(u) {
+function publicUser(u: UserRow): PublicUser {
   return {
     id: u.id,
     username: u.username,
@@ -112,18 +125,23 @@ function publicUser(u) {
 // (confirmTotp), so a setup a user never finishes leaves nothing persisted.
 
 /** Start enrollment: a fresh secret + otpauth URL, NOT persisted until confirmTotp(). */
-function beginTotpEnrollment(id) {
-  const user = /** @type {Pick<UserRow, 'username'> | undefined} */ (
-    db.get('SELECT username FROM users WHERE id = ?', id)
-  );
+function beginTotpEnrollment(id: string): { secret: string; otpauthUrl: string } {
+  const user = db.get('SELECT username FROM users WHERE id = ?', id) as unknown as
+    Pick<UserRow, 'username'> | undefined;
   if (!user) throw httpError(404, 'User not found');
   const secret = totp.generateSecret();
   return { secret, otpauthUrl: totp.buildOtpauthUrl(secret, { account: user.username }) };
 }
 
 /** Verify the account password + the first live code, then persist the secret + backup codes. */
-function confirmTotp(id, secret, code, password, { actor = 'system' } = {}) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+function confirmTotp(
+  id: string,
+  secret: string,
+  code: string,
+  password: string,
+  { actor = 'system' }: { actor?: string } = {}
+): { backupCodes: string[] } {
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   if (!user) throw httpError(404, 'User not found');
   if (user.totp_enabled) {
     throw httpError(409, 'Two-factor authentication is already enabled — disable it first to re-enroll.');
@@ -156,8 +174,8 @@ function confirmTotp(id, secret, code, password, { actor = 'system' } = {}) {
 }
 
 /** Self-service disable — re-checks the account's own current password first. */
-function disableTotp(id, password, { actor = 'system' } = {}) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+function disableTotp(id: string, password: string, { actor = 'system' }: { actor?: string } = {}): void {
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   if (!user) throw httpError(404, 'User not found');
   if (!bcrypt.compareSync(password, user.password_hash)) throw httpError(401, 'Wrong password');
   db.run(
@@ -172,10 +190,9 @@ function disableTotp(id, password, { actor = 'system' } = {}) {
 }
 
 /** Admin recovery path: force-disable another user's 2FA (lost phone + backup codes). */
-function adminDisableTotp(id, { actor = 'system' } = {}) {
-  const user = /** @type {Pick<UserRow, 'username'|'totp_enabled'> | undefined} */ (
-    db.get('SELECT username, totp_enabled FROM users WHERE id = ?', id)
-  );
+function adminDisableTotp(id: string, { actor = 'system' }: { actor?: string } = {}): void {
+  const user = db.get('SELECT username, totp_enabled FROM users WHERE id = ?', id) as unknown as
+    Pick<UserRow, 'username' | 'totp_enabled'> | undefined;
   if (!user) throw httpError(404, 'User not found');
   if (!user.totp_enabled) return;
   db.run(
@@ -190,8 +207,12 @@ function adminDisableTotp(id, { actor = 'system' } = {}) {
 }
 
 /** Re-check the password, then reissue backup codes (old ones stop working). */
-function regenerateBackupCodes(id, password, { actor = 'system' } = {}) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ?', id));
+function regenerateBackupCodes(
+  id: string,
+  password: string,
+  { actor = 'system' }: { actor?: string } = {}
+): { backupCodes: string[] } {
+  const user = db.get('SELECT * FROM users WHERE id = ?', id) as unknown as UserRow | undefined;
   if (!user) throw httpError(404, 'User not found');
   if (!user.totp_enabled) throw httpError(400, 'Two-factor authentication is not enabled');
   if (!bcrypt.compareSync(password, user.password_hash)) throw httpError(401, 'Wrong password');
@@ -207,8 +228,8 @@ function regenerateBackupCodes(id, password, { actor = 'system' } = {}) {
  * the first login step). Returns true/false; never throws on a bad code (the
  * route layer handles lockout/messaging same as a wrong password).
  */
-function verifyTotpLogin(id, code) {
-  const user = /** @type {UserRow | undefined} */ (db.get('SELECT * FROM users WHERE id = ? AND totp_enabled = 1', id));
+function verifyTotpLogin(id: string, code: string): boolean {
+  const user = db.get('SELECT * FROM users WHERE id = ? AND totp_enabled = 1', id) as unknown as UserRow | undefined;
   if (!user || !user.totp_secret) return false;
 
   const secret = secrets.tryDecrypt(user.totp_secret);
@@ -221,7 +242,7 @@ function verifyTotpLogin(id, code) {
   }
 
   // Fall back to a backup code — single use, removed once matched.
-  let codes = [];
+  let codes: string[] = [];
   try {
     codes = JSON.parse(user.totp_backup_codes_json || '[]');
   } catch {
@@ -246,11 +267,11 @@ function verifyTotpLogin(id, code) {
  * expires_at is ISO-8601 ('…T…Z'); compare against the same ISO shape (a naive
  * datetime('now') would always sort as less-than because 'T' > ' ').
  */
-function pruneExpiredSessions() {
+function pruneExpiredSessions(): import('node:sqlite').StatementResultingChanges {
   return db.run("DELETE FROM sessions WHERE expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')");
 }
 
-module.exports = {
+export = {
   firstRunNeeded,
   createUser,
   verifyCredentials,
