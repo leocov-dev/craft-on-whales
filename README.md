@@ -439,6 +439,13 @@ node scripts/reset-password.js <username>
 
 ## Architecture
 
+The app is being rewritten into two packages — a [NestJS](https://nestjs.com) backend
+(`backend/`) and a [Vue 3 + Quasar](https://quasar.dev) frontend (`frontend/`) — replacing the
+original single-process design below. Both are functionally complete but not yet the shipped
+default; see [CONTRIBUTING.md](CONTRIBUTING.md) if you want to run or build on the new stack.
+
+The original, currently-shipped implementation:
+
 ```
 src/
   config/      env config + the FIELD CATALOG (every itzg var with friendly help text)
@@ -459,7 +466,8 @@ public/        built CSS, icon system, shared js/lib/* UI components
 
 The layering rule: **routes (HTTP) → services (domain logic) → docker/db/storage (infrastructure).**
 The field catalog in `src/config/` is the single source of truth for server settings. See
-[`docs/architecture.md`](docs/architecture.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+[`docs/architecture.md`](docs/architecture.md) (covers both the current and new architecture) and
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Scripts
 

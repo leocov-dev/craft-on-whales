@@ -1,0 +1,31 @@
+// Quasar Sass (& SCSS) Variables
+// --------------------------------------------------
+// To customize the look and feel of this app, you can override
+// the Sass/SCSS variables found in Quasar's source Sass/SCSS files.
+
+// Check documentation for full list of Quasar variables
+
+// Your own variables (that are declared here) and Quasar's own
+// ones will be available out of the box in your .vue/.scss/.sass files
+
+// It's highly recommended to change the default colors
+// to match your app's branding.
+// Tip: Use the "Theme Builder" on Quasar's documentation website.
+
+// Mapped from the panel's brand palette (assets/css/input.css @theme block).
+// These 500-step values are theme-invariant — only the *text* variants of
+// link/ok/warn/danger shift between dark/light (see app.scss custom
+// properties), so stock Quasar component coloring stays constant across
+// both themes and only the CSS custom properties toggle with data-theme.
+
+$primary: #3fa62b; // grass-500 — the single brand accent
+$secondary: #21a7ab; // diamond-500
+$accent: #e99417; // gold-500
+
+$dark: #1b1f23; // stone-900 (raised, dark theme)
+$dark-page: #0e1113; // stone-950 (canvas, dark theme)
+
+$positive: #3fa62b; // grass-500
+$negative: #e5484d; // redstone-500
+$info: #21a7ab; // diamond-500
+$warning: #e99417; // gold-500

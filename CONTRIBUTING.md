@@ -1,97 +1,105 @@
 # Contributing
 
-Thanks for your interest in improving Minecraft Server Manager. The backend (`src/`) is **strict
-TypeScript**, compiled at type-check time only (`tsx` runs it directly, no emit step). The frontend
-is currently server-rendered Handlebars + hand-written browser JS, and is **in the process of
-migrating to Vue** — see [Frontend](#frontend) below before starting client-side work.
+Thanks for your interest in improving Minecraft Server Manager. The project is mid-rewrite: the
+active codebase is two packages, **[`backend/`](backend/README.md)** (NestJS, strict TypeScript)
+and **[`frontend/`](frontend/README.md)** (Vue 3 + Quasar). The original single-process app
+(`src/` + `views/`, Express + Handlebars) still exists at the repo root as a reference until final
+cutover — new feature work belongs in `backend/`/`frontend/`, not there. See
+[AGENTS.md](AGENTS.md) for the full picture of that transition.
 
 ## Getting set up
 
+Run the backend and frontend as two separate dev servers:
+
 ```bash
+cd backend
 npm install
-npm run dev        # starts the app with auto-restart + Tailwind CSS watch
+npm run start:dev   # NestJS, auto-restart on change — http://localhost:25564
 ```
 
-Open http://localhost:25564. You need **Node.js 24+** (for the flagless built-in `node:sqlite`) and
-Docker running to exercise anything that touches containers. First run creates the admin account.
+```bash
+cd frontend
+npm install
+npm run dev          # Quasar/Vite dev server with HMR, proxies /api and /ws to the backend
+```
 
-All state lives under `./data` (or `$DATA_DIR`). To start from a clean slate, stop the app and delete
-that directory — it's rebuilt on boot.
+You need **Node.js 24+** (for the flagless built-in `node:sqlite`) and Docker running to exercise
+anything that touches containers. First run creates the admin account.
+
+All backend state lives under `./data` (or `$DATA_DIR`, resolved relative to the repo root). To
+start from a clean slate, stop the backend and delete that directory — it's rebuilt on boot.
 
 ## Before you open a PR
 
-These are the exact gates CI runs — each works on a clean clone with no Docker or running app:
+Backend:
 
 ```bash
-npm run lint          # ESLint (errors, no warnings)
-npm run format:check  # Prettier
-npm run typecheck     # tsc -p tsconfig.json — strict, over all of src/
-npm test              # unit tests (node:test)
-npm run build         # CSS build
+cd backend
+npm run lint        # ESLint
+npx tsc --noEmit -p tsconfig.json    # strict typecheck, no emit
+npm run build        # nest build
 ```
 
-`npm run format` fixes formatting. `npm test` is a real, fast unit suite (no Docker); `npm run
-test:smoke` is the separate live sweep against a running panel.
+Frontend:
 
-Keep changes focused and match the surrounding style (Prettier enforces it). `src/` is **strict
-TypeScript** (`allowJs: false`) — every file is `.ts` and fully type-checked, there's no JS/JSDoc
-fallback and no `@ts-nocheck` escape hatch. `types/globals.d.ts` holds ambient augmentations for
-untyped third-party surfaces. New code should be typed properly, not loosened with `any` to get a
-gate to pass.
+```bash
+cd frontend
+npm run lint:check   # Prettier + ESLint, no fixes
+npm run typecheck    # vue-tsc --noEmit
+npm run build         # quasar build
+```
 
-`public/vendor/chart.umd.js` is a **vendored** copy of Chart.js (not an npm dependency) — update it by
-hand and note the version in the PR.
+Keep changes focused and match the surrounding style (Prettier enforces it in both packages).
+Both packages are **strict TypeScript** — new code should be typed properly, not loosened with
+`any` to get a gate to pass.
 
 ## How the code is organized
 
-The full picture is in [`docs/architecture.md`](docs/architecture.md). The short version:
+The full picture is in [`docs/architecture.md`](docs/architecture.md). The short version, for
+`backend/`:
 
 **Layering — one direction only:**
 
 ```
-web/routes (HTTP)  →  services (domain logic)  →  docker / db / storage (infrastructure)
+controllers (HTTP)  →  services (domain logic)  →  docker / db / storage (infrastructure)
 ```
 
-- **`web/routes/`** — Express routers. Parse/validate input (zod), call a service, shape the
-  response. No business logic here.
-- **`services/`** — the domain logic. This is where features live. Services may call `docker/`,
-  `db/`, `storage/`, and each other.
-- **`docker/`, `db/`, `storage/`** — infrastructure. `docker/` wraps dockerode; `db/` wraps
-  `node:sqlite` + migrations; `storage/` owns the `./data` layout, the path guard, and disk quotas.
-- **`config/field-catalog/`** is the **single source of truth** for server settings — every itzg
-  environment variable, its friendly label, help text, type, default, and validation. Add a server
-  setting here and the wizard/forms/validation pick it up automatically.
-- **`events/`** and **`ws/`** are cross-cutting: `recordEvent()` is the one entry point for history,
-  and `ws/` carries the live console + stats sockets.
+- **Controllers** — one (or a few) per domain module. Parse/validate input (zod), call an injected
+  service, shape the response. No business logic here.
+- **Services** — `@Injectable()` classes, the domain logic. This is where features live. Services
+  depend on other services and on infrastructure through NestJS constructor injection, declared in
+  each module's `imports`/`providers`.
+- **`docker/`, `db/`, `storage/`** — infrastructure. `docker/` wraps dockerode; `db/` wraps Drizzle
+  ORM over `node:sqlite` + migrations; `storage/` owns the `./data` layout, the path guard, and
+  disk quotas.
+- **`config/`** holds `ConfigService` (env resolution). The field-catalog concept from the legacy
+  app (every itzg environment variable with friendly label/help/validation, driving the wizard and
+  settings forms automatically) still lives in `src/config/field-catalog/` pending its own port.
+- **`events/`** is cross-cutting: `EventsService.recordEvent()` is the one entry point for history.
+  **`ws/`** carries the live console + stats sockets over socket.io.
 
-## Two conventions that will surprise you
+`frontend/` mirrors this on the client: `src/api/*.ts` (one module per backend domain, wrapping a
+shared `http.ts` fetch instance), Pinia stores for cross-cutting state (`stores/auth.ts`,
+`stores/servers.ts`, …), and pages/components organized by route.
 
-1. **Never touch the filesystem under `./data` directly.** Always resolve paths through the path
-   guard in `src/storage/` (`safeJoin`). It rejects any path that escapes the data root, which is the
-   backbone of the app's file-safety story. Uploads and archive extraction are additionally
-   size-capped.
-2. **Lazy `require()` calls are intentional cycle-breakers.** Some modules `require()` a sibling
-   _inside a function_ rather than at the top of the file to avoid a circular dependency at load
-   time. If you see `const x = require('...')` mid-function, that's why — don't "clean it up" by
-   hoisting it without checking for the cycle.
+## Conventions that will surprise you
 
-## Shared helpers
-
-Prefer the shared helpers over re-implementing patterns:
-
-- `src/utils/httpError.ts` — `httpError(status, message)` for throwing HTTP errors from services.
-- `src/web/middleware/jsonErrorHandler.ts` — the standard JSON error handler (redacts 5xx detail).
-- `src/web/middleware/asyncHandler.ts` — wraps async route handlers so rejections reach the error
-  handler. Prefer it over hand-written `try/catch → next(err)`.
-
-## Frontend
-
-Views are still server-rendered **Handlebars** (`views/`), with hand-written browser JS in
-`public/js/` progressively enhancing them — no client bundler yet. This is actively being migrated
-to **Vue**; if you're picking up frontend work, check for an open tracking issue / in-progress
-branch before starting new Handlebars-based UI, since it may be scoped for the rewrite instead of
-incremental patching. Backend API shape (`web/routes/`) is not expected to change for this
-migration — it's a view-layer swap.
+1. **Never touch the filesystem under `./data` directly.** Always resolve paths through
+   `PathGuardService` (`backend/src/storage/path-guard.service.ts`, `safeJoin`). It rejects any path
+   that escapes the data root, which is the backbone of the app's file-safety story. Uploads and
+   archive extraction are additionally size-capped.
+2. **`forwardRef()` marks a genuine circular module dependency, not a mistake.** A handful of
+   modules (`ServersModule`↔`SchedulerModule`, `ServersModule`↔`MapModule`, and a few more) have a
+   real bidirectional relationship — see `docs/architecture.md`'s "Circular module dependencies"
+   section before adding a new one or "simplifying" an existing one.
+3. **Check for a `*_NOTES.md` before re-deriving a design decision.** Several `backend/src/*/`
+   directories have one (e.g. `db/DRIZZLE_NOTES.md`, `servers/SERVERS_NOTES.md`, `ws/WS_NOTES.md`)
+   documenting a non-obvious choice or a gotcha that was already worked out.
+4. **`src/` (legacy) still uses lazy `require()` cycle-breakers** — some modules `require()` a
+   sibling _inside a function_ to avoid a circular dependency at load time. If you're touching that
+   code and see `const x = require('...')` mid-function, that's why — don't "clean it up" by
+   hoisting it without checking for the cycle. This convention does not apply to `backend/`, which
+   uses `forwardRef()` instead (above).
 
 ## Reporting bugs / requesting features
 

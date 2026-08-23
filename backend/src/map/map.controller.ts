@@ -1,0 +1,34 @@
+import { Controller, Get, Param, Post, Req } from '@nestjs/common';
+import type { Request } from 'express';
+import { ServerQueryService } from '../servers/server-query.service';
+import { MapService } from './map.service';
+import type { MapConfig } from '../../../shared/types/map';
+
+/** Live map (BlueMap). Ports the `/servers/:id/map*` cluster of `api.ts`. */
+@Controller('api/servers/:id/map')
+export class MapController {
+  constructor(
+    private readonly serverQuery: ServerQueryService,
+    private readonly map: MapService
+  ) {}
+
+  @Get()
+  get(@Param('id') id: string): { ok: true } & MapConfig {
+    const server = this.serverQuery.mustGet(id);
+    const cfg = this.map.getMapConfig(server.id);
+    return { ok: true, enabled: cfg.enabled, hostPort: cfg.hostPort, supported: this.map.supportsMap(server) };
+  }
+
+  @Post('enable')
+  async enable(@Param('id') id: string, @Req() req: Request) {
+    this.serverQuery.mustGet(id);
+    return { ok: true, ...(await this.map.enableMap(id, { actor: req.user!.username })) };
+  }
+
+  @Post('disable')
+  async disable(@Param('id') id: string, @Req() req: Request) {
+    this.serverQuery.mustGet(id);
+    await this.map.disableMap(id, { actor: req.user!.username });
+    return { ok: true };
+  }
+}

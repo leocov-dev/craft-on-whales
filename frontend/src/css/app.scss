@@ -1,0 +1,158 @@
+// Design tokens ported from assets/css/input.css (the Express app's source of
+// truth). Stock Quasar components are colored via quasar.variables.scss;
+// these custom properties back the MUST-USE bespoke components (console
+// terminal, inventory editor, etc.) and anywhere Quasar has no equivalent —
+// see the phase-1 plan for the full component mapping.
+//
+// Dark is the default theme; light is opt-in via <html data-theme="light">,
+// same convention as the current app, kept independent of Quasar's own
+// $q.dark toggle (synced in src/boot/theme.ts).
+
+@font-face {
+  font-family: 'Press Start 2P';
+  src: url('/fonts/PressStart2P-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/IBMPlexSans-latin.woff2') format('woff2-variations');
+  font-weight: 100 700;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/IBMPlexSans-latin-ext.woff2') format('woff2-variations');
+  font-weight: 100 700;
+  font-display: swap;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/IBMPlexSans-cyrillic.woff2') format('woff2-variations');
+  font-weight: 100 700;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/IBMPlexSans-greek.woff2') format('woff2-variations');
+  font-weight: 100 700;
+  font-display: swap;
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+
+:root {
+  // ---- Brand palette (full ramp, for bespoke components) ----
+  --color-grass-50: #edfbe8;
+  --color-grass-100: #d5f5c9;
+  --color-grass-200: #aeea99;
+  --color-grass-300: #7fd965;
+  --color-grass-400: #59c53e;
+  --color-grass-500: #3fa62b;
+  --color-grass-600: #2f8520;
+  --color-grass-700: #27661d;
+  --color-grass-800: #22521c;
+  --color-grass-900: #1e461b;
+
+  --color-diamond-50: #ecfdfb;
+  --color-diamond-100: #d0f7f4;
+  --color-diamond-200: #a6efeb;
+  --color-diamond-300: #6ce0dd;
+  --color-diamond-400: #3cc5c7;
+  --color-diamond-500: #21a7ab;
+  --color-diamond-600: #1b8589;
+  --color-diamond-700: #1a6a6e;
+  --color-diamond-800: #1a5558;
+  --color-diamond-900: #1a474a;
+
+  --color-redstone-50: #fef2f2;
+  --color-redstone-100: #fee2e2;
+  --color-redstone-200: #fecaca;
+  --color-redstone-300: #fca5a5;
+  --color-redstone-400: #f87171;
+  --color-redstone-500: #e5484d;
+  --color-redstone-600: #d13438;
+  --color-redstone-700: #b02a2e;
+  --color-redstone-800: #922727;
+  --color-redstone-900: #7a2524;
+
+  --color-gold-50: #fefaec;
+  --color-gold-100: #fbf0ca;
+  --color-gold-200: #f7e090;
+  --color-gold-300: #f3ca56;
+  --color-gold-400: #f0b42f;
+  --color-gold-500: #e99417;
+  --color-gold-600: #ce7011;
+  --color-gold-700: #ab4f12;
+  --color-gold-800: #8b3d15;
+  --color-gold-900: #723315;
+
+  --color-stone-25: #fafbfb;
+  --color-stone-50: #f4f5f6;
+  --color-stone-100: #e8eaec;
+  --color-stone-200: #d3d7db;
+  --color-stone-300: #b1b8bf;
+  --color-stone-400: #87919b;
+  --color-stone-500: #6a747f;
+  --color-stone-600: #555e68;
+  --color-stone-700: #464d55;
+  --color-stone-800: #33383e;
+  --color-stone-850: #262b30;
+  --color-stone-900: #1b1f23;
+  --color-stone-925: #16191c;
+  --color-stone-950: #0e1113;
+
+  --font-pixel: 'Press Start 2P', 'Courier New', monospace;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+
+  // ---- Elevation: three shadow levels mapped to meaning ----
+  --shadow-raised: 0 1px 2px rgb(14 17 19 / 0.07), 0 1px 1px rgb(14 17 19 / 0.05);
+  --shadow-overlay: 0 8px 24px rgb(14 17 19 / 0.18), 0 2px 6px rgb(14 17 19 / 0.1);
+  --shadow-modal: 0 16px 48px rgb(14 17 19 / 0.3), 0 4px 12px rgb(14 17 19 / 0.15);
+
+  // ---- Semantic tokens (dark values — the default) ----
+  --color-canvas: var(--color-stone-950);
+  --color-surface: var(--color-stone-925);
+  --color-raised: var(--color-stone-900);
+  --color-inset: var(--color-stone-850);
+  --color-line: var(--color-stone-800);
+  --color-line-strong: var(--color-stone-700);
+  --color-ink: var(--color-stone-50);
+  --color-ink-soft: var(--color-stone-300);
+  --color-ink-faint: var(--color-stone-400);
+
+  --color-link: var(--color-diamond-400);
+  --color-ok: var(--color-grass-400);
+  --color-warn: var(--color-gold-400);
+  --color-danger: var(--color-redstone-400);
+}
+
+:root[data-theme='light'] {
+  --color-canvas: var(--color-stone-50);
+  --color-surface: #ffffff;
+  --color-raised: var(--color-stone-25);
+  --color-inset: var(--color-stone-100);
+  --color-line: var(--color-stone-200);
+  --color-line-strong: var(--color-stone-300);
+  --color-ink: var(--color-stone-900);
+  --color-ink-soft: var(--color-stone-700);
+  --color-ink-faint: var(--color-stone-600);
+
+  --color-link: var(--color-diamond-700);
+  --color-ok: var(--color-grass-700);
+  --color-warn: var(--color-gold-700);
+  --color-danger: var(--color-redstone-700);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

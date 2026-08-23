@@ -40,7 +40,6 @@
     "dockerode": "^4.0.5",
     "dotenv": "^16.5.0",
     "express": "^4.21.2",
-    "express-handlebars": "^8.0.1",
     "express-session": "^1.18.1",
     "js-yaml": "^4.3.1",
     "lucide-static": "^1.24.0",
@@ -73,7 +72,7 @@
     "prettier": "^3.4.2",
     "tailwindcss": "^4.1.4",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript7": "npm:typescript@^7.0.2",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.67.0",
+    "typescript7": "npm:typescript@^7.0.2"
   }
 }

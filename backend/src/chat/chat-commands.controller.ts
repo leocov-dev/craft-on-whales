@@ -1,0 +1,171 @@
+import { BadRequestException, ConflictException, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req } from '@nestjs/common';
+import type { Request } from 'express';
+import { z, ZodError } from 'zod';
+import { ServerQueryService } from '../servers/server-query.service';
+import { ContainerService } from '../docker/container.service';
+import { ChatCommandsService } from './chat-commands.service';
+import { PLAYER_NAME_RE } from '../utils/player-name';
+import type { HydratedCommand } from './chat.types';
+import type { ChatCommand } from '../../../shared/types/chat-commands';
+
+/**
+ * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
+ * `ChatCommandsService`'s `HydratedCommand` is a Drizzle row (camelCase)
+ * instead, so this maps field-by-field back to the snake_case shape the
+ * frontend expects — spreading `...c` would silently send `serverId` where
+ * the frontend reads `server_id`, etc.
+ */
+function publicCommand(c: HydratedCommand, actionSummary: string): ChatCommand {
+  return {
+    id: c.id,
+    server_id: c.serverId,
+    trigger: c.trigger,
+    description: c.description,
+    action: c.action,
+    params: c.params,
+    permission: c.permission,
+    cooldown_sec: c.cooldownSec,
+    enabled: c.enabled,
+    uses: c.uses,
+    last_used_at: c.lastUsedAt,
+    created_at: c.createdAt,
+    msg_pending: c.msgPending,
+    msg_success: c.msgSuccess,
+    msg_failure: c.msgFailure,
+    actionSummary,
+  };
+}
+
+function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
+  try {
+    return schema.parse(value);
+  } catch (err) {
+    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    throw err;
+  }
+}
+
+const RUNNING_STATES = new Set(['running', 'unhealthy']); // rcon still answers while unhealthy
+
+const triggerSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9_-]{1,24}$/i, 'Triggers are 1-24 letters, digits, - or _');
+const paramsSchema = z.record(z.string(), z.any());
+const messageSchema = z.string().max(200);
+
+const createSchema = z.object({
+  trigger: triggerSchema,
+  description: z.string().trim().max(200).optional(),
+  action: z.enum(['rtp', 'structure', 'biome', 'console']),
+  params: paramsSchema.default({}),
+  permission: z.enum(['everyone', 'whitelist', 'ops']).default('everyone'),
+  cooldownSec: z.coerce.number().int().min(0).max(86400).default(30),
+  enabled: z.coerce.boolean().optional(),
+  msgPending: messageSchema.optional(),
+  msgSuccess: messageSchema.optional(),
+  msgFailure: messageSchema.optional(),
+});
+
+const patchSchema = z
+  .object({
+    trigger: triggerSchema.optional(),
+    description: z.string().trim().max(200).optional(),
+    action: z.enum(['rtp', 'structure', 'biome', 'console']).optional(),
+    params: paramsSchema.optional(),
+    permission: z.enum(['everyone', 'whitelist', 'ops']).optional(),
+    cooldownSec: z.coerce.number().int().min(0).max(86400).optional(),
+    enabled: z.coerce.boolean().optional(),
+    msgPending: messageSchema.optional(),
+    msgSuccess: messageSchema.optional(),
+    msgFailure: messageSchema.optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to change' });
+
+/** Custom chat commands API. Ports `src/web/routes/chatCommands.ts` (mounted at /api/servers/:id/chat-commands). */
+@Controller('api/servers/:id/chat-commands')
+export class ChatCommandsController {
+  constructor(
+    private readonly serverQuery: ServerQueryService,
+    private readonly chatCommands: ChatCommandsService,
+    private readonly containers: ContainerService
+  ) {}
+
+  private requireServer(id: string): void {
+    if (!this.serverQuery.getServer(id)) throw new NotFoundException('Server not found');
+  }
+
+  private async isRunning(serverId: string): Promise<boolean> {
+    try {
+      const info = await this.containers.inspectStatus(serverId);
+      return info.exists && RUNNING_STATES.has(info.status);
+    } catch {
+      return false;
+    }
+  }
+
+  @Get()
+  list(@Param('id') id: string) {
+    this.requireServer(id);
+    const commands = this.chatCommands.listCommands(id);
+    return {
+      ok: true,
+      prefix: this.chatCommands.getPrefix(id),
+      commands: commands.map((c) => publicCommand(c, this.chatCommands.actionSummary(c))),
+      stats: {
+        total: commands.length,
+        enabled: commands.filter((c) => c.enabled).length,
+        uses: commands.reduce((n, c) => n + (c.uses || 0), 0),
+      },
+    };
+  }
+
+  @Post()
+  create(@Param('id') id: string, @Req() req: Request) {
+    this.requireServer(id);
+    const input = parse(createSchema, req.body);
+    const command = this.chatCommands.createCommand(id, input, { actor: req.user!.username });
+    return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
+  }
+
+  @Patch(':cmdId')
+  update(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+    this.requireServer(id);
+    const changes = parse(patchSchema, req.body);
+    const command = this.chatCommands.updateCommand(id, cmdId, changes, { actor: req.user!.username });
+    return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
+  }
+
+  @Delete(':cmdId')
+  remove(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+    this.requireServer(id);
+    this.chatCommands.deleteCommand(id, cmdId, { actor: req.user!.username });
+    return { ok: true };
+  }
+
+  @Post(':cmdId/test')
+  async test(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+    this.requireServer(id);
+    const { player } = parse(
+      z.object({
+        player: z
+          .string()
+          .trim()
+          .regex(PLAYER_NAME_RE, 'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)'),
+      }),
+      req.body
+    );
+    if (!(await this.isRunning(id))) {
+      throw new ConflictException('The server must be running to test a chat command');
+    }
+    const result = await this.chatCommands.testCommand(id, cmdId, player, { actor: req.user!.username });
+    return { ok: true, ...result };
+  }
+
+  @Put('prefix')
+  setPrefix(@Param('id') id: string, @Req() req: Request) {
+    this.requireServer(id);
+    const { prefix } = parse(z.object({ prefix: z.string().trim().min(1).max(2) }), req.body);
+    return { ok: true, ...this.chatCommands.setPrefix(id, prefix, { actor: req.user!.username }) };
+  }
+}

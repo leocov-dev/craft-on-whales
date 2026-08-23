@@ -1,0 +1,201 @@
+import { Logger } from '@nestjs/common';
+import {
+  ConnectedSocket,
+  MessageBody,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+} from '@nestjs/websockets';
+import type { Socket } from 'socket.io';
+import { SessionService } from '../auth/session.service';
+import { ServerQueryService } from '../servers/server-query.service';
+import { ContainerService } from '../docker/container.service';
+import { DockerLogsService, type FollowLogsResult } from '../docker/docker-logs.service';
+import { EventsService } from '../events/events.service';
+import { stripAnsi } from '../utils/ansi';
+import type { PublicUser } from '../auth/auth.service';
+
+interface ConsoleSocketState {
+  follower: FollowLogsResult | null;
+  closed: boolean;
+  user: PublicUser;
+  serverId: string;
+}
+
+/**
+ * `/ws/console` — replaces legacy `src/ws/index.ts`'s `/ws/console/:serverId`
+ * raw-`ws` handler. Wire-protocol deliberately changed to socket.io per the
+ * rewrite plan (see WS_NOTES.md); behavior — auth, RBAC, backpressure,
+ * console-label announcement, event redaction — is a 1:1 port.
+ */
+@WebSocketGateway({ namespace: '/ws/console' })
+export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ConsoleGateway.name);
+  private readonly state = new WeakMap<Socket, ConsoleSocketState>();
+
+  constructor(
+    private readonly sessions: SessionService,
+    private readonly serverQuery: ServerQueryService,
+    private readonly containers: ContainerService,
+    private readonly logs: DockerLogsService,
+    private readonly events: EventsService
+  ) {}
+
+  async handleConnection(client: Socket): Promise<void> {
+    // Attach error/close-equivalent handling synchronously, before any
+    // await below — mirrors legacy's comment: a disconnect mid-setup must
+    // still trigger cleanup, and a socket error must never go unhandled.
+    client.on('error', (err: Error) => {
+      this.logger.warn(`console socket error: ${err.message}`);
+      this.cleanup(client);
+    });
+
+    const user = this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
+    if (!user) {
+      client.disconnect(true);
+      return;
+    }
+    const serverId = String(client.handshake.query.serverId || '');
+    if (!serverId || !this.serverQuery.getServer(serverId)) {
+      client.disconnect(true);
+      return;
+    }
+
+    const state: ConsoleSocketState = { follower: null, closed: false, user, serverId };
+    this.state.set(client, state);
+
+    try {
+      const active = await this.logs.followLogs(serverId, { tail: 300 });
+      state.follower = active;
+      if (state.closed) {
+        active.stop();
+        return; // client already disconnected during the await
+      }
+      active.stream.on('data', (chunk: Buffer) => {
+        this.send(client, { kind: 'log', text: chunk.toString('utf8') });
+        this.maybeApplyBackpressure(client, active);
+      });
+      active.stream.on('end', () => this.send(client, { kind: 'log-end' }));
+      active.stream.on('error', (err: Error) => this.send(client, { kind: 'error', message: `Log stream error: ${err.message}` }));
+    } catch (err: unknown) {
+      // A missing container (404) just means the server has never been
+      // started — expected, not an error; end the stream quietly.
+      if ((err as { statusCode?: number }).statusCode === 404) {
+        this.send(client, { kind: 'log-end' });
+      } else {
+        this.send(client, { kind: 'error', message: `Log stream unavailable: ${err instanceof Error ? err.message : String(err)}` });
+      }
+    }
+  }
+
+  handleDisconnect(client: Socket): void {
+    this.cleanup(client);
+  }
+
+  @SubscribeMessage('cmd')
+  async handleCmd(@ConnectedSocket() client: Socket, @MessageBody() body: { command?: string }): Promise<void> {
+    const state = this.state.get(client);
+    if (!state || typeof body?.command !== 'string') return;
+    const { user, serverId } = state;
+
+    // Viewers may watch logs but never execute commands.
+    if (!['admin', 'operator'].includes(user.role)) {
+      this.send(client, { kind: 'cmd-result', command: body.command, output: '', error: 'Your role (viewer) cannot run commands.' });
+      return;
+    }
+    const command = body.command.trim().replace(/^\//, '').slice(0, 500);
+    if (!command) return;
+
+    try {
+      const info = await this.containers.inspectStatus(serverId);
+      if (!info.exists || !['running', 'starting', 'unhealthy'].includes(info.status)) {
+        this.send(client, { kind: 'cmd-result', command, output: '', error: 'Server is not running.' });
+        return;
+      }
+      const raw = await this.containers.execCapture(serverId, ['rcon-cli', '--', ...command.split(/\s+/)]);
+      const output = stripAnsi(raw);
+      this.send(client, { kind: 'cmd-result', command, output: output.trim() });
+      this.announceConsoleAction(serverId, command);
+      this.events.recordEvent({
+        serverId,
+        actor: user.username,
+        type: 'rcon',
+        summary: `RCON: ${this.redact(command)}`,
+        details: { output: output.trim().slice(0, 2000) },
+      });
+    } catch (err) {
+      this.send(client, { kind: 'cmd-result', command, output: '', error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  private cleanup(client: Socket): void {
+    const state = this.state.get(client);
+    if (!state || state.closed) return;
+    state.closed = true;
+    state.follower?.stop();
+  }
+
+  private send(client: Socket, payload: Record<string, unknown>): void {
+    if (client.connected) client.emit('message', payload);
+  }
+
+  /**
+   * Backpressure: pause the docker log stream once the socket's outbound
+   * buffer exceeds 1MB, resume once it drops under 200KB — ports legacy's
+   * raw-`ws` `bufferedAmount` check. Socket.io's `Socket` has no public
+   * byte-buffer accessor; the underlying `ws` `WebSocket` instance (which
+   * DOES expose `.bufferedAmount`, same as legacy used) is reachable via
+   * `client.conn.transport.socket` once the connection has upgraded to the
+   * websocket transport (verified against engine.io's own source: the
+   * websocket Transport class assigns `this.socket = req.websocket` — a
+   * plain, TS-`private`-but-JS-public field, not a real ECMAScript
+   * `#private`). Polling-transport connections have no equivalent, so
+   * backpressure is skipped for those (matches legacy's behavior, which
+   * only ever ran over a raw websocket in the first place).
+   */
+  private maybeApplyBackpressure(client: Socket, active: FollowLogsResult): void {
+    const transport = client.conn?.transport as { name?: string; socket?: { bufferedAmount?: number } } | undefined;
+    if (transport?.name !== 'websocket') return;
+    const bufferedAmount = transport.socket?.bufferedAmount ?? 0;
+    if (bufferedAmount > 1_000_000 && !active.stream.isPaused()) {
+      active.stream.pause();
+      const tick = setInterval(() => {
+        const state = this.state.get(client);
+        if (!state || state.closed || !client.connected) {
+          clearInterval(tick);
+          return;
+        }
+        const current = (client.conn?.transport as { socket?: { bufferedAmount?: number } } | undefined)?.socket?.bufferedAmount ?? 0;
+        if (current < 200_000) {
+          clearInterval(tick);
+          active.stream.resume();
+        }
+      }, 100);
+      tick.unref?.();
+    }
+  }
+
+  /** Redact sensitive args before persisting the RCON event summary. */
+  private redact(command: string): string {
+    return command.replace(/(password|token|key)\s+\S+/gi, '$1 ●●');
+  }
+
+  /**
+   * If the server has a console label configured, announce the just-run
+   * command in game chat via tellraw. Fire-and-forget — never blocks the
+   * command result.
+   */
+  private announceConsoleAction(serverId: string, command: string): void {
+    const label = this.serverQuery.getServer(serverId)?.console_label;
+    if (!label) return;
+    const payload = {
+      text: '',
+      extra: [
+        { text: `[${label}] `, color: 'aqua', bold: true },
+        { text: command, color: 'gray' },
+      ],
+    };
+    this.containers.execCapture(serverId, ['rcon-cli', '--', 'tellraw', '@a', JSON.stringify(payload)]).catch(() => {});
+  }
+}
