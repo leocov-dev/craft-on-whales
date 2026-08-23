@@ -6,7 +6,7 @@ const path = require('node:path');
 const MCDATA_BASE = 'https://cdn.jsdelivr.net/gh/PrismarineJS/minecraft-data@master/data/pc';
 const WIKI_API = 'https://minecraft.wiki/api.php';
 const VERSION = process.argv[2] || '1.21.11';
-const OUT_DIR = path.join(__dirname, '..', 'public', 'icons', 'mc-items');
+const OUT_DIR = path.join(__dirname, '..', 'frontend', 'public', 'icons', 'mc-items');
 // The wiki's rate limiter starts returning 429s once more than ~1 request is
 // in flight at a time (verified empirically — concurrency 2 already drops
 // ~6% of requests), so this has to stay sequential.

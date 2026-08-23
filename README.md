@@ -1,5 +1,10 @@
 # Minecraft Server Manager
 
+> **🔄 This is a Vue 3 + NestJS rewrite** of the original
+> [anefzaoui/minecraft-server-manager](https://github.com/anefzaoui/minecraft-server-manager)
+> (Express + Handlebars). See [`docs/architecture.md`](docs/architecture.md) for how the two
+> packages (`frontend/`, `backend/`) fit together.
+
 A complete, self-hosted control panel for Minecraft servers that run as Docker containers on the
 [itzg/docker-minecraft-server](https://github.com/itzg/docker-minecraft-server) image. It aims to
 rival commercial panels (Pterodactyl, Multicraft, AMP) in polish and capability while staying

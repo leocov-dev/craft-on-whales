@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import * as path from 'node:path';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { ConfigModule } from './config/config.module';
 import { DbModule } from './db/db.module';
 import { EventsModule } from './events/events.module';
@@ -36,8 +37,22 @@ import { FilesModule } from './files/files.module';
 import { WsModule } from './ws/ws.module';
 import { StorageModule } from './storage/storage.module';
 
+// The SPA build (frontend/dist/spa) lives one directory up from backend/,
+// sibling to it — see the Dockerfile for how both get built and laid out
+// in the production image. `exclude` only needs real GET endpoints that
+// would otherwise be shadowed by the history-API fallback — static-file
+// serving is inherently GET-only, so POST-only routes (bare /login,
+// /setup, /login/2fa, /logout) are never at risk and must NOT be listed
+// here: a browser navigating to e.g. GET /login needs the SPA's
+// index.html (Vue Router owns that path client-side), not a 404.
+const SPA_ROOT = path.join(__dirname, '..', '..', 'frontend', 'dist', 'spa');
+
 @Module({
   imports: [
+    ServeStaticModule.forRoot({
+      rootPath: SPA_ROOT,
+      exclude: ['/api/{*path}', '/setup/checks', '/healthz', '/socket.io/{*path}'],
+    }),
     ConfigModule,
     DbModule,
     EventsModule,
@@ -74,6 +89,5 @@ import { StorageModule } from './storage/storage.module';
     StorageModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
