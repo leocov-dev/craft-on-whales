@@ -83,9 +83,9 @@ export class UpdateUpgradeService {
     { versionId = null, skipBackup = false, allowVersionChange = false, actor = 'system', onStep = () => {}, task = null }: UpgradePackOptions = {}
   ): Promise<UpgradePackResult> {
     if (this.activeUpgrades.has(serverId)) throw new ConflictException('An upgrade is already running for this server');
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const pack = this.packs.getPack(serverId);
+    const pack = await this.packs.getPack(serverId);
     if (!pack) throw new BadRequestException('This server has no managed modpack');
 
     const step = (s: string) => {
@@ -209,7 +209,7 @@ export class UpdateUpgradeService {
 
   /** Roll back: restore the pre-update backup + re-pin the previous version. */
   async rollbackPack(serverId: string, { backupId, actor = 'system' }: { backupId?: string | null; actor?: string } = {}): Promise<RollbackResult> {
-    const pack = this.packs.getPack(serverId);
+    const pack = await this.packs.getPack(serverId);
     if (!pack || !pack.previousVersionId) throw new BadRequestException('No previous pack version recorded');
 
     await this.lifecycle.stopServer(serverId, { actor }).catch(() => {});

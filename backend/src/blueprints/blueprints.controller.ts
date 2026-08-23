@@ -119,8 +119,8 @@ export class BlueprintsController {
   ) {}
 
   @Get()
-  list() {
-    return { ok: true, blueprints: this.library.listBlueprints().map((b) => publicBlueprint(b)) };
+  async list() {
+    return { ok: true, blueprints: (await this.library.listBlueprints()).map((b) => publicBlueprint(b)) };
   }
 
   @Post('export')
@@ -134,7 +134,7 @@ export class BlueprintsController {
       { includeConfig: input.includeConfig !== false, embedFiles: input.embedFiles, includeWorld: input.includeWorld },
       { actor: req.user!.username }
     );
-    return { ok: true, blueprint: publicBlueprint(this.library.getBlueprint(String(row!.id))) };
+    return { ok: true, blueprint: publicBlueprint(await this.library.getBlueprint(String(row!.id))) };
   }
 
   @Post('import-preview')
@@ -159,7 +159,7 @@ export class BlueprintsController {
       return { ok: true, preview, uploadToken: file.filename };
     }
     const { blueprintId } = parseBody(z.object({ blueprintId: z.string().trim().min(1).max(40) }), req.body || {});
-    const preview = await this.importService.importPreview(this.library.getBlueprintPath(blueprintId));
+    const preview = await this.importService.importPreview(await this.library.getBlueprintPath(blueprintId));
     return { ok: true, preview, blueprintId };
   }
 
@@ -191,13 +191,13 @@ export class BlueprintsController {
       ok: true,
       server: publicServer(server),
       report,
-      blueprint: publicBlueprint(this.library.getBlueprint(blueprint.id)),
+      blueprint: publicBlueprint(await this.library.getBlueprint(blueprint.id)),
     };
   }
 
   @Get(':id/download')
-  download(@Param('id') id: string, @Res() res: Response) {
-    const row = this.library.getBlueprint(id);
+  async download(@Param('id') id: string, @Res() res: Response) {
+    const row = await this.library.getBlueprint(id);
     if (!row) throw new NotFoundException('Blueprint not found');
     res.download(this.pathGuard.dataPath(row.relPath), row.filename);
   }

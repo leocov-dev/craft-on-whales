@@ -29,28 +29,27 @@ export class BackupsController {
   }
 
   @Get('servers/:id/backups')
-  listForServer(@Param('id') id: string): { ok: true; backups: ServerBackupRow[] } {
-    this.serverQuery.mustGet(id);
-    const rows = this.db.select().from(backups).where(eq(backups.serverId, id)).orderBy(desc(backups.createdAt)).all();
+  async listForServer(@Param('id') id: string): Promise<{ ok: true; backups: ServerBackupRow[] }> {
+    await this.serverQuery.mustGet(id);
+    const rows = await this.db.select().from(backups).where(eq(backups.serverId, id)).orderBy(desc(backups.createdAt));
     return { ok: true, backups: rows.map((b) => ({ id: b.id, file: b.filename, size: b.sizeBytes, reason: b.reason, ts: b.createdAt })) };
   }
 
   @Get('backups')
-  listAll(): { ok: true; backups: BackupRow[]; totals: { count: number; bytes: number } } {
-    const rows = this.db
+  async listAll(): Promise<{ ok: true; backups: BackupRow[]; totals: { count: number; bytes: number } }> {
+    const rows = await this.db
       .select({ id: backups.id, serverId: backups.serverId, displayName: servers.displayName, filename: backups.filename, sizeBytes: backups.sizeBytes, reason: backups.reason, createdAt: backups.createdAt })
       .from(backups)
       .innerJoin(servers, eq(servers.id, backups.serverId))
-      .orderBy(desc(backups.createdAt))
-      .all();
+      .orderBy(desc(backups.createdAt));
     const list = rows.map((b) => ({ id: b.id, serverId: b.serverId, server: b.displayName, file: b.filename, size: b.sizeBytes, reason: b.reason, ts: b.createdAt }));
     return { ok: true, backups: list, totals: { count: list.length, bytes: list.reduce((n, b) => n + b.size, 0) } };
   }
 
   @Post('servers/:id/backups')
   @HttpCode(202)
-  create(@Req() req: Request, @Param('id') id: string, @Body() body: { note?: string } = {}) {
-    const server = this.serverQuery.mustGet(id);
+  async create(@Req() req: Request, @Param('id') id: string, @Body() body: { note?: string } = {}) {
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
     const note = String(body?.note || '');
     const taskId = this.tasks.run(`Backing up ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
@@ -63,8 +62,8 @@ export class BackupsController {
 
   @Post('servers/:id/backups/:backupId/restore')
   @HttpCode(202)
-  restore(@Req() req: Request, @Param('id') id: string, @Param('backupId') backupId: string) {
-    const server = this.serverQuery.mustGet(id);
+  async restore(@Req() req: Request, @Param('id') id: string, @Param('backupId') backupId: string) {
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
     const taskId = this.tasks.run(`Restoring backup on ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step('Stopping server & taking a safety backup');
@@ -77,8 +76,8 @@ export class BackupsController {
   @Get('backups/:backupId/download')
   @UseGuards(RolesGuard)
   @Roles('admin', 'operator')
-  download(@Res() res: Response, @Param('backupId') backupId: string) {
-    const backup = this.db.select().from(backups).where(eq(backups.id, backupId)).get();
+  async download(@Res() res: Response, @Param('backupId') backupId: string) {
+    const [backup] = await this.db.select().from(backups).where(eq(backups.id, backupId)).limit(1);
     if (!backup) throw new NotFoundException('Backup not found');
     const abs = path.join(this.config.dataDir, backup.relPath);
     if (!fs.existsSync(abs)) throw new NotFoundException('Backup archive is missing on disk');

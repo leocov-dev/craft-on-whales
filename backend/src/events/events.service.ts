@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
@@ -57,6 +57,8 @@ const EXPORT_LIMIT = 10000;
  */
 @Injectable()
 export class EventsService {
+  private readonly logger = new Logger(EventsService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly dbService: DbService
@@ -66,26 +68,48 @@ export class EventsService {
     return path.join(this.config.dataDir, rel);
   }
 
-  /** Record an event. Returns the new event id. */
-  recordEvent({
+  private writeExcerpt(serverId: string | null, type: string, logExcerpt: string): string {
+    // nanoid suffix: two events of the same type in the same millisecond
+    // must not overwrite each other's captured logs.
+    const rel = path.posix.join('logs', serverId || '_panel', 'events', `${Date.now()}-${type}-${nanoid(4)}.log`);
+    const abs = this.dataPath(rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    // Cap captures at 256 KB so a runaway log can't flood the data dir.
+    fs.writeFileSync(abs, logExcerpt.slice(-256 * 1024));
+    return rel;
+  }
+
+  /**
+   * Record an event — fire-and-forget by design. Audit logging is called
+   * from ~120 call sites across nearly every service; almost none of them
+   * need the new row's id (the one exception, crashes.service.ts, uses
+   * recordEventAndGetId below instead) or need to block on the write
+   * completing. Keeping this callable without `await` avoids threading
+   * async through those ~120 unrelated call sites. A failed write is
+   * logged, not thrown — same as before this only mattered for the (never
+   * exercised) case of the events table itself being broken.
+   */
+  recordEvent(opts: RecordEventOptions): void {
+    this.insertEvent(opts).catch((err: unknown) => {
+      this.logger.error(`failed to record event (type=${opts.type}): ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+
+  /** Same as recordEvent, but awaited and returns the new event's id (crashes.service.ts links a crash report to its event row). */
+  async recordEventAndGetId(opts: RecordEventOptions): Promise<number> {
+    return this.insertEvent(opts);
+  }
+
+  private async insertEvent({
     serverId = null,
     actor = 'system',
     type,
     summary,
     details = {},
     logExcerpt = null,
-  }: RecordEventOptions): number {
-    let excerptRel: string | null = null;
-    if (logExcerpt) {
-      // nanoid suffix: two events of the same type in the same millisecond
-      // must not overwrite each other's captured logs.
-      excerptRel = path.posix.join('logs', serverId || '_panel', 'events', `${Date.now()}-${type}-${nanoid(4)}.log`);
-      const abs = this.dataPath(excerptRel);
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      // Cap captures at 256 KB so a runaway log can't flood the data dir.
-      fs.writeFileSync(abs, logExcerpt.slice(-256 * 1024));
-    }
-    const result = this.dbService.db
+  }: RecordEventOptions): Promise<number> {
+    const excerptRel = logExcerpt ? this.writeExcerpt(serverId, type, logExcerpt) : null;
+    const [row] = await this.dbService.db
       .insert(events)
       .values({
         serverId,
@@ -95,28 +119,27 @@ export class EventsService {
         detailsJson: JSON.stringify(details),
         logExcerptPath: excerptRel,
       })
-      .run();
-    return Number(result.lastInsertRowid);
+      .returning({ id: events.id });
+    return row!.id;
   }
 
-  listEvents({ serverId = null, type = null, limit = 50, offset = 0 }: ListEventsOptions = {}): HydratedEvent[] {
+  async listEvents({ serverId = null, type = null, limit = 50, offset = 0 }: ListEventsOptions = {}): Promise<HydratedEvent[]> {
     const where = [
       ...(serverId ? [eq(events.serverId, serverId)] : []),
       ...(type ? [eq(events.type, type)] : []),
     ];
-    const rows = this.dbService.db
+    const rows = await this.dbService.db
       .select()
       .from(events)
       .where(where.length ? and(...where) : undefined)
       .orderBy(desc(events.id))
       .limit(limit)
-      .offset(offset)
-      .all();
+      .offset(offset);
     return rows.map((row) => this.hydrate(row));
   }
 
-  getEvent(id: number): HydratedEvent | null {
-    const row = this.dbService.db.select().from(events).where(eq(events.id, id)).get();
+  async getEvent(id: number): Promise<HydratedEvent | null> {
+    const [row] = await this.dbService.db.select().from(events).where(eq(events.id, id)).limit(1);
     return row ? this.hydrate(row) : null;
   }
 
@@ -142,9 +165,9 @@ export class EventsService {
   }
 
   /** Export events as a downloadable JSON or CSV string. */
-  exportEvents(serverId: string | null | undefined, { format = 'json', q = '', type = '' }: ExportEventsOptions = {}): ExportedEvents {
+  async exportEvents(serverId: string | null | undefined, { format = 'json', q = '', type = '' }: ExportEventsOptions = {}): Promise<ExportedEvents> {
     const fmt = format === 'csv' ? 'csv' : 'json';
-    const rows = this.dbService.db
+    const rows = await this.dbService.db
       .select({
         id: events.id,
         createdAt: events.createdAt,
@@ -157,8 +180,7 @@ export class EventsService {
       .from(events)
       .where(this.buildExportWhere(serverId, type, q))
       .orderBy(desc(events.id))
-      .limit(EXPORT_LIMIT)
-      .all();
+      .limit(EXPORT_LIMIT);
     const stamp = new Date().toISOString().slice(0, 10);
     const filename = `events-${serverId || 'all'}-${stamp}.${fmt}`;
     if (fmt === 'json') {
@@ -188,13 +210,12 @@ export class EventsService {
   }
 
   /** Delete events (and their captured log excerpts) older than `days`. */
-  pruneEvents(days: number, { actor = 'system' }: { actor?: string } = {}): { removed: number } {
+  async pruneEvents(days: number, { actor = 'system' }: { actor?: string } = {}): Promise<{ removed: number }> {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
-    const rows = this.dbService.db
+    const rows = await this.dbService.db
       .select({ id: events.id, logExcerptPath: events.logExcerptPath })
       .from(events)
-      .where(lt(events.createdAt, cutoff))
-      .all();
+      .where(lt(events.createdAt, cutoff));
     for (const row of rows) {
       if (row.logExcerptPath) {
         try {
@@ -204,7 +225,7 @@ export class EventsService {
         }
       }
     }
-    this.dbService.db.delete(events).where(lt(events.createdAt, cutoff)).run();
+    await this.dbService.db.delete(events).where(lt(events.createdAt, cutoff));
     this.recordEvent({
       actor,
       type: 'events-pruned',

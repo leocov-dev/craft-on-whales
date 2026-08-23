@@ -105,20 +105,23 @@ export class ModsService {
       const envLoader = (server.env.MODRINTH_LOADER || server.env.CF_MOD_LOADER || '').toLowerCase();
       return envLoader || this.detectPackLoader(server.id) || null;
     }
+    // packwiz has no env var carrying the loader (PACKWIZ_URL is the only
+    // install-time env it sets) — the on-disk manifest sniff is the only source.
+    if (server.type === 'PACKWIZ') return this.detectPackLoader(server.id) || null;
     return null;
   }
 
   isPackServer(server: Pick<Server, 'type'>): boolean {
-    return ['AUTO_CURSEFORGE', 'MODRINTH', 'FTBA', 'CURSEFORGE', 'GTNH'].includes(server.type);
+    return ['AUTO_CURSEFORGE', 'MODRINTH', 'FTBA', 'CURSEFORGE', 'GTNH', 'PACKWIZ'].includes(server.type);
   }
 
-  private updateFor(row: typeof serverContent.$inferSelect | undefined): string | null {
+  private async updateFor(row: typeof serverContent.$inferSelect | undefined): Promise<string | null> {
     if (!row) return null;
-    const check = this.db
+    const [check] = await this.db
       .select({ latestVersion: updateChecks.latestVersion, latestName: updateChecks.latestName })
       .from(updateChecks)
       .where(and(eq(updateChecks.subjectType, 'content'), eq(updateChecks.subjectId, row.id)))
-      .get();
+      .limit(1);
     // latestName is only set when the checker saw a genuinely newer build;
     // compare name-to-name (latestVersion holds the platform id, not a name).
     return check && check.latestName && check.latestName !== row.version ? check.latestName : null;
@@ -126,13 +129,13 @@ export class ModsService {
 
   /** List installed content: DB overlay rows + on-disk scan for pack/unknown files. */
   async listContent(serverId: string): Promise<ContentItem[]> {
-    const server = this.query.getServer(serverId);
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const kind: ContentKind = PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod';
     const dirRel = this.contentDir(server, kind);
     const dirAbs = this.pathGuard.dataPath('servers', serverId, dirRel);
 
-    const rows = this.db.select().from(serverContent).where(eq(serverContent.serverId, serverId)).all();
+    const rows = await this.db.select().from(serverContent).where(eq(serverContent.serverId, serverId));
     const byFile = new Map(rows.map((r) => [r.filename.replace(/\.disabled$/, ''), r]));
     const seen = new Set<string>();
     const items: ContentItem[] = [];
@@ -152,7 +155,7 @@ export class ModsService {
       seen.add(baseName);
       const row = byFile.get(baseName);
       const stat = await fsp.stat(path.join(dirAbs, entry.name)).catch(() => null);
-      const lib = row && row.libraryId ? this.library.getLibraryFile(row.libraryId) : undefined;
+      const lib = row && row.libraryId ? await this.library.getLibraryFile(row.libraryId) : undefined;
       items.push({
         id: row ? row.id : null,
         name: row ? row.name : this.prettifyJarName(baseName),
@@ -163,9 +166,9 @@ export class ModsService {
         size: stat ? stat.size : 0,
         enabled: !isDisabled,
         disabledVia: row && row.managedBy === 'pack' && !isDisabled ? null : undefined,
-        sharedWith: lib ? this.library.usageCount(lib.id) : null,
+        sharedWith: lib ? await this.library.usageCount(lib.id) : null,
         iconUrl: (lib && lib.iconRelPath ? `/${lib.iconRelPath}` : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
-        updateAvailable: this.updateFor(row),
+        updateAvailable: await this.updateFor(row),
       });
     }
     // Overlay rows whose files vanished (user deleted manually) — surface them.
@@ -227,7 +230,7 @@ export class ModsService {
     input: string,
     { actor = 'system', kind, onProgress }: { actor?: string; kind?: ContentKind; onProgress?: (...args: unknown[]) => void } = {}
   ) {
-    const server = this.query.getServer(serverId);
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const targetKind: ContentKind = kind || (PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod');
     const mcVersion = server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT' ? undefined : server.mc_version;
@@ -281,18 +284,17 @@ export class ModsService {
     // source.kind === 'direct' → plain download of the URL as-is.
 
     const lib = await this.library.downloadToLibrary(downloadUrl, meta, { onProgress, actor });
-    this.indexer.assertUnderQuota(server, lib.sizeBytes);
+    await this.indexer.assertUnderQuota(server, lib.sizeBytes);
     const { filename } = await this.library.installToServer(lib.id, serverId, this.contentDir(server, targetKind));
 
     const id = `sc_${nanoid(8)}`;
-    this.db
+    await this.db
       .insert(serverContent)
       .values({ id, serverId, libraryId: lib.id, kind: targetKind, managedBy: 'overlay', name: lib.name, filename, version: lib.version, iconUrl: lib.iconUrl })
       .onConflictDoUpdate({
         target: [serverContent.serverId, serverContent.filename],
         set: { libraryId: lib.id, version: lib.version },
-      })
-      .run();
+      });
     this.events.recordEvent({
       serverId,
       actor,
@@ -307,9 +309,9 @@ export class ModsService {
   /** Toggle content. Overlay: rename instantly. Pack: exclusion env + recreate flag. */
   async setEnabled(serverId: string, file: string, enabled: boolean, { actor = 'system' }: { actor?: string } = {}): Promise<{ applied: 'instant' | 'on-restart' }> {
     this.assertBareContentName(file);
-    const server = this.query.getServer(serverId);
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const row = this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).get();
+    const [row] = await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).limit(1);
     const managedBy = row ? row.managedBy : this.isPackServer(server) ? 'pack' : 'overlay';
 
     if (managedBy === 'overlay' || !this.isPackServer(server)) {
@@ -318,9 +320,17 @@ export class ModsService {
       const disabled = `${base}.disabled`;
       if (enabled && fs.existsSync(disabled)) await fsp.rename(disabled, base);
       else if (!enabled && fs.existsSync(base)) await fsp.rename(base, disabled);
-      if (row) this.db.update(serverContent).set({ enabled }).where(eq(serverContent.id, row.id)).run();
+      if (row) await this.db.update(serverContent).set({ enabled }).where(eq(serverContent.id, row.id));
       this.events.recordEvent({ serverId, actor, type: enabled ? 'mod-enabled' : 'mod-disabled', summary: `${file} ${enabled ? 'enabled' : 'disabled'} (instant)` });
       return { applied: 'instant' };
+    }
+
+    // packwiz has no itzg-side exclusion mechanism (unlike CF_EXCLUDE_MODS /
+    // MODRINTH_EXCLUDE_FILES) — there is nothing to write to env that would
+    // actually stop the pack installer from re-adding the file. Reject
+    // explicitly rather than silently writing a useless var.
+    if (server.type === 'PACKWIZ') {
+      throw new BadRequestException('packwiz-managed mods can’t be toggled from the panel — edit the pack and re-apply the URL instead');
     }
 
     // Pack-managed: manipulate the exclusion env var. Prefer the real CF project
@@ -336,7 +346,7 @@ export class ModsService {
     const next = enabled ? list.filter((t) => t !== token) : [...new Set([...list, token])];
     env[varName] = next.join('\n');
     env[isCF ? 'CF_FORCE_SYNCHRONIZE' : 'MODRINTH_FORCE_SYNCHRONIZE'] = 'true';
-    this.lifecycle.updateServer(serverId, { env }, { actor });
+    await this.lifecycle.updateServer(serverId, { env }, { actor });
     this.events.recordEvent({ serverId, actor, type: enabled ? 'mod-enabled' : 'mod-disabled', summary: `${file} ${enabled ? 're-included' : 'excluded'} via ${varName} — applies on next restart` });
     return { applied: 'on-restart' };
   }
@@ -344,9 +354,9 @@ export class ModsService {
   /** Remove overlay content (file + row); pack content is excluded, not removed. */
   async removeContent(serverId: string, file: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
     this.assertBareContentName(file);
-    const server = this.query.getServer(serverId);
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const row = this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).get();
+    const [row] = await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).limit(1);
     if (row && row.managedBy === 'pack') throw new ConflictException('Pack-managed content is excluded, not deleted — use Disable');
     const dirRel = this.contentDir(server, (row ? row.kind : 'mod') as ContentKind);
     let freed = 0;
@@ -357,22 +367,22 @@ export class ModsService {
         await fsp.rm(abs);
       }
     }
-    if (row) this.db.delete(serverContent).where(eq(serverContent.id, row.id)).run();
+    if (row) await this.db.delete(serverContent).where(eq(serverContent.id, row.id));
     this.events.recordEvent({ serverId, actor, type: 'mod-removed', summary: `Removed ${file} (${(freed / 1024 / 1024).toFixed(1)} MB freed)` });
     return { freedBytes: freed };
   }
 
   /** Re-apply the overlay after a pack install/update (belt-and-braces). */
   async reapplyOverlay(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ restored: number }> {
-    const rows = this.db
+    const allRows = await this.db
       .select()
       .from(serverContent)
-      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')))
-      .all()
-      .filter((r) => r.libraryId != null);
+      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')));
+    const rows = allRows.filter((r) => r.libraryId != null);
     let restored = 0;
+    const serverType = (await this.query.mustGet(serverId)).type;
     for (const row of rows) {
-      const dirRel = this.contentDir({ type: this.query.mustGet(serverId).type }, row.kind as ContentKind);
+      const dirRel = this.contentDir({ type: serverType }, row.kind as ContentKind);
       const target = this.pathGuard.dataPath('servers', serverId, dirRel, row.enabled ? row.filename : `${row.filename}.disabled`);
       if (!fs.existsSync(target) && !fs.existsSync(`${target}.disabled`)) {
         await this.library.installToServer(row.libraryId!, serverId, dirRel, { filename: row.filename });
@@ -481,8 +491,8 @@ export class ModsService {
   }
 
   /** Add a project slug/ID to the pack's exclusion env var (applies on recreate). */
-  excludePackMod(serverId: string, token: string | null | undefined, { actor = 'system' }: { actor?: string } = {}): { excluded: string } {
-    const server = this.query.getServer(serverId);
+  async excludePackMod(serverId: string, token: string | null | undefined, { actor = 'system' }: { actor?: string } = {}): Promise<{ excluded: string }> {
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     if (!token) throw new BadRequestException('Nothing to exclude');
     const isCF = server.type === 'AUTO_CURSEFORGE';
@@ -492,7 +502,7 @@ export class ModsService {
     if (!list.includes(token)) list.push(token);
     env[varName] = list.join('\n');
     env[isCF ? 'CF_FORCE_SYNCHRONIZE' : 'MODRINTH_FORCE_SYNCHRONIZE'] = 'true';
-    this.lifecycle.updateServer(serverId, { env }, { actor });
+    await this.lifecycle.updateServer(serverId, { env }, { actor });
     this.events.recordEvent({ serverId, actor, type: 'mod-excluded', summary: `Excluded pack mod "${token}" via ${varName} — applies on recreate` });
     return { excluded: token };
   }
@@ -504,20 +514,19 @@ export class ModsService {
     origName: string | null | undefined,
     { excludeToken, actor = 'system' }: { excludeToken?: string | null; actor?: string } = {}
   ): Promise<{ filename: string; excluded: string | null }> {
-    const server = this.query.getServer(serverId);
+    const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const filename = origName || 'mod.jar';
     if (!/\.(jar|zip)$/i.test(filename)) throw new BadRequestException('Only .jar or .zip files can be uploaded');
     const targetKind: ContentKind = PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod';
     const lib = await this.library.importFile(tmpPath, { name: this.prettifyJarName(filename), filename, category: targetKind }, { actor });
-    this.indexer.assertUnderQuota(server, lib.sizeBytes);
+    await this.indexer.assertUnderQuota(server, lib.sizeBytes);
     const { filename: installed } = await this.library.installToServer(lib.id, serverId, this.contentDir(server, targetKind));
-    this.db
+    await this.db
       .insert(serverContent)
       .values({ id: `sc_${nanoid(8)}`, serverId, libraryId: lib.id, kind: targetKind, managedBy: 'overlay', name: lib.name, filename: installed, version: lib.version, iconUrl: lib.iconUrl })
-      .onConflictDoUpdate({ target: [serverContent.serverId, serverContent.filename], set: { libraryId: lib.id } })
-      .run();
-    if (excludeToken) this.excludePackMod(serverId, excludeToken, { actor });
+      .onConflictDoUpdate({ target: [serverContent.serverId, serverContent.filename], set: { libraryId: lib.id } });
+    if (excludeToken) await this.excludePackMod(serverId, excludeToken, { actor });
     this.events.recordEvent({ serverId, actor, type: 'mod-installed', summary: `Uploaded ${targetKind} installed: ${lib.name} (overlay)`, details: { filename: installed } });
     this.indexer.scan().catch(() => {});
     return { filename: installed, excluded: excludeToken || null };

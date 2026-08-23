@@ -74,7 +74,7 @@ export class AuthController {
   @Public()
   @Get('setup/checks')
   async setupChecks(): Promise<{ ok: true; checks: SetupChecks }> {
-    if (!this.authService.firstRunNeeded()) throw new BadRequestException('Setup already complete');
+    if (!(await this.authService.firstRunNeeded())) throw new BadRequestException('Setup already complete');
     const docker = await this.docker.checkDocker();
 
     const maj = Number(process.versions.node.split('.')[0]);
@@ -116,12 +116,12 @@ export class AuthController {
 
   @Public()
   @Post('setup')
-  setup(@Req() req: Request, @Res() res: Response) {
-    if (!this.authService.firstRunNeeded()) throw new BadRequestException('Setup already complete');
+  async setup(@Req() req: Request, @Res() res: Response) {
+    if (!(await this.authService.firstRunNeeded())) throw new BadRequestException('Setup already complete');
     const { username, password } = parseBody(setupSchema, req.body);
     // createUser only returns null when role/username conflicts are pre-checked
     // elsewhere; firstRunNeeded() above guarantees a fresh admin account here.
-    const user = this.authService.createUser({ username, password, role: 'admin' }, { actor: 'setup' })!;
+    const user = (await this.authService.createUser({ username, password, role: 'admin' }, { actor: 'setup' }))!;
     // Rotate the session id on privilege establishment (anti-fixation), matching login.
     req.session.regenerate((err) => {
       if (err) return res.status(500).json({ ok: false, error: 'Session error — try again.' });
@@ -133,13 +133,13 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  login(@Req() req: Request, @Res() res: Response) {
-    if (this.authService.firstRunNeeded()) throw new BadRequestException('Panel setup incomplete');
+  async login(@Req() req: Request, @Res() res: Response) {
+    if (await this.authService.firstRunNeeded()) throw new BadRequestException('Panel setup incomplete');
     if (req.session?.userId) return res.json({ ok: true, totpRequired: false });
 
     const { username, password, next } = parseBody(loginSchema, req.body);
     this.rateLimit.checkLoginAllowed(username, req.ip);
-    const user = this.authService.verifyCredentials(username, password);
+    const user = await this.authService.verifyCredentials(username, password);
     if (!user) {
       this.rateLimit.recordLoginFailure(username, req.ip);
       throw new UnauthorizedException('Wrong username or password.');
@@ -166,14 +166,14 @@ export class AuthController {
 
   @Public()
   @Post('login/2fa')
-  loginTotp(@Req() req: Request, @Res() res: Response) {
+  async loginTotp(@Req() req: Request, @Res() res: Response) {
     const pendingId = req.session?.pendingTotpUserId;
     const pendingUsername = req.session?.pendingTotpUsername;
     if (!pendingId) throw new UnauthorizedException('No pending sign-in.');
 
     const { code } = parseBody(totpCodeSchema, req.body);
     this.rateLimit.checkLoginAllowed(pendingUsername, req.ip);
-    const ok = this.authService.verifyTotpLogin(pendingId, code);
+    const ok = await this.authService.verifyTotpLogin(pendingId, code);
     if (!ok) {
       this.rateLimit.recordLoginFailure(pendingUsername, req.ip);
       throw new UnauthorizedException('Incorrect code.');
@@ -220,7 +220,7 @@ export class AuthController {
     if (!this.throttleSetup(req.user!.id, Date.now())) {
       throw new HttpException('Too many 2FA setup attempts — wait a minute and try again.', HttpStatus.TOO_MANY_REQUESTS);
     }
-    const { secret, otpauthUrl } = this.authService.beginTotpEnrollment(req.user!.id);
+    const { secret, otpauthUrl } = await this.authService.beginTotpEnrollment(req.user!.id);
     const qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 220 });
     return { ok: true, secret, otpauthUrl, qrDataUrl };
   }
@@ -229,12 +229,12 @@ export class AuthController {
   // same shared login lockout as disable/regenerate below.
   @AllowViewerWrite()
   @Post('api/account/totp/confirm')
-  confirmTotp(@Req() req: Request) {
+  async confirmTotp(@Req() req: Request) {
     const { secret, code, password } = parseBody(confirmTotpSchema, req.body);
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     let result: { backupCodes: string[] };
     try {
-      result = this.authService.confirmTotp(req.user!.id, secret, code, password, { actor: req.user!.username });
+      result = await this.authService.confirmTotp(req.user!.id, secret, code, password, { actor: req.user!.username });
     } catch (err) {
       if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;
@@ -245,11 +245,11 @@ export class AuthController {
 
   @AllowViewerWrite()
   @Post('api/account/totp/disable')
-  disableTotp(@Req() req: Request) {
+  async disableTotp(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     try {
-      this.authService.disableTotp(req.user!.id, password, { actor: req.user!.username });
+      await this.authService.disableTotp(req.user!.id, password, { actor: req.user!.username });
     } catch (err) {
       if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;
@@ -260,12 +260,12 @@ export class AuthController {
 
   @AllowViewerWrite()
   @Post('api/account/totp/backup-codes/regenerate')
-  regenerateBackupCodes(@Req() req: Request) {
+  async regenerateBackupCodes(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     let result: { backupCodes: string[] };
     try {
-      result = this.authService.regenerateBackupCodes(req.user!.id, password, { actor: req.user!.username });
+      result = await this.authService.regenerateBackupCodes(req.user!.id, password, { actor: req.user!.username });
     } catch (err) {
       if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;

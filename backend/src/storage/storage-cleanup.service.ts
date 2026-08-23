@@ -87,7 +87,7 @@ export class StorageCleanupService {
         if (!dryRun) await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
       }
     } else if (action === 'orphans') {
-      for (const row of this.library.orphans()) {
+      for (const row of await this.library.orphans()) {
         freedBytes += row.sizeBytes || 0;
         removed += 1;
         if (!dryRun) await this.library.deleteLibraryFile(row.id, { actor, force: true }).catch(() => {});
@@ -115,21 +115,20 @@ export class StorageCleanupService {
     } else if (action === 'old-crashes') {
       const cutoffIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       if (dryRun) {
-        const row = this.db
+        const [row] = await this.db
           .select({ n: sql<number>`count(*)`, s: sql<number>`coalesce(sum(size_bytes), 0)` })
           .from(crashReports)
           .where(lt(crashReports.fileMtime, cutoffIso))
-          .get();
+          .limit(1);
         removed = Number(row?.n) || 0;
         freedBytes = Number(row?.s) || 0;
       } else {
-        const owners = this.db
+        const owners = await this.db
           .selectDistinct({ serverId: crashReports.serverId })
           .from(crashReports)
-          .where(lt(crashReports.fileMtime, cutoffIso))
-          .all();
+          .where(lt(crashReports.fileMtime, cutoffIso));
         for (const { serverId } of owners) {
-          const result = this.crashes.deleteOlderThan(serverId, days, { actor });
+          const result = await this.crashes.deleteOlderThan(serverId, days, { actor });
           removed += result.deleted;
           freedBytes += result.freedBytes;
         }

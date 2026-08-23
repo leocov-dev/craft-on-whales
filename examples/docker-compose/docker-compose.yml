@@ -5,7 +5,7 @@
 #
 # Usage (from this directory):
 #   docker compose up --build
-#   open http://localhost:25564
+#   open http://localhost:3000
 #
 # All panel data (worlds, mods, backups, the DB) lands in ./data next to this
 # file — delete that folder to reset the panel to a clean slate.
@@ -18,8 +18,8 @@ services:
     restart: unless-stopped
     ports:
       # Web UI. Change the left side to move it; the panel itself listens on
-      # 25564 in-container.
-      - '${PANEL_PORT_HOST:-25564}:25564'
+      # 3000 in-container.
+      - '${PANEL_PORT_HOST:-3000}:3000'
     extra_hosts:
       # Lets the panel container reach sibling containers' HOST-published
       # ports (e.g. BlueMap's live map) via host.docker.internal. Docker
@@ -36,7 +36,26 @@ services:
       # Uncomment to pin the session/crypto secret instead of the
       # auto-generated one (regenerated on every `data` wipe otherwise):
       # SESSION_SECRET: change-me-to-a-long-random-string
+      #
+      # Optional: use Postgres instead of the default SQLite file (uncomment
+      # both this and the `db` service below, and add `depends_on: [db]`).
+      # Moving an EXISTING SQLite install over needs a one-time data copy —
+      # see tools/sqlite-to-postgres/README.md.
+      # DB_DRIVER: postgres
+      # DATABASE_URL: postgres://panel:panel@db:5432/panel
     volumes:
       - ./data:/data
       # The panel manages servers through the host daemon (create/start/exec).
       - /var/run/docker.sock:/var/run/docker.sock
+
+  # Uncomment to run Postgres instead of the default SQLite file (see the
+  # panel service's DB_DRIVER/DATABASE_URL above).
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: panel
+  #     POSTGRES_PASSWORD: panel
+  #     POSTGRES_DB: panel
+  #   volumes:
+  #     - ./pgdata:/var/lib/postgresql/data

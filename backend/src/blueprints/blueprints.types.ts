@@ -26,6 +26,7 @@ export const KNOWN_TYPES = new Set([
   'MODRINTH',
   'FTBA',
   'CURSEFORGE',
+  'PACKWIZ',
 ]);
 
 // ---- Manifest schema (msm: 1) ----

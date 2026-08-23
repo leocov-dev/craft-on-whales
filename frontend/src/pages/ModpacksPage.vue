@@ -32,10 +32,60 @@
               @click="upgrade(s)"
             />
             <q-btn dense flat label="Rollback" :loading="busyId === s.id" @click="rollback(s)" />
+            <q-btn dense flat label="View mods" @click="viewInstalledMods(s.id)" />
           </div>
         </q-card>
       </div>
     </div>
+
+    <q-separator class="q-mb-md" />
+
+    <div class="text-subtitle1 q-mb-sm">Install from a packwiz URL</div>
+    <div class="text-caption text-ink-faint q-mb-sm">
+      packwiz packs aren't searchable — paste the <code>pack.toml</code> URL your pack author gave
+      you.
+    </div>
+    <q-card flat bordered class="q-pa-md q-mb-lg" style="max-width: 640px">
+      <div class="q-gutter-md">
+        <q-input
+          v-model="packwiz.url"
+          dense
+          outlined
+          label="pack.toml URL"
+          placeholder="https://example.com/modpack/pack.toml"
+        />
+        <q-input v-model="packwiz.name" dense outlined label="Server name" />
+        <div class="row q-col-gutter-sm">
+          <div class="col-6">
+            <q-input v-model.number="packwiz.portGame" type="number" label="Game port" outlined dense />
+          </div>
+          <div class="col-6">
+            <q-input v-model.number="packwiz.diskQuotaGb" type="number" label="Disk quota (GB)" outlined dense />
+          </div>
+        </div>
+        <div class="row q-col-gutter-sm">
+          <div class="col-6">
+            <q-input v-model.number="packwiz.heapMb" type="number" label="Java heap (MB)" outlined dense />
+          </div>
+          <div class="col-6">
+            <q-input
+              v-model.number="packwiz.containerMemoryMb"
+              type="number"
+              label="Container memory (MB)"
+              outlined
+              dense
+            />
+          </div>
+        </div>
+        <q-btn
+          color="primary"
+          label="Preview"
+          :loading="previewing"
+          :disable="!packwiz.url.trim()"
+          @click="previewPackwiz"
+        />
+      </div>
+    </q-card>
 
     <q-separator class="q-mb-md" />
 
@@ -80,24 +130,51 @@
         </q-card>
       </div>
     </div>
+
+    <PackDetailsDialog
+      v-model="detailsOpen"
+      :platform="detailsSource === 'preview' ? 'packwiz' : undefined"
+      :pack-ref="detailsSource === 'preview' ? packwiz.url.trim() : undefined"
+      :server-id="detailsSource === 'installed' ? detailsServerId ?? undefined : undefined"
+      :show-create="detailsSource === 'preview'"
+      :creating="creating"
+      @create="createFromPackwiz"
+    />
   </q-page>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
+import { useRouter } from 'vue-router';
 import { packsApi, type PackSearchResult } from '@/api/packs';
 import { tasksApi } from '@/api/tasks';
 import { useServersStore } from '@/stores/servers';
 import type { ServerViewModel } from '@/api/servers';
+import PackDetailsDialog from '@/components/PackDetailsDialog.vue';
 
 const $q = useQuasar();
+const router = useRouter();
 const servers = useServersStore();
 
 const query = ref('');
 const platform = ref<'modrinth' | 'curseforge'>('modrinth');
 const results = ref<PackSearchResult[]>([]);
 const busyId = ref<string | null>(null);
+
+const packwiz = ref({
+  url: '',
+  name: '',
+  portGame: undefined as number | undefined,
+  diskQuotaGb: 10,
+  heapMb: 2048,
+  containerMemoryMb: 3072,
+});
+const previewing = ref(false);
+const creating = ref(false);
+const detailsOpen = ref(false);
+const detailsSource = ref<'preview' | 'installed' | null>(null);
+const detailsServerId = ref<string | null>(null);
 
 const platformOptions = [
   { label: 'Modrinth', value: 'modrinth' },
@@ -153,6 +230,63 @@ function rollback(s: ServerViewModel) {
       }
     })();
   });
+}
+
+async function previewPackwiz() {
+  const url = packwiz.value.url.trim();
+  if (!url) return;
+  previewing.value = true;
+  try {
+    const { pack } = await packsApi.resolve('packwiz', url);
+    if (!packwiz.value.name.trim()) packwiz.value.name = pack.projectName;
+    detailsSource.value = 'preview';
+    detailsServerId.value = null;
+    detailsOpen.value = true;
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not resolve that pack.toml URL.',
+    });
+  } finally {
+    previewing.value = false;
+  }
+}
+
+function viewInstalledMods(serverId: string) {
+  detailsSource.value = 'installed';
+  detailsServerId.value = serverId;
+  detailsOpen.value = true;
+}
+
+async function createFromPackwiz() {
+  if (!packwiz.value.name.trim()) {
+    $q.notify({ type: 'negative', message: 'Enter a server name.' });
+    return;
+  }
+  creating.value = true;
+  try {
+    const { taskId } = await packsApi.fromPack({
+      name: packwiz.value.name.trim(),
+      platform: 'packwiz',
+      ref: packwiz.value.url.trim(),
+      portGame: packwiz.value.portGame,
+      diskQuotaGb: packwiz.value.diskQuotaGb,
+      heapMb: packwiz.value.heapMb,
+      containerMemoryMb: packwiz.value.containerMemoryMb,
+    });
+    const task = await tasksApi.waitFor<{ serverId: string }>(taskId);
+    $q.notify({ type: 'positive', message: `${packwiz.value.name} created.` });
+    detailsOpen.value = false;
+    await servers.fetchServers();
+    if (task.result?.serverId) await router.push(`/servers/${task.result.serverId}`);
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not create server from that pack.',
+    });
+  } finally {
+    creating.value = false;
+  }
 }
 
 onMounted(async () => {

@@ -54,7 +54,7 @@ export class DockerStatsService {
 
   async statsOnce(serverId: string): Promise<NormalizedStats | null> {
     try {
-      const stats = (await this.containers.getContainer(serverId).stats({ stream: false })) as unknown as ContainerStats;
+      const stats = (await (await this.containers.getContainer(serverId)).stats({ stream: false })) as unknown as ContainerStats;
       return this.normalize(stats);
     } catch (err: unknown) {
       const statusCode = (err as { statusCode?: number }).statusCode;
@@ -65,7 +65,7 @@ export class DockerStatsService {
 
   /** Stream stats; onSample(normalized) per tick. Returns stop(). */
   async statsStream(serverId: string, onSample: (stats: NormalizedStats) => void): Promise<() => void> {
-    const raw = (await this.containers.getContainer(serverId).stats({ stream: true })) as unknown as NodeJS.ReadableStream;
+    const raw = (await (await this.containers.getContainer(serverId)).stats({ stream: true })) as unknown as NodeJS.ReadableStream;
     let buffer = '';
     // Without this, a container removal mid-stream emits an unhandled
     // 'error' event that would crash the whole panel process.

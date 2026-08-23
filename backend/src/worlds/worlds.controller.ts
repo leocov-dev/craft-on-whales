@@ -59,8 +59,8 @@ export class WorldsController {
   ) {}
 
   @Get()
-  list() {
-    return { ok: true, worlds: this.library.libraryWorlds() };
+  async list() {
+    return { ok: true, worlds: await this.library.libraryWorlds() };
   }
 
   // multer's `dest` must be a static value at decoration time (no DI available
@@ -94,7 +94,7 @@ export class WorldsController {
       z.object({ serverId: z.string().trim().min(1).max(40), mode: modeSchema.default('replace'), newName: worldNameSchema.optional(), confirm: z.coerce.boolean().optional() }),
       req.body
     );
-    const warnings = this.ops.installWarnings(worldId, serverId);
+    const warnings = await this.ops.installWarnings(worldId, serverId);
     if (warnings.length && !confirm) return { ok: true, requiresConfirm: true, warnings };
     const result = await this.ops.installToServer(worldId, serverId, { mode, newName, actor: actorOf(req) });
     return { ok: true, ...result };
@@ -102,18 +102,18 @@ export class WorldsController {
 
   @Get(':id/download')
   async download(@Param('id') id: string, @Res() res: Response) {
-    const lib = this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).get();
+    const [lib] = await this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).limit(1);
     if (!lib) throw new NotFoundException('World not found in the library');
     const filename = lib.filename;
     res.download(this.pathGuard.dataPath(lib.relPath), filename.endsWith('.zip') ? filename : `${filename}.zip`);
   }
 
   @Patch(':id')
-  rename(@Param('id') id: string, @Req() req: Request) {
+  async rename(@Param('id') id: string, @Req() req: Request) {
     const { name } = parseBody(z.object({ name: z.string().trim().min(1).max(120) }), req.body);
-    const lib = this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).get();
+    const [lib] = await this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).limit(1);
     if (!lib) throw new NotFoundException('World not found in the library');
-    this.db.db.update(libraryFiles).set({ name }).where(eq(libraryFiles.id, lib.id)).run();
+    await this.db.db.update(libraryFiles).set({ name }).where(eq(libraryFiles.id, lib.id));
     this.events.recordEvent({
       actor: actorOf(req),
       type: 'world-renamed',
@@ -145,7 +145,7 @@ export class ServerWorldsController {
       z.object({ targetServerId: z.string().trim().min(1).max(40), mode: modeSchema.default('replace'), newName: worldNameSchema.optional(), confirm: z.coerce.boolean().optional() }),
       req.body
     );
-    const warnings = this.ops.copyWarnings(id, targetServerId);
+    const warnings = await this.ops.copyWarnings(id, targetServerId);
     if (warnings.length && !confirm) return { ok: true, requiresConfirm: true, warnings };
     const result = await this.ops.copyBetweenServers(id, targetServerId, { mode, newName, actor: actorOf(req) });
     return { ok: true, installedAs: result.installedAs, mode: result.mode, sizeBytes: result.sizeBytes, warnings: result.warnings };

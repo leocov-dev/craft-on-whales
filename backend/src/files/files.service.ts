@@ -113,7 +113,7 @@ export class FilesService {
       try {
         if (isDir) {
           const dataRel = path.relative(this.config.dataDir, childAbs).split(path.sep).join('/');
-          size = this.indexer.sizeOf(dataRel);
+          size = await this.indexer.sizeOf(dataRel);
           mtimeMs = (await fsp.stat(childAbs)).mtimeMs;
         } else {
           const cst = await fsp.stat(childAbs);
@@ -157,7 +157,7 @@ export class FilesService {
     if (!rel) throw new BadRequestException('Cannot write the root');
     const bytes = Buffer.byteLength(content, 'utf8');
     if (bytes > MAX_TEXT_BYTES) throw new PayloadTooLargeException('Content exceeds the 2 MB editor limit');
-    this.assertRoom(serverId, bytes);
+    await this.assertRoom(serverId, bytes);
 
     const parent = path.dirname(abs);
     const pst = await fsp.stat(parent).catch(() => null);
@@ -233,7 +233,7 @@ export class FilesService {
     if ((dest.abs + path.sep).startsWith(abs + path.sep)) throw new BadRequestException('Cannot copy a folder into itself');
 
     const bytes = st.isDirectory() ? await this.dirSize(abs) : st.size;
-    this.assertRoom(serverId, bytes);
+    await this.assertRoom(serverId, bytes);
     await this.assertDiskFree(bytes);
 
     const target = path.join(dest.abs, path.basename(abs));
@@ -264,7 +264,7 @@ export class FilesService {
     if (!dst || !dst.isDirectory()) throw new BadRequestException('Destination folder not found');
     const filename = this.sanitizeName(originalName || 'upload.bin');
     const size = (await fsp.stat(tmpAbs)).size;
-    this.assertRoom(serverId, size);
+    await this.assertRoom(serverId, size);
 
     const target = path.join(dest.abs, filename);
     await this.moveEntry(tmpAbs, target);
@@ -282,15 +282,15 @@ export class FilesService {
     return { abs, rel, size: st.size, name: path.basename(abs) };
   }
 
-  assertRoom(serverId: string | null, aboutToAddBytes: number): void {
+  async assertRoom(serverId: string | null, aboutToAddBytes: number): Promise<void> {
     if (!serverId) return;
-    const server = this.db
+    const [server] = await this.db
       .select()
       .from(servers)
       .where(and(eq(servers.id, serverId), isNull(servers.deletedAt)))
-      .get();
+      .limit(1);
     if (server) {
-      this.indexer.assertUnderQuota({ id: server.id, display_name: server.displayName, disk_quota_bytes: server.diskQuotaBytes }, aboutToAddBytes);
+      await this.indexer.assertUnderQuota({ id: server.id, display_name: server.displayName, disk_quota_bytes: server.diskQuotaBytes }, aboutToAddBytes);
     }
   }
 

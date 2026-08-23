@@ -55,7 +55,7 @@ async function bootstrap() {
   // constructor side effect now (not onModuleInit) specifically so it's
   // ready this early, right after NestFactory.create()'s DI graph resolves.
   app.get(DataRootService).ensureDataRoot();
-  runMigrations(app.get(DbService));
+  await runMigrations(app.get(DbService));
 
   await app.init();
 

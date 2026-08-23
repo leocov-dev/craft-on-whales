@@ -64,34 +64,34 @@ export class AnalyticsController {
     private readonly ingest: LogIngestService
   ) {}
 
-  private mustServer(id: string): void {
-    if (!this.serverQuery.getServer(id)) throw new NotFoundException('Server not found');
+  private async mustServer(id: string): Promise<void> {
+    if (!(await this.serverQuery.getServer(id))) throw new NotFoundException('Server not found');
   }
 
   @Get('timeline')
-  timeline(@Param('id') id: string, @Query() query: unknown) {
-    this.mustServer(id);
+  async timeline(@Param('id') id: string, @Query() query: unknown) {
+    await this.mustServer(id);
     const q = parse(timelineSchema, query);
-    return { ok: true, ...this.stats.timeline(id, q) };
+    return { ok: true, ...(await this.stats.timeline(id, q)) };
   }
 
   @Get('sessions')
-  sessions(@Param('id') id: string, @Query() query: unknown) {
-    this.mustServer(id);
+  async sessions(@Param('id') id: string, @Query() query: unknown) {
+    await this.mustServer(id);
     const { player } = parse(sessionsSchema, query);
-    return { ok: true, sessions: this.stats.sessionsList(id, player) };
+    return { ok: true, sessions: await this.stats.sessionsList(id, player) };
   }
 
   @Get('scoreboard')
-  scoreboard(@Param('id') id: string, @Query() query: unknown) {
-    this.mustServer(id);
+  async scoreboard(@Param('id') id: string, @Query() query: unknown) {
+    await this.mustServer(id);
     const { metric, window } = parse(scoreboardSchema, query);
-    return { ok: true, metric, window, rows: this.stats.scoreboard(id, { metric, window }) };
+    return { ok: true, metric, window, rows: await this.stats.scoreboard(id, { metric, window }) };
   }
 
   @Get('profile/:uuid')
-  profile(@Param('id') id: string, @Param('uuid') uuidParam: string) {
-    this.mustServer(id);
+  async profile(@Param('id') id: string, @Param('uuid') uuidParam: string) {
+    await this.mustServer(id);
     const uuid = parse(
       z
         .string()
@@ -99,28 +99,28 @@ export class AnalyticsController {
         .regex(/^[0-9a-fA-F-]{32,36}$/),
       uuidParam
     );
-    const data = this.stats.profile(id, uuid);
+    const data = await this.stats.profile(id, uuid);
     if (!data) throw new NotFoundException('No stats recorded for this player yet');
     return { ok: true, profile: data };
   }
 
   @Get('players')
-  players(@Param('id') id: string) {
-    this.mustServer(id);
-    return { ok: true, players: this.stats.playersList(id) };
+  async players(@Param('id') id: string) {
+    await this.mustServer(id);
+    return { ok: true, players: await this.stats.playersList(id) };
   }
 
   @Get('xray')
-  xray(@Param('id') id: string) {
-    this.mustServer(id);
-    return { ok: true, report: this.stats.xrayReport(id) };
+  async xray(@Param('id') id: string) {
+    await this.mustServer(id);
+    return { ok: true, report: await this.stats.xrayReport(id) };
   }
 
   @Post('ingest-now')
   async ingestNow(@Param('id') id: string) {
-    this.mustServer(id);
+    await this.mustServer(id);
     const backfill = await this.ingest.backfillFromLogs(id).catch(() => ({ inserted: 0 }));
-    const statResult = this.stats.ingestStats(id);
+    const statResult = await this.stats.ingestStats(id);
     return { ok: true, events: backfill.inserted, ...statResult };
   }
 }

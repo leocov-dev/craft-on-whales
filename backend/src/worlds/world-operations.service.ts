@@ -35,6 +35,7 @@ const FLAVOR_LABEL: Record<string, string> = {
   AUTO_CURSEFORGE: 'CurseForge pack',
   MODRINTH: 'Modrinth pack',
   FTBA: 'FTB pack',
+  PACKWIZ: 'packwiz pack',
   CUSTOM: 'Custom jar',
 };
 
@@ -55,6 +56,7 @@ const FAMILY: Record<string, string> = {
   AUTO_CURSEFORGE: 'modded',
   MODRINTH: 'modded',
   FTBA: 'modded',
+  PACKWIZ: 'modded',
 };
 const familyOf = (type: string): string => FAMILY[type] || 'vanilla';
 const flavorLabel = (type: string): string => FLAVOR_LABEL[type] || type;
@@ -179,7 +181,7 @@ export class WorldOperationsService {
    * library. Works while the server runs (save-off/save-all/save-on).
    */
   async extractFromServer(serverId: string, { name = '', actor = 'system' }: { name?: string; actor?: string } = {}) {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     const level = this.props.activeLevelName(server);
     const dims = this.props.serverWorldDims(serverId, level);
     if (!fs.existsSync(path.join(dims[0] as string, 'level.dat'))) {
@@ -239,7 +241,7 @@ export class WorldOperationsService {
    * grouping Bukkit-split dims under their main world and marking the active one.
    */
   async listServerWorlds(serverId: string): Promise<ServerWorldSummary[]> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     const base = this.pathGuard.dataPath('servers', serverId);
     const level = this.props.activeLevelName(server);
     const props = this.props.readProps(serverId);
@@ -276,9 +278,9 @@ export class WorldOperationsService {
   }
 
   /** Compat warnings for installing library world `libraryId` into `serverId`. */
-  installWarnings(libraryId: string, serverId: string): string[] {
-    const lib = this.libraryWorldsService.mustLibWorld(libraryId);
-    const server = this.query.mustGet(serverId);
+  async installWarnings(libraryId: string, serverId: string): Promise<string[]> {
+    const lib = await this.libraryWorldsService.mustLibWorld(libraryId);
+    const server = await this.query.mustGet(serverId);
     return this.compatWarnings({ flavor: lib.worldFlavor, version: lib.version }, server);
   }
 
@@ -290,12 +292,12 @@ export class WorldOperationsService {
    *                   switch with activateWorld later. Safe while running.
    */
   async installToServer(libraryId: string, serverId: string, { mode = 'replace', newName = '', actor = 'system' }: InstallToServerOptions = {}): Promise<InstallToServerResult> {
-    const lib = this.libraryWorldsService.mustLibWorld(libraryId);
-    const server = this.query.mustGet(serverId);
+    const lib = await this.libraryWorldsService.mustLibWorld(libraryId);
+    const server = await this.query.mustGet(serverId);
     const warnings = this.compatWarnings({ flavor: lib.worldFlavor, version: lib.version }, server);
 
     const libSizeBytes = lib.sizeBytes;
-    this.indexer.assertUnderQuota({ id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes }, libSizeBytes * 2);
+    await this.indexer.assertUnderQuota({ id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes }, libSizeBytes * 2);
     const { free } = await this.indexer.diskFree();
     if (free < libSizeBytes * 2.5) {
       throw new HttpException(`Not enough disk space to install this world (~${this.archive.humanBytes(libSizeBytes * 2.5)} needed)`, 507);
@@ -358,9 +360,9 @@ export class WorldOperationsService {
   }
 
   /** Warnings for a server->server copy (source world flavor/version vs target). */
-  copyWarnings(sourceServerId: string, targetServerId: string): string[] {
-    const source = this.query.mustGet(sourceServerId);
-    const target = this.query.mustGet(targetServerId);
+  async copyWarnings(sourceServerId: string, targetServerId: string): Promise<string[]> {
+    const source = await this.query.mustGet(sourceServerId);
+    const target = await this.query.mustGet(targetServerId);
     const level = this.props.activeLevelName(source);
     const version =
       this.archive.readLevelVersion(this.pathGuard.dataPath('servers', sourceServerId, level, 'level.dat')) ||
@@ -373,8 +375,8 @@ export class WorldOperationsService {
    * machinery: snapshot source (works while running) -> install into target.
    */
   async copyBetweenServers(sourceServerId: string, targetServerId: string, { mode = 'replace', newName = '', actor = 'system' }: InstallToServerOptions = {}): Promise<CopyBetweenServersResult> {
-    const source = this.query.mustGet(sourceServerId);
-    const target = this.query.mustGet(targetServerId);
+    const source = await this.query.mustGet(sourceServerId);
+    const target = await this.query.mustGet(targetServerId);
     if (sourceServerId === targetServerId) throw new BadRequestException('Source and target are the same server — use Duplicate instead');
 
     const row = await this.extractFromServer(sourceServerId, { name: `${source.display_name} → ${target.display_name} (copy)`, actor });
@@ -391,7 +393,7 @@ export class WorldOperationsService {
 
   /** Fork a copy of a world within the same server (consistent while running). */
   async duplicateWorld(serverId: string, worldName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ name: string; sizeBytes: number }> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     this.archive.checkWorldName(worldName);
     const dims = this.props.serverWorldDims(serverId, worldName);
     if (!fs.existsSync(dims[0] as string)) throw new NotFoundException(`No world named "${worldName}" on this server`);
@@ -400,7 +402,7 @@ export class WorldOperationsService {
     for (let i = 2; fs.existsSync(this.pathGuard.dataPath('servers', serverId, copyName)); i++) copyName = `${worldName}-copy${i}`;
 
     const sizeBytes = await this.archive.dirsSize(dims);
-    this.indexer.assertUnderQuota({ id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes }, sizeBytes);
+    await this.indexer.assertUnderQuota({ id: server.id, display_name: server.display_name, disk_quota_bytes: server.disk_quota_bytes }, sizeBytes);
     const { free } = await this.indexer.diskFree();
     if (free < sizeBytes * 1.1) throw new HttpException(`Not enough disk space to duplicate (~${this.archive.humanBytes(sizeBytes)} needed)`, 507);
 
@@ -426,7 +428,7 @@ export class WorldOperationsService {
 
   /** Rename a world (server must be stopped); updates level-name/LEVEL when active. */
   async renameWorld(serverId: string, worldName: string, newName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ name: string; wasActive: boolean }> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     this.archive.checkWorldName(worldName);
     const clean = this.archive.sanitizeWorldName(newName);
     if (await this.isRunning(serverId)) throw new ConflictException('Stop the server before renaming worlds');
@@ -442,7 +444,7 @@ export class WorldOperationsService {
     }
 
     const wasActive = worldName === this.props.activeLevelName(server);
-    if (wasActive) this.props.setActiveLevel(server, clean, { actor });
+    if (wasActive) await this.props.setActiveLevel(server, clean, { actor });
 
     this.events.recordEvent({
       serverId,
@@ -456,7 +458,7 @@ export class WorldOperationsService {
 
   /** Make a world the active one (sets level-name / LEVEL). Server must be stopped. */
   async activateWorld(serverId: string, worldName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ active: string; changed: boolean }> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     this.archive.checkWorldName(worldName);
     if (await this.isRunning(serverId)) throw new ConflictException('Stop the server before switching worlds');
     if (!fs.existsSync(this.pathGuard.dataPath('servers', serverId, worldName, 'level.dat'))) {
@@ -464,7 +466,7 @@ export class WorldOperationsService {
     }
     const previous = this.props.activeLevelName(server);
     if (previous === worldName) return { active: worldName, changed: false };
-    this.props.setActiveLevel(server, worldName, { actor });
+    await this.props.setActiveLevel(server, worldName, { actor });
     this.events.recordEvent({
       serverId,
       actor,
@@ -481,7 +483,7 @@ export class WorldOperationsService {
    * Server must be stopped.
    */
   async resetWorld(serverId: string, { seedMode = 'random', seed = '', levelType = '', backup = true, actor = 'system' }: ResetWorldOptions = {}): Promise<ResetWorldResult> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     if (await this.isRunning(serverId)) throw new ConflictException('Stop the server before resetting the world');
     const level = this.props.activeLevelName(server);
     const dims = this.props.serverWorldDims(serverId, level);
@@ -512,7 +514,7 @@ export class WorldOperationsService {
     }
     if (applyType) env.LEVEL_TYPE = applyType;
     if (JSON.stringify(env) !== JSON.stringify(server.env)) {
-      this.lifecycle.updateServer(serverId, { env }, { actor });
+      await this.lifecycle.updateServer(serverId, { env }, { actor });
     }
 
     const seedNote =
@@ -543,7 +545,7 @@ export class WorldOperationsService {
 
   /** Delete a non-active world from a server. Returns freed bytes. */
   async deleteServerWorld(serverId: string, worldName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     this.archive.checkWorldName(worldName);
     if (worldName === this.props.activeLevelName(server)) {
       throw new ConflictException('This is the active world — activate another world first, or use Reset to regenerate it');
@@ -568,7 +570,7 @@ export class WorldOperationsService {
    * running). Caller must delete absPath when done sending.
    */
   async prepareWorldDownload(serverId: string, worldName: string, { actor = 'system' }: { actor?: string } = {}): Promise<PreparedWorldDownload> {
-    const server = this.query.mustGet(serverId);
+    const server = await this.query.mustGet(serverId);
     this.archive.checkWorldName(worldName);
     const dims = this.props.serverWorldDims(serverId, worldName);
     if (!fs.existsSync(dims[0] as string)) throw new NotFoundException(`No world named "${worldName}" on this server`);

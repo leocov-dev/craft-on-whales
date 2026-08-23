@@ -72,25 +72,26 @@ export class DiscordService implements OnModuleDestroy {
     return this.dbService.db;
   }
 
-  private row(serverId: string) {
-    return this.db.select().from(integrations).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND))).get();
+  private async row(serverId: string) {
+    const [r] = await this.db.select().from(integrations).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND))).limit(1);
+    return r;
   }
 
   /** Masked, UI-safe view of the config. Never returns the webhook URL. */
-  getConfig(serverId: string): DiscordConfig {
-    const r = this.row(serverId);
+  async getConfig(serverId: string): Promise<DiscordConfig> {
+    const r = await this.row(serverId);
     const cfg = r ? JSON.parse(r.configJson || '{}') : {};
     return {
       enabled: Boolean(r && r.enabled),
       hasWebhook: Boolean(r && r.configCipher),
-      webhookMasked: r && r.configCipher ? this.maskWebhook(this.webhookUrl(serverId)) : null,
+      webhookMasked: r && r.configCipher ? this.maskWebhook(await this.webhookUrl(serverId)) : null,
       events: { ...DEFAULT_EVENTS, ...(cfg.events || {}) },
     };
   }
 
   /** Decrypted webhook URL (internal use only — never expose over HTTP). */
-  private webhookUrl(serverId: string): string | null {
-    const r = this.row(serverId);
+  private async webhookUrl(serverId: string): Promise<string | null> {
+    const r = await this.row(serverId);
     if (!r || !r.configCipher) return null;
     try {
       return JSON.parse(this.secrets.decrypt(r.configCipher)).webhookUrl || null;
@@ -110,8 +111,8 @@ export class DiscordService implements OnModuleDestroy {
    * Upsert the config. webhookUrl: undefined = keep current, '' or null = clear,
    * string = validate + encrypt. events merges over the stored toggles.
    */
-  setConfig(serverId: string, { enabled, webhookUrl: url, events: toggles }: SetDiscordConfigOptions = {}): DiscordConfig {
-    const existing = this.row(serverId);
+  async setConfig(serverId: string, { enabled, webhookUrl: url, events: toggles }: SetDiscordConfigOptions = {}): Promise<DiscordConfig> {
+    const existing = await this.row(serverId);
     const cfg = existing ? JSON.parse(existing.configJson || '{}') : {};
     const nextEvents: EventToggles = { ...DEFAULT_EVENTS, ...(cfg.events || {}), ...(toggles || {}) };
 
@@ -125,7 +126,7 @@ export class DiscordService implements OnModuleDestroy {
       }
     }
 
-    this.db
+    await this.db
       .insert(integrations)
       .values({
         serverId,
@@ -142,16 +143,15 @@ export class DiscordService implements OnModuleDestroy {
           configJson: JSON.stringify({ events: nextEvents }),
           updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         },
-      })
-      .run();
+      });
     return this.getConfig(serverId);
   }
 
   /** Send a test embed so the user can confirm the webhook works. Throws on failure. */
   async testWebhook(serverId: string): Promise<{ ok: true }> {
-    const url = this.webhookUrl(serverId);
+    const url = await this.webhookUrl(serverId);
     if (!url) throw new BadRequestException('No webhook URL saved for this server yet');
-    const server = this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, serverId)).get();
+    const [server] = await this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, serverId)).limit(1);
     const res = await this.post(
       url,
       this.buildEmbed('start', {
@@ -168,9 +168,9 @@ export class DiscordService implements OnModuleDestroy {
    * Never throws; failures are logged at most once per hour per server.
    */
   async notify(serverId: string, kind: NotificationKind, payload: EmbedPayload = {}): Promise<boolean> {
-    const r = this.row(serverId);
+    const r = await this.row(serverId);
     if (!r || !r.enabled || !r.configCipher) return false;
-    const url = this.webhookUrl(serverId);
+    const url = await this.webhookUrl(serverId);
     if (!url) return false;
     try {
       const res = await this.post(url, this.buildEmbed(kind, payload));
@@ -233,8 +233,15 @@ export class DiscordService implements OnModuleDestroy {
   startEventBridge({ intervalMs = 15000 }: { intervalMs?: number } = {}): void {
     if (this.pollTimer) return;
     // Start at the current high-water mark: never replay pre-boot history.
-    const latest = this.db.select({ id: events.id }).from(events).orderBy(desc(events.id)).limit(1).get();
-    this.lastSeenId = latest?.id ?? 0;
+    this.db
+      .select({ id: events.id })
+      .from(events)
+      .orderBy(desc(events.id))
+      .limit(1)
+      .then(([latest]) => {
+        this.lastSeenId = latest?.id ?? 0;
+      })
+      .catch((err: unknown) => console.warn('[discord] event bridge high-water mark lookup failed:', err instanceof Error ? err.message : err));
     this.pollTimer = setInterval(() => {
       this.pollOnce().catch((err) => console.warn('[discord] event bridge poll failed:', err instanceof Error ? err.message : err));
     }, intervalMs);
@@ -251,7 +258,7 @@ export class DiscordService implements OnModuleDestroy {
   }
 
   private async pollOnce(): Promise<void> {
-    const rows = this.db.select().from(events).where(gt(events.id, this.lastSeenId)).orderBy(events.id).limit(100).all();
+    const rows = await this.db.select().from(events).where(gt(events.id, this.lastSeenId)).orderBy(events.id).limit(100);
     if (!rows.length) return;
     this.lastSeenId = rows[rows.length - 1]?.id ?? this.lastSeenId;
 
@@ -259,10 +266,10 @@ export class DiscordService implements OnModuleDestroy {
       const mapped = EVENT_MAP[evt.type];
       if (!mapped || !evt.serverId) continue;
       const [kind, category] = mapped;
-      const cfg = this.getConfig(evt.serverId);
+      const cfg = await this.getConfig(evt.serverId);
       if (!cfg.enabled || !cfg.hasWebhook || !cfg.events[category]) continue;
 
-      const server = this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, evt.serverId)).get();
+      const [server] = await this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, evt.serverId)).limit(1);
       await this.notify(evt.serverId, kind, {
         title: TITLES[evt.type] || evt.type,
         description: evt.summary,

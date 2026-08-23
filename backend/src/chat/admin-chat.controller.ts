@@ -30,18 +30,18 @@ export class AdminChatController {
   @Post()
   @HttpCode(201)
   async send(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
-    this.serverQuery.mustGet(id);
+    await this.serverQuery.mustGet(id);
     const input = sendSchema.parse(body);
     const result = await this.chat.sendChat(id, { ...input, actor: req.user!.username });
     return { ok: true, ...result };
   }
 
   @Get('history')
-  history(@Param('id') id: string, @Query('limit') limitRaw?: string) {
-    this.serverQuery.mustGet(id);
+  async history(@Param('id') id: string, @Query('limit') limitRaw?: string) {
+    await this.serverQuery.mustGet(id);
     const limit = Math.min(200, Math.max(1, Number(limitRaw) || 50));
-    const history = this.events
-      .listEvents({ serverId: id, type: 'chat-sent', limit })
+    const rows = await this.events.listEvents({ serverId: id, type: 'chat-sent', limit });
+    const history = rows
       .map((e): ChatHistoryEntry => ({ ts: e.createdAt, actor: e.actor, ...e.details }) as ChatHistoryEntry)
       .reverse();
     return { ok: true, history };

@@ -35,16 +35,18 @@ WORKDIR /app
 ENV NODE_ENV=production \
     DATA_DIR=/data \
     PANEL_HOST=0.0.0.0 \
-    PANEL_PORT=25564
+    PANEL_PORT=3000
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN npm --prefix backend ci --omit=dev
 COPY --from=build /app/backend/dist ./backend/dist
 # The generated Drizzle migration SQL lives alongside src/, not inside
 # dist/ — db/migrate.ts resolves it relative to __dirname at runtime, so
 # it has to ship as a real sibling directory, not get bundled into dist/.
+# drizzle-pg is the same thing for the optional Postgres path (DB_DRIVER=postgres).
 COPY --from=build /app/backend/drizzle ./backend/drizzle
+COPY --from=build /app/backend/drizzle-pg ./backend/drizzle-pg
 COPY --from=build /app/frontend/dist/spa ./frontend/dist/spa
-EXPOSE 25564
+EXPOSE 3000
 VOLUME /data
 # Runs as root: the mounted Docker socket needs it (the host's docker-group GID
 # is unknowable at build time), and a socket-holding container is already

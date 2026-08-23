@@ -115,11 +115,11 @@ export class WorldLibraryService {
     }: { name: string; actor: string; worldSource?: string; worldFlavor?: string | null; mcVersion: string | null; split: boolean }
   ) {
     const sha256 = await this.archive.sha256File(zipAbs);
-    const existing = this.db
+    const [existing] = await this.db
       .select()
       .from(libraryFiles)
       .where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, 'world')))
-      .get();
+      .limit(1);
     if (existing) {
       await fsp.rm(zipAbs, { force: true });
       return existing;
@@ -132,24 +132,21 @@ export class WorldLibraryService {
     const size = (await fsp.stat(this.pathGuard.dataPath(relPath))).size;
 
     const id = `lib_${nanoid(8)}`;
-    this.db
-      .insert(libraryFiles)
-      .values({
-        id,
-        category: 'world',
-        name,
-        filename,
-        relPath,
-        sha256,
-        sizeBytes: size,
-        platform: 'upload',
-        version: mcVersion || null,
-        mcVersionsJson: JSON.stringify(mcVersion ? [mcVersion] : []),
-        loadersJson: '[]',
-        worldSource: worldSource || 'upload',
-        worldFlavor: worldFlavor || null,
-      })
-      .run();
+    await this.db.insert(libraryFiles).values({
+      id,
+      category: 'world',
+      name,
+      filename,
+      relPath,
+      sha256,
+      sizeBytes: size,
+      platform: 'upload',
+      version: mcVersion || null,
+      mcVersionsJson: JSON.stringify(mcVersion ? [mcVersion] : []),
+      loadersJson: '[]',
+      worldSource: worldSource || 'upload',
+      worldFlavor: worldFlavor || null,
+    });
     this.events.recordEvent({
       actor,
       type: 'world-library-added',
@@ -157,23 +154,25 @@ export class WorldLibraryService {
       details: { id, sha256, sizeBytes: size, split: Boolean(split), mcVersion: mcVersion || null, source: worldSource },
     });
     this.indexer.scan().catch(() => {});
-    return this.db.select().from(libraryFiles).where(eq(libraryFiles.id, id)).get()!;
+    const [row] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, id)).limit(1);
+    return row!;
   }
 
-  mustLibWorld(libraryId: string) {
-    const lib = this.db
+  async mustLibWorld(libraryId: string) {
+    const [lib] = await this.db
       .select()
       .from(libraryFiles)
       .where(and(eq(libraryFiles.id, libraryId), eq(libraryFiles.category, 'world')))
-      .get();
+      .limit(1);
     if (!lib) throw new NotFoundException('World not found in the library');
     return lib;
   }
 
   /** All library worlds mapped for the UI (friendly source labels, compat info). */
-  libraryWorlds(): LibraryWorldView[] {
-    const rows = this.db.select().from(libraryFiles).where(eq(libraryFiles.category, 'world')).orderBy(desc(libraryFiles.createdAt)).all();
-    return rows.map((row) => {
+  async libraryWorlds(): Promise<LibraryWorldView[]> {
+    const rows = await this.db.select().from(libraryFiles).where(eq(libraryFiles.category, 'world')).orderBy(desc(libraryFiles.createdAt));
+    const results: LibraryWorldView[] = [];
+    for (const row of rows) {
       let source = 'Imported';
       let sourceKind: 'import' | 'upload' | 'extract' = 'import';
       if (row.worldSource === 'upload') {
@@ -181,11 +180,11 @@ export class WorldLibraryService {
         sourceKind = 'upload';
       } else if (row.worldSource && row.worldSource.startsWith('extract:')) {
         const sid = row.worldSource.slice('extract:'.length);
-        const server = this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, sid)).get();
+        const [server] = await this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, sid)).limit(1);
         source = `Extracted from ${server ? server.displayName : sid}`;
         sourceKind = 'extract';
       }
-      return {
+      results.push({
         id: row.id,
         name: row.name,
         filename: row.filename,
@@ -200,13 +199,14 @@ export class WorldLibraryService {
           return Number.isFinite(ms) ? ms : null;
         })(),
         hash: row.sha256.slice(0, 10),
-      };
-    });
+      });
+    }
+    return results;
   }
 
   /** Delete a library world archive (delegates to the shared library service). */
   async deleteLibraryWorld(id: string, { actor = 'system' }: { actor?: string } = {}) {
-    this.mustLibWorld(id);
+    await this.mustLibWorld(id);
     return this.library.deleteLibraryFile(id, { actor });
   }
 }

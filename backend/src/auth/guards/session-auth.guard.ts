@@ -18,18 +18,18 @@ export class SessionAuthGuard implements CanActivate {
     private readonly authService: AuthService
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
     const req = context.switchToHttp().getRequest<Request>();
 
-    if (this.authService.firstRunNeeded() && !isPublic) {
+    if ((await this.authService.firstRunNeeded()) && !isPublic) {
       throw new UnauthorizedException('Panel setup incomplete');
     }
     if (isPublic) return true;
 
     const userId = req.session?.userId;
     if (userId) {
-      const user = this.authService.getUser(userId);
+      const user = await this.authService.getUser(userId);
       if (user) {
         req.user = user;
         return true;

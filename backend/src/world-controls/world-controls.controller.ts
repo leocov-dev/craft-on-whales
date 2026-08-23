@@ -19,7 +19,7 @@ export class WorldControlsController {
 
   @Get('state')
   async state(@Param('id') id: string) {
-    this.serverQuery.mustGet(id);
+    await this.serverQuery.mustGet(id);
     try {
       return { ok: true, running: true, state: await this.worldControls.getState(id) };
     } catch {
@@ -29,7 +29,7 @@ export class WorldControlsController {
 
   @Post('quick')
   async quick(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
-    this.serverQuery.mustGet(id);
+    await this.serverQuery.mustGet(id);
     const { action } = quickSchema.parse(body);
     const result = await this.worldControls.runQuick(id, action, { actor: req.user!.username });
     return { ok: true, ...result };

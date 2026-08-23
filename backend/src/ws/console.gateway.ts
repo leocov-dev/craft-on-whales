@@ -51,13 +51,13 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
       this.cleanup(client);
     });
 
-    const user = this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
+    const user = await this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
     if (!user) {
       client.disconnect(true);
       return;
     }
     const serverId = String(client.handshake.query.serverId || '');
-    if (!serverId || !this.serverQuery.getServer(serverId)) {
+    if (!serverId || !(await this.serverQuery.getServer(serverId))) {
       client.disconnect(true);
       return;
     }
@@ -116,7 +116,7 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const raw = await this.containers.execCapture(serverId, ['rcon-cli', '--', ...command.split(/\s+/)]);
       const output = stripAnsi(raw);
       this.send(client, { kind: 'cmd-result', command, output: output.trim() });
-      this.announceConsoleAction(serverId, command);
+      this.announceConsoleAction(serverId, command).catch(() => {});
       this.events.recordEvent({
         serverId,
         actor: user.username,
@@ -186,8 +186,8 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * command in game chat via tellraw. Fire-and-forget — never blocks the
    * command result.
    */
-  private announceConsoleAction(serverId: string, command: string): void {
-    const label = this.serverQuery.getServer(serverId)?.console_label;
+  private async announceConsoleAction(serverId: string, command: string): Promise<void> {
+    const label = (await this.serverQuery.getServer(serverId))?.console_label;
     if (!label) return;
     const payload = {
       text: '',

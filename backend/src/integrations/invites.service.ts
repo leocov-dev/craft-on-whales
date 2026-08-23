@@ -101,8 +101,8 @@ export class InvitesService {
     return this.dbService.db;
   }
 
-  private mustGet(serverId: string): Server {
-    const server = this.serverQuery.getServer(serverId);
+  private async mustGet(serverId: string): Promise<Server> {
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     return server;
   }
@@ -126,7 +126,7 @@ export class InvitesService {
   // Invite info
 
   async inviteInfo(serverId: string): Promise<InviteInfo> {
-    const server = this.mustGet(serverId);
+    const server = await this.mustGet(serverId);
     const port = server.port_game;
     const candidates = localIPv4s().map((ip) => `${ip}:${port}`);
 
@@ -136,7 +136,7 @@ export class InvitesService {
 
     const content = await this.mods.listContent(serverId).catch(() => []);
     const activeMods = content.filter((m) => m.enabled && !m.missing && (m.kind === 'mod' || m.kind === 'plugin'));
-    const { manual } = this.splitOverlay(serverId);
+    const { manual } = await this.splitOverlay(serverId);
     const publicIp = await this.detectPublicIp();
 
     const address = candidates[0] || `<this machine's IP>:${port}`;
@@ -172,8 +172,8 @@ export class InvitesService {
   }
 
   /** Overlay rows split into mrpack-embeddable (Modrinth) vs install-manually. */
-  private splitOverlay(serverId: string): { modrinth: OverlayRow[]; manual: OverlayRow[] } {
-    const rows = this.db
+  private async splitOverlay(serverId: string): Promise<{ modrinth: OverlayRow[]; manual: OverlayRow[] }> {
+    const allRows = await this.db
       .select({
         name: serverContent.name,
         filename: serverContent.filename,
@@ -190,9 +190,8 @@ export class InvitesService {
           // kind IN ('mod','plugin') filtered below — drizzle inArray would
           // also work, kept as a filter for parity with the simple legacy query
         )
-      )
-      .all()
-      .filter((r) => r.enabled);
+      );
+    const rows = allRows.filter((r) => r.enabled);
     return {
       modrinth: rows.filter((r) => r.platform === 'modrinth' && r.fileId),
       manual: rows.filter((r) => !(r.platform === 'modrinth' && r.fileId)),
@@ -219,8 +218,8 @@ export class InvitesService {
    * `host` is the address the user picked for the bundled servers.dat entry.
    */
   async generateMrpack(serverId: string, { host }: { host?: string } = {}): Promise<GenerateMrpackResult> {
-    const server = this.mustGet(serverId);
-    const { modrinth: embeddable, manual } = this.splitOverlay(serverId);
+    const server = await this.mustGet(serverId);
+    const { modrinth: embeddable, manual } = await this.splitOverlay(serverId);
 
     const files: {
       path: string;

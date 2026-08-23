@@ -105,15 +105,15 @@ export class ServerPreviewService {
   }
 
   /** Same shape as previewCreateSpec, but from a real, already-created server. */
-  previewServerSpec(id: string): PreviewSpec {
-    const server = this.query.mustGet(id);
-    const env = this.environment.assembleEnv(server);
+  async previewServerSpec(id: string): Promise<PreviewSpec> {
+    const server = await this.query.mustGet(id);
+    const env = await this.environment.assembleEnv(server);
     env.RCON_PASSWORD = '(hidden)';
     if (env.CF_API_KEY) env.CF_API_KEY = '(hidden)';
     return {
       containerName: server.containerName || this.containers.containerName(server.id),
       network: server.networkName || null,
-      image: this.environment.resolveImage(server),
+      image: await this.environment.resolveImage(server),
       resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
       ports: {
         game: server.port_game,

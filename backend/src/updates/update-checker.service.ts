@@ -42,7 +42,7 @@ export class UpdateCheckerService {
 
   async checkAll({ actor = 'scheduler' }: { actor?: string } = {}): Promise<UpdateFinding[]> {
     const findings: UpdateFinding[] = [];
-    for (const server of this.serverQuery.listServers()) {
+    for (const server of await this.serverQuery.listServers()) {
       // Pack updates
       try {
         const result = await this.packs.latestFor(server.id);
@@ -54,7 +54,7 @@ export class UpdateCheckerService {
           const changelog = result.updateAvailable
             ? result.changelogUrl || this.packChangelogUrl(result.platform, result.projectRef || '')
             : null;
-          this.upsertCheck('pack', server.id, result.current.name || '', {
+          await this.upsertCheck('pack', server.id, result.current.name || '', {
             isNew: result.updateAvailable,
             latestId: result.latest.id,
             latestName: result.latest.name,
@@ -75,7 +75,7 @@ export class UpdateCheckerService {
       }
 
       // Overlay mod updates
-      const rows = this.db
+      const rows = await this.db
         .select({
           id: serverContent.id,
           name: serverContent.name,
@@ -85,8 +85,7 @@ export class UpdateCheckerService {
         })
         .from(serverContent)
         .innerJoin(libraryFiles, eq(libraryFiles.id, serverContent.libraryId))
-        .where(and(eq(serverContent.serverId, server.id), eq(serverContent.managedBy, 'overlay'), isNotNull(libraryFiles.projectId)))
-        .all();
+        .where(and(eq(serverContent.serverId, server.id), eq(serverContent.managedBy, 'overlay'), isNotNull(libraryFiles.projectId)));
       const mcVersion = server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT' ? undefined : server.mc_version;
       const loader = this.mods.loaderOf(server) ?? undefined;
       for (const row of rows) {
@@ -108,7 +107,7 @@ export class UpdateCheckerService {
             // Name-to-name comparison — mods.updateFor and listOutdated use the
             // same rule, so a check can never invent a phantom update.
             const isNew = latest.name !== row.libVersion;
-            this.upsertCheck('content', row.id, row.libVersion || '?', {
+            await this.upsertCheck('content', row.id, row.libVersion || '?', {
               isNew,
               latestId: latest.id,
               latestName: latest.name,
@@ -130,7 +129,7 @@ export class UpdateCheckerService {
       }
     }
 
-    this.apiCache.set('last-update-check', { findings: findings.length });
+    await this.apiCache.set('last-update-check', { findings: findings.length });
     this.events.recordEvent({
       actor,
       type: 'update-check',
@@ -146,8 +145,8 @@ export class UpdateCheckerService {
    * id, latestName the human-readable version name. Up-to-date subjects get
    * NULLs, so `latestVersion IS NOT NULL` cleanly means "update available".
    */
-  private upsertCheck(subjectType: 'pack' | 'content', subjectId: string, current: string, { isNew, latestId, latestName, changelogUrl }: UpsertCheckOptions): void {
-    this.db
+  private async upsertCheck(subjectType: 'pack' | 'content', subjectId: string, current: string, { isNew, latestId, latestName, changelogUrl }: UpsertCheckOptions): Promise<void> {
+    await this.db
       .insert(updateChecks)
       .values({
         subjectType,
@@ -166,8 +165,7 @@ export class UpdateCheckerService {
           changelogUrl: isNew ? changelogUrl : null,
           checkedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
         },
-      })
-      .run();
+      });
   }
 
   private packChangelogUrl(platform: string, projectRef: string): string | null {
@@ -182,16 +180,17 @@ export class UpdateCheckerService {
   }
 
   /** Everything outdated, joined for the Updates page. */
-  listOutdated(): OutdatedRow[] {
+  async listOutdated(): Promise<OutdatedRow[]> {
     const rows: OutdatedRow[] = [];
-    for (const c of this.db.select().from(updateChecks).where(isNotNull(updateChecks.latestVersion)).all()) {
+    const checks = await this.db.select().from(updateChecks).where(isNotNull(updateChecks.latestVersion));
+    for (const c of checks) {
       if (c.subjectType === 'pack') {
-        const server = this.db
+        const [server] = await this.db
           .select({ id: servers.id, displayName: servers.displayName })
           .from(servers)
           .where(and(eq(servers.id, c.subjectId), isNull(servers.deletedAt)))
-          .get();
-        const pack = this.db.select().from(serverPacks).where(eq(serverPacks.serverId, c.subjectId)).get();
+          .limit(1);
+        const [pack] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, c.subjectId)).limit(1);
         if (server && pack && pack.pinnedVersionId !== c.latestVersion) {
           rows.push({
             serverId: server.id,
@@ -205,7 +204,7 @@ export class UpdateCheckerService {
           });
         }
       } else if (c.subjectType === 'content') {
-        const row = this.db
+        const [row] = await this.db
           .select({
             id: serverContent.id,
             name: serverContent.name,
@@ -216,7 +215,7 @@ export class UpdateCheckerService {
           .from(serverContent)
           .innerJoin(servers, and(eq(servers.id, serverContent.serverId), isNull(servers.deletedAt)))
           .where(eq(serverContent.id, c.subjectId))
-          .get();
+          .limit(1);
         // Name-to-name: skip rows the user already updated since the last check.
         if (row && c.latestName && c.latestName !== row.version) {
           rows.push({
@@ -235,8 +234,8 @@ export class UpdateCheckerService {
     return rows;
   }
 
-  lastCheckedAt(): string | null {
-    const row = this.apiCache.get('last-update-check');
+  async lastCheckedAt(): Promise<string | null> {
+    const row = await this.apiCache.get('last-update-check');
     return row ? new Date(Date.now() - row.ageMs).toISOString().slice(0, 19).replace('T', ' ') : null;
   }
 }

@@ -66,16 +66,16 @@ export class LibraryService {
     return this.dbService.db;
   }
 
-  getLibraryFile(libraryId: string): LibraryFileRow | undefined {
-    return this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).get();
+  async getLibraryFile(libraryId: string): Promise<LibraryFileRow | undefined> {
+    const [row] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
+    return row;
   }
 
-  usageCount(libraryId: string): number {
-    const row = this.db
+  async usageCount(libraryId: string): Promise<number> {
+    const [row] = await this.db
       .select({ n: sql<number>`count(*)` })
       .from(serverContent)
-      .where(eq(serverContent.libraryId, libraryId))
-      .get();
+      .where(eq(serverContent.libraryId, libraryId));
     return Number(row?.n || 0);
   }
 
@@ -83,13 +83,13 @@ export class LibraryService {
     libraryId: string,
     { actor = 'system', force = false }: { actor?: string; force?: boolean } = {}
   ): Promise<{ freedBytes: number }> {
-    const lib = this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).get();
+    const [lib] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
     if (!lib) return { freedBytes: 0 };
-    const used = this.usageCount(libraryId);
+    const used = await this.usageCount(libraryId);
     if (used > 0 && !force) throw new ConflictException(`Still installed on ${used} server(s) — remove it there first`);
     await fsp.rm(this.pathGuard.dataPath(lib.relPath), { force: true });
     if (lib.iconRelPath) await fsp.rm(this.pathGuard.dataPath(lib.iconRelPath), { force: true });
-    this.db.delete(libraryFiles).where(eq(libraryFiles.id, libraryId)).run();
+    await this.db.delete(libraryFiles).where(eq(libraryFiles.id, libraryId));
     this.events.recordEvent({
       actor,
       type: 'library-deleted',
@@ -99,8 +99,8 @@ export class LibraryService {
   }
 
   /** Library rows whose files no other record references — cleanup candidates. */
-  orphans() {
-    return this.db
+  async orphans() {
+    const rows = await this.db
       .select()
       .from(libraryFiles)
       .leftJoin(serverContent, eq(serverContent.libraryId, libraryFiles.id))
@@ -109,9 +109,8 @@ export class LibraryService {
           sql`${serverContent.id} IS NULL`,
           sql`${libraryFiles.category} IN ('mod','plugin','datapack','resourcepack')`
         )
-      )
-      .all()
-      .map((r) => r.library_files);
+      );
+    return rows.map((r) => r.library_files);
   }
 
   /**
@@ -174,7 +173,7 @@ export class LibraryService {
     }
 
     const sha256 = hash.digest('hex');
-    const existing = this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get();
+    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
     if (existing) {
       await fsp.rm(tmpFile, { force: true });
       return existing;
@@ -190,7 +189,7 @@ export class LibraryService {
     // onConflictDoNothing closes the check-then-insert race: if a concurrent add for
     // the same (sha256, category) won, our INSERT no-ops (relPath is derived from the
     // sha, so both point at the identical file — nothing to clean up) and we return theirs.
-    this.db
+    await this.db
       .insert(libraryFiles)
       .values({
         id,
@@ -211,10 +210,9 @@ export class LibraryService {
         worldSource: meta.worldSource || null,
         worldFlavor: meta.worldFlavor || null,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] })
-      .run();
-    const row = this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get()!;
-    if (row.id === id) {
+      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
+    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    if (row!.id === id) {
       // We won the insert — do the one-time side effects.
       if (meta.iconUrl) this.cacheIcon(id, meta.iconUrl).catch(() => {});
       this.events.recordEvent({
@@ -224,7 +222,7 @@ export class LibraryService {
         details: { id, category, sha256 },
       });
     }
-    return row;
+    return row!;
   }
 
   /** Cache a mod's platform icon locally so the UI never hotlinks. */
@@ -236,7 +234,7 @@ export class LibraryService {
       const rel = `library/icons/mods/${libraryId}${ext}`;
       await fsp.mkdir(path.dirname(this.pathGuard.dataPath(rel)), { recursive: true });
       await pipeline(res.body as unknown as NodeJS.ReadableStream, fs.createWriteStream(this.pathGuard.dataPath(rel)));
-      this.db.update(libraryFiles).set({ iconRelPath: rel }).where(eq(libraryFiles.id, libraryId)).run();
+      await this.db.update(libraryFiles).set({ iconRelPath: rel }).where(eq(libraryFiles.id, libraryId));
     } catch {
       /* icons are best-effort */
     }
@@ -252,7 +250,7 @@ export class LibraryService {
     destRel: string,
     { filename }: { filename?: string } = {}
   ): Promise<{ installedPath: string; filename: string }> {
-    const lib = this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).get();
+    const [lib] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
     if (!lib) throw new ConflictException('Library file not found');
     // The panel must own the server dir to write into it — a server created before
     // container-runs-as-panel-user has files owned by uid 1000.
@@ -278,14 +276,14 @@ export class LibraryService {
     const buf = await fsp.readFile(localPath);
     if (buf.length > MAX_DOWNLOAD_BYTES) throw new PayloadTooLargeException('File is too large');
     const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
-    const existing = this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get();
+    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
     if (existing) return existing;
     const filename = sanitizeFilename(meta.filename || path.basename(localPath));
     const relPath = `${CATEGORY_DIR[category]}/${sha256.slice(0, 8)}-${filename}`;
     await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), { recursive: true });
     await fsp.writeFile(this.pathGuard.dataPath(relPath), buf);
     const id = `lib_${nanoid(8)}`;
-    this.db
+    await this.db
       .insert(libraryFiles)
       .values({
         id,
@@ -306,10 +304,9 @@ export class LibraryService {
         worldSource: null,
         worldFlavor: null,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] })
-      .run();
-    const row = this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get()!;
-    if (row.id === id) {
+      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
+    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    if (row!.id === id) {
       this.events.recordEvent({
         actor,
         type: 'library-added',
@@ -317,7 +314,7 @@ export class LibraryService {
         details: { id, category, sha256 },
       });
     }
-    return row;
+    return row!;
   }
 }
 

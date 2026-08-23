@@ -46,7 +46,7 @@ export class MojangProfilesService {
    */
   async resolveProfile(name: string): Promise<MojangProfile | null> {
     const key = CACHE_PREFIX + String(name).toLowerCase();
-    const cached = this.db.select().from(apiCache).where(eq(apiCache.key, key)).get();
+    const [cached] = await this.db.select().from(apiCache).where(eq(apiCache.key, key)).limit(1);
     if (cached && Date.now() - Date.parse(String(cached.fetchedAt) + 'Z') < TTL_MS) {
       return JSON.parse(cached.valueJson);
     }
@@ -67,11 +67,10 @@ export class MojangProfilesService {
       throw err;
     }
 
-    this.db
+    await this.db
       .insert(apiCache)
       .values({ key, valueJson: JSON.stringify(profile) })
-      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(profile), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } })
-      .run();
+      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(profile), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
     return profile;
   }
 }

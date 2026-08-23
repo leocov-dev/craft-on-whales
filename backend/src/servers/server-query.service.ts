@@ -70,28 +70,22 @@ export class ServerQueryService {
     };
   }
 
-  listServers(): Server[] {
-    return this.db
-      .select()
-      .from(servers)
-      .where(isNull(servers.deletedAt))
-      .orderBy(asc(servers.createdAt))
-      .all()
-      .map((r) => this.rowToServer(r))
-      .filter((s): s is Server => s !== null);
+  async listServers(): Promise<Server[]> {
+    const rows = await this.db.select().from(servers).where(isNull(servers.deletedAt)).orderBy(asc(servers.createdAt));
+    return rows.map((r) => this.rowToServer(r)).filter((s): s is Server => s !== null);
   }
 
-  getServer(id: string): Server | null {
-    const row = this.db
+  async getServer(id: string): Promise<Server | null> {
+    const [row] = await this.db
       .select()
       .from(servers)
       .where(and(eq(servers.id, id), isNull(servers.deletedAt)))
-      .get();
+      .limit(1);
     return this.rowToServer(row);
   }
 
-  mustGet(id: string): Server {
-    const server = this.getServer(id);
+  async mustGet(id: string): Promise<Server> {
+    const server = await this.getServer(id);
     if (!server) throw new NotFoundException('Server not found');
     return server;
   }

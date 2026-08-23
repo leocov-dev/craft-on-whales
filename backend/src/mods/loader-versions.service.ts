@@ -51,7 +51,7 @@ export class LoaderVersionsService {
   }
 
   private async cachedJson(cacheKey: string, url: string): Promise<unknown> {
-    const cached = this.cache.get(cacheKey);
+    const cached = await this.cache.get(cacheKey);
     if (cached && cached.ageMs < TTL_MS) return cached.value;
     try {
       const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });

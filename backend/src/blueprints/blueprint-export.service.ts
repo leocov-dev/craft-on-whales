@@ -41,15 +41,15 @@ export class BlueprintExportService {
    * overlay jars for offline portability), includeWorld }.
    */
   async exportBlueprint(serverId: string, options: ExportOptions = {}, { actor = 'system' }: { actor?: string } = {}) {
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const includeConfig = options.includeConfig !== false;
     const embedFiles = Boolean(options.embedFiles);
     const includeWorld = Boolean(options.includeWorld);
     const serverDir = this.pathGuard.dataPath('servers', serverId);
 
-    const pack = this.packs.getPack(serverId);
-    const overlayRows = this.db
+    const pack = await this.packs.getPack(serverId);
+    const overlayRows = await this.db
       .select({
         name: serverContent.name,
         kind: serverContent.kind,
@@ -65,8 +65,7 @@ export class BlueprintExportService {
       })
       .from(serverContent)
       .leftJoin(libraryFiles, eq(libraryFiles.id, serverContent.libraryId))
-      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')))
-      .all();
+      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')));
 
     const configFiles = includeConfig ? this.collectConfigFiles(serverDir) : [];
     const worldDirs = includeWorld ? this.worldDirsOf(server, serverDir) : [];
@@ -161,10 +160,9 @@ export class BlueprintExportService {
 
     const size = (await fsp.stat(absPath)).size;
     const id = `bp_${nanoid(8)}`;
-    this.db
+    await this.db
       .insert(blueprints)
-      .values({ id, name: server.display_name, filename, relPath, sizeBytes: size, builtin: false, manifestJson: JSON.stringify(manifest) })
-      .run();
+      .values({ id, name: server.display_name, filename, relPath, sizeBytes: size, builtin: false, manifestJson: JSON.stringify(manifest) });
     this.events.recordEvent({
       serverId,
       actor,
@@ -173,7 +171,8 @@ export class BlueprintExportService {
       details: { id, filename, includeConfig, embedFiles, includeWorld, overlayCount: manifest.overlay.length },
     });
     this.storageIndex.scan().catch(() => {});
-    return this.db.select().from(blueprints).where(eq(blueprints.id, id)).get()!;
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    return row!;
   }
 
   collectConfigFiles(serverDir: string): string[] {

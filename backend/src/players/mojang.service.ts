@@ -29,7 +29,7 @@ export class MojangService {
   }
 
   async getVersionManifest(): Promise<MojangManifest> {
-    const cached = this.db.select().from(apiCache).where(eq(apiCache.key, CACHE_KEY)).get();
+    const [cached] = await this.db.select().from(apiCache).where(eq(apiCache.key, CACHE_KEY)).limit(1);
     // SQLite datetime('now') is space-separated ('2026-07-14 03:00:00'); normalize
     // to ISO 8601 before parsing (matches how the rest of the code reads timestamps).
     if (cached && Date.now() - Date.parse(String(cached.fetchedAt).replace(' ', 'T') + 'Z') < TTL_MS) {
@@ -43,11 +43,10 @@ export class MojangService {
         latest: manifest.latest,
         versions: manifest.versions.map((v) => ({ id: v.id, type: v.type, releaseTime: v.releaseTime })),
       };
-      this.db
+      await this.db
         .insert(apiCache)
         .values({ key: CACHE_KEY, valueJson: JSON.stringify(slim) })
-        .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(slim), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } })
-        .run();
+        .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(slim), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
       return slim;
     } catch (err) {
       if (cached) return JSON.parse(cached.valueJson); // stale beats nothing

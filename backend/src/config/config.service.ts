@@ -8,6 +8,7 @@ const MB = 1024 * 1024;
 
 export type TrustProxy = boolean | number | string;
 export type CookieSecure = boolean | 'auto';
+export type DbDriver = 'sqlite' | 'postgres';
 
 export interface ResourceDefaults {
   heapMb: number;
@@ -48,6 +49,8 @@ export class ConfigService {
   readonly mcRouterImage: string;
   readonly ports: { gameStart: number; rconOffset: number; bedrockStart: number };
   readonly defaults: ResourceDefaults;
+  readonly dbDriver: DbDriver;
+  readonly databaseUrl: string | undefined;
 
   constructor() {
     // backend/ is one level deeper than src/ was (repo/backend/dist vs
@@ -56,7 +59,7 @@ export class ConfigService {
     this.root = path.resolve(__dirname, '..', '..', '..');
     this.dataDir = path.resolve(this.root, process.env.DATA_DIR || './data');
     this.host = process.env.PANEL_HOST || '127.0.0.1';
-    this.port = this.numFromEnv('PANEL_PORT', 25564, { min: 1, max: 65535 });
+    this.port = this.numFromEnv('PANEL_PORT', 3000, { min: 1, max: 65535 });
     this.isExposedBind = this.host !== '127.0.0.1' && this.host !== 'localhost' && this.host !== '::1';
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
     this.trustProxy = this.resolveTrustProxy();
@@ -69,6 +72,11 @@ export class ConfigService {
       bedrockStart: this.numFromEnv('PORT_BEDROCK_START', 19132, { min: 1, max: 65535 }),
     };
     this.defaults = this.resolveDefaults();
+    this.dbDriver = this.resolveDbDriver();
+    this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
+    if (this.dbDriver === 'postgres' && !this.databaseUrl) {
+      throw new Error('DB_DRIVER=postgres requires DATABASE_URL to be set (e.g. postgres://user:pass@host:5432/panel).');
+    }
     this.dataDirHost = this.resolveDataDirHost();
     this.mapProxyHost = this.resolveMapProxyHost();
     this.sessionSecret = this.resolveSessionSecret();
@@ -134,6 +142,12 @@ export class ConfigService {
       quotaWarnPct: 80,
       quotaCriticalPct: 95,
     };
+  }
+
+  private resolveDbDriver(): DbDriver {
+    const raw = (process.env.DB_DRIVER || 'sqlite').trim();
+    if (raw === 'sqlite' || raw === 'postgres') return raw;
+    throw new Error(`DB_DRIVER must be "sqlite" or "postgres" — got "${raw}".`);
   }
 
   private resolveTrustProxy(): TrustProxy {

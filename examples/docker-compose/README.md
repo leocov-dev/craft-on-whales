@@ -17,7 +17,7 @@ cd examples/docker-compose
 docker compose up --build
 ```
 
-Then open **http://localhost:25564** and follow the first-run setup.
+Then open **http://localhost:3000** and follow the first-run setup.
 
 All panel data (worlds, mods, backups, the database) lands in `./data` next
 to this file. Delete that folder to reset the panel to a clean slate.
@@ -32,7 +32,7 @@ rm -rf data                # wipe all panel data
 
 ## Changing the port
 
-The panel listens on `25564` inside the container. To publish it on a
+The panel listens on `3000` inside the container. To publish it on a
 different host port, set `PANEL_PORT_HOST` before starting:
 
 ```bash

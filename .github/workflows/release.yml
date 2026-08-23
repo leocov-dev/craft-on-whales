@@ -36,7 +36,7 @@ jobs:
 
       - name: Build release notes from CHANGELOG
         if: steps.check.outputs.exists == 'false'
-        run: node scripts/changelog-notes.js "${{ steps.version.outputs.value }}" > release-notes.md
+        run: node tools/changelog-notes/changelog-notes.js "${{ steps.version.outputs.value }}" > release-notes.md
 
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'

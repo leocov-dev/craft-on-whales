@@ -43,19 +43,19 @@ export class McRouterService {
     private readonly connection: DockerConnectionService
   ) {}
 
-  getConfig(): McRouterConfig {
-    const stored = this.settings.get(SETTINGS_KEY, null) as Partial<McRouterConfig> | null;
+  async getConfig(): Promise<McRouterConfig> {
+    const stored = (await this.settings.get(SETTINGS_KEY, null)) as Partial<McRouterConfig> | null;
     return { ...DEFAULT_CONFIG, ...(stored || {}) };
   }
 
-  setConfig(patch: Partial<McRouterConfig>): McRouterConfig {
-    const next = { ...this.getConfig(), ...patch };
-    this.settings.set(SETTINGS_KEY, next);
+  async setConfig(patch: Partial<McRouterConfig>): Promise<McRouterConfig> {
+    const next = { ...(await this.getConfig()), ...patch };
+    await this.settings.set(SETTINGS_KEY, next);
     return next;
   }
 
-  listRoutes(): RouterRoute[] {
-    const rows = this.dbService.db
+  async listRoutes(): Promise<RouterRoute[]> {
+    const rows = await this.dbService.db
       .select({
         id: servers.id,
         displayName: servers.displayName,
@@ -65,8 +65,7 @@ export class McRouterService {
       })
       .from(servers)
       .where(isNull(servers.deletedAt))
-      .orderBy(servers.displayName)
-      .all();
+      .orderBy(servers.displayName);
     return rows.map((r) => ({
       id: r.id,
       name: r.displayName,
@@ -84,7 +83,7 @@ export class McRouterService {
    * as cheap as it is simple.
    */
   async activate(): Promise<void> {
-    const cfg = this.getConfig();
+    const cfg = await this.getConfig();
     const socketPath = this.connection.getSocketPath();
     if (!socketPath) {
       throw new InternalServerErrorException(
@@ -123,7 +122,7 @@ export class McRouterService {
 
   /** Called at panel boot: bring the container in line with the stored setting. */
   async bootReconcile(): Promise<void> {
-    const cfg = this.getConfig();
+    const cfg = await this.getConfig();
     if (!cfg.enabled) return;
     await this.activate();
   }

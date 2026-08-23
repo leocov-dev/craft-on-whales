@@ -76,7 +76,7 @@ export class ItemRegistryService {
   // api_cache-backed generic fetch cache
 
   private async cachedJson(cacheKey: string, url: string, ttlMs: number): Promise<unknown> {
-    const cached = this.db.select().from(apiCache).where(eq(apiCache.key, cacheKey)).get();
+    const [cached] = await this.db.select().from(apiCache).where(eq(apiCache.key, cacheKey)).limit(1);
     if (cached && Date.now() - Date.parse(cached.fetchedAt.replace(' ', 'T') + 'Z') < ttlMs) {
       return JSON.parse(cached.valueJson);
     }
@@ -84,11 +84,10 @@ export class ItemRegistryService {
       const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
-      this.db
+      await this.db
         .insert(apiCache)
         .values({ key: cacheKey, valueJson: JSON.stringify(data) })
-        .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(data), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } })
-        .run();
+        .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(data), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
       return data;
     } catch (err) {
       if (cached) return JSON.parse(cached.valueJson); // stale beats nothing
@@ -264,7 +263,7 @@ export class ItemRegistryService {
     // A server with no on-disk vanilla jar yet (never started) has no jar
     // identity to key off — mc_version explicitly, so switching it pre-launch
     // still invalidates the (otherwise empty) cached registry.
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     const mcVersion = server?.mc_version || '';
     return `v2|${count}|${totalSize}|${Math.round(maxMtime)}|${vanilla}|${mcVersion}`;
   }
@@ -277,7 +276,7 @@ export class ItemRegistryService {
     serverId: string,
     { onProgress = () => {} }: { onProgress?: (done: number, total: number, label?: string) => void } = {}
   ): Promise<Registry> {
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
 
     const started = Date.now();
@@ -396,11 +395,10 @@ export class ItemRegistryService {
 
     const cacheKey = CACHE_PREFIX + serverId;
     const valueJson = JSON.stringify(registry);
-    this.db
+    await this.db
       .insert(apiCache)
       .values({ key: cacheKey, valueJson })
-      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson, fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } })
-      .run();
+      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson, fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
     this.memory.set(serverId, { fingerprint, registry });
     return registry;
   }
@@ -426,7 +424,7 @@ export class ItemRegistryService {
       const mem = this.memory.get(serverId);
       if (mem && mem.fingerprint === fingerprint) return mem.registry;
 
-      const row = this.db.select().from(apiCache).where(eq(apiCache.key, CACHE_PREFIX + serverId)).get();
+      const [row] = await this.db.select().from(apiCache).where(eq(apiCache.key, CACHE_PREFIX + serverId)).limit(1);
       if (row) {
         try {
           const registry = JSON.parse(row.valueJson) as Registry;

@@ -39,31 +39,30 @@ export class BlueprintsLibraryService {
     return this.dbService.db;
   }
 
-  listBlueprints(): DecoratedBlueprint[] {
-    return this.db
+  async listBlueprints(): Promise<DecoratedBlueprint[]> {
+    const rows = await this.db
       .select()
       .from(blueprints)
-      .orderBy(desc(blueprints.builtin), desc(blueprints.createdAt))
-      .all()
-      .map((row) => this.decorate(row));
+      .orderBy(desc(blueprints.builtin), desc(blueprints.createdAt));
+    return rows.map((row) => this.decorate(row));
   }
 
-  getBlueprint(id: string): DecoratedBlueprint | null {
-    const row = this.db.select().from(blueprints).where(eq(blueprints.id, id)).get();
+  async getBlueprint(id: string): Promise<DecoratedBlueprint | null> {
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
     return row ? this.decorate(row) : null;
   }
 
-  getBlueprintPath(id: string): string {
-    const row = this.db.select().from(blueprints).where(eq(blueprints.id, id)).get();
+  async getBlueprintPath(id: string): Promise<string> {
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     return this.pathGuard.dataPath(row.relPath);
   }
 
   async deleteBlueprint(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
-    const row = this.db.select().from(blueprints).where(eq(blueprints.id, id)).get();
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     await fsp.rm(this.pathGuard.dataPath(row.relPath), { force: true });
-    this.db.delete(blueprints).where(eq(blueprints.id, id)).run();
+    await this.db.delete(blueprints).where(eq(blueprints.id, id));
     this.events.recordEvent({
       actor,
       type: 'blueprint-deleted',
@@ -98,14 +97,16 @@ export class BlueprintsLibraryService {
 
   /** Ship two preset blueprints once. A settings flag prevents re-seeding after the user deletes them. */
   async seedStarters(): Promise<{ seeded: number; blueprints?: unknown[] }> {
-    if (this.db.select().from(settings).where(eq(settings.key, 'blueprints_seeded')).get()) return { seeded: 0 };
-    if (this.db.select().from(blueprints).where(eq(blueprints.builtin, true)).get()) return { seeded: 0 };
+    const [seededFlag] = await this.db.select().from(settings).where(eq(settings.key, 'blueprints_seeded')).limit(1);
+    if (seededFlag) return { seeded: 0 };
+    const [builtinExisting] = await this.db.select().from(blueprints).where(eq(blueprints.builtin, true)).limit(1);
+    if (builtinExisting) return { seeded: 0 };
 
     const created = [];
     for (const manifest of [this.paperStarterManifest(), this.fabricStarterManifest()]) {
       created.push(await this.writeManifestOnlyBlueprint(manifest, { builtin: true }));
     }
-    this.db.insert(settings).values({ key: 'blueprints_seeded', valueJson: 'true' }).run();
+    await this.db.insert(settings).values({ key: 'blueprints_seeded', valueJson: 'true' });
     this.events.recordEvent({
       actor: 'system',
       type: 'blueprints-seeded',
@@ -210,10 +211,10 @@ export class BlueprintsLibraryService {
     });
     const size = (await fsp.stat(absPath)).size;
     const id = `bp_${nanoid(8)}`;
-    this.db
+    await this.db
       .insert(blueprints)
-      .values({ id, name: manifest.name, filename, relPath, sizeBytes: size, builtin, manifestJson: JSON.stringify(manifest) })
-      .run();
-    return this.db.select().from(blueprints).where(eq(blueprints.id, id)).get()!;
+      .values({ id, name: manifest.name, filename, relPath, sizeBytes: size, builtin, manifestJson: JSON.stringify(manifest) });
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    return row!;
   }
 }

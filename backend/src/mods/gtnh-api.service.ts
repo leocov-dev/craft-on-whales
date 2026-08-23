@@ -85,7 +85,7 @@ export class GtnhApiService {
 
   /** Fetch + cache the index. Serves the stale copy rather than failing. */
   async fetchIndex(): Promise<GtnhVersionEntry[]> {
-    const cached = this.cache.get(CACHE_KEY);
+    const cached = await this.cache.get(CACHE_KEY);
     const stale = (): GtnhVersionEntry[] | null => (cached ? this.normalizeIndex(cached.value) : null);
     if (cached && cached.ageMs < TTL_MS) return stale() as GtnhVersionEntry[];
 

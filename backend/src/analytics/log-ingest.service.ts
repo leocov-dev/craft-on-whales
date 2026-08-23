@@ -82,35 +82,31 @@ export class LogIngestService implements OnModuleInit {
     return d.toISOString();
   }
 
-  private openSession(serverId: string, player: string, ts: string): void {
+  private async openSession(serverId: string, player: string, ts: string): Promise<void> {
     // A dangling open session means we missed the leave — close it at the new join.
-    this.db
+    await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)))
-      .run();
-    this.db
+      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)));
+    await this.db
       .insert(playerSessions)
       .values({ serverId, player, startedAt: ts })
-      .onConflictDoNothing()
-      .run();
+      .onConflictDoNothing();
   }
 
-  private closeSession(serverId: string, player: string, ts: string): void {
-    this.db
+  private async closeSession(serverId: string, player: string, ts: string): Promise<void> {
+    await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)))
-      .run();
+      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)));
   }
 
   /** Close every open session for a server (server stopped / log tap ended). */
-  closeAllSessions(serverId: string, ts: string = new Date().toISOString()): void {
-    this.db
+  async closeAllSessions(serverId: string, ts: string = new Date().toISOString()): Promise<void> {
+    await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), isNull(playerSessions.endedAt)))
-      .run();
+      .where(and(eq(playerSessions.serverId, serverId), isNull(playerSessions.endedAt)));
   }
 
   /**
@@ -118,43 +114,41 @@ export class LogIngestService implements OnModuleInit {
    * land within DEDUPE_WINDOW_MS of an identical-type event for the same
    * player. Returns true when a row was inserted.
    */
-  private insertEvent(
+  private async insertEvent(
     serverId: string,
     evt: ClassifiedEvent,
     ts: string,
     raw: string,
     { sessions = true }: { sessions?: boolean } = {}
-  ): boolean {
+  ): Promise<boolean> {
     if (evt.type === 'join' || evt.type === 'leave') {
-      const prev = this.db
+      const [prev] = await this.db
         .select({ ts: playerEvents.ts, type: playerEvents.type, target: playerEvents.target })
         .from(playerEvents)
         .where(and(eq(playerEvents.serverId, serverId), eq(playerEvents.player, evt.player)))
         .orderBy(desc(playerEvents.id))
-        .limit(1)
-        .get();
+        .limit(1);
       if (prev && prev.type === evt.type && Math.abs(Date.parse(String(prev.ts)) - Date.parse(ts)) <= DEDUPE_WINDOW_MS) {
         return false;
       }
     }
-    this.db
+    await this.db
       .insert(playerEvents)
-      .values({ serverId, ts, type: evt.type, player: evt.player, target: evt.target, message: evt.message, raw })
-      .run();
+      .values({ serverId, ts, type: evt.type, player: evt.player, target: evt.target, message: evt.message, raw });
     if (sessions) {
-      if (evt.type === 'join') this.openSession(serverId, evt.player, ts);
-      else if (evt.type === 'leave') this.closeSession(serverId, evt.player, ts);
+      if (evt.type === 'join') await this.openSession(serverId, evt.player, ts);
+      else if (evt.type === 'leave') await this.closeSession(serverId, evt.player, ts);
     }
     return true;
   }
 
-  private handleLine(serverId: string, line: string): void {
+  private async handleLine(serverId: string, line: string): Promise<void> {
     const { ts: dockerTs, rest } = this.splitDockerTimestamp(line.replace(/\r$/, ''));
     const raw = rest;
     const evt = this.classifier.classify(raw);
     if (!evt) return;
     try {
-      this.insertEvent(serverId, evt, dockerTs || this.buildTs(evt.time), raw);
+      await this.insertEvent(serverId, evt, dockerTs || this.buildTs(evt.time), raw);
     } catch (err) {
       this.logger.error(`insert failed for ${serverId}: ${err instanceof Error ? err.message : err}`);
     }
@@ -179,13 +173,19 @@ export class LogIngestService implements OnModuleInit {
       while ((nl = tap.buf.indexOf('\n')) !== -1) {
         const line = tap.buf.slice(0, nl);
         tap.buf = tap.buf.slice(nl + 1);
-        if (line.trim()) this.handleLine(serverId, line);
+        if (line.trim()) {
+          this.handleLine(serverId, line).catch((err: unknown) =>
+            this.logger.error(`line handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`)
+          );
+        }
       }
     });
     const cleanup = () => {
       if (this.taps.get(serverId) !== tap) return;
       this.taps.delete(serverId);
-      this.closeAllSessions(serverId);
+      this.closeAllSessions(serverId).catch((err: unknown) =>
+        this.logger.error(`closeAllSessions failed for ${serverId}: ${err instanceof Error ? err.message : err}`)
+      );
     };
     stream.on('end', cleanup);
     stream.on('close', cleanup);
@@ -200,7 +200,7 @@ export class LogIngestService implements OnModuleInit {
     if (this.syncing) return;
     this.syncing = true;
     try {
-      const running = new Set(this.servers.listServers().filter((s) => RUNNING.has(s.status)).map((s) => s.id));
+      const running = new Set((await this.servers.listServers()).filter((s) => RUNNING.has(s.status)).map((s) => s.id));
       for (const [id, tap] of this.taps) {
         if (!running.has(id)) tap.stop(); // stream end handler does the cleanup
       }
@@ -239,13 +239,12 @@ export class LogIngestService implements OnModuleInit {
    */
   async backfillFromLogs(serverId: string, { tail = 5000 }: { tail?: number } = {}): Promise<{ inserted: number }> {
     const raw = await this.logs.fetchLogs(serverId, { tail, timestamps: true });
-    const newest = this.db
+    const [newest] = await this.db
       .select({ ts: playerEvents.ts })
       .from(playerEvents)
       .where(eq(playerEvents.serverId, serverId))
       .orderBy(desc(playerEvents.ts))
-      .limit(1)
-      .get();
+      .limit(1);
     const now = new Date();
     let inserted = 0;
     for (const rawLine of raw.split(/\r?\n/)) {
@@ -255,25 +254,25 @@ export class LogIngestService implements OnModuleInit {
       if (!evt) continue;
       const ts = dockerTs || this.buildTs(evt.time, now);
       if (newest && ts < String(newest.ts)) continue;
-      const dup = this.db
+      const [dup] = await this.db
         .select({ one: playerEvents.id })
         .from(playerEvents)
         .where(and(eq(playerEvents.serverId, serverId), eq(playerEvents.ts, ts), eq(playerEvents.raw, line)))
-        .get();
+        .limit(1);
       if (dup) continue;
-      if (this.insertEvent(serverId, evt, ts, line, { sessions: false })) inserted++;
+      if (await this.insertEvent(serverId, evt, ts, line, { sessions: false })) inserted++;
     }
     return { inserted };
   }
 
   /** Prune old timeline rows and closed sessions. Returns deleted counts. */
-  pruneOlderThan(days: number): { events: number; sessions: number } {
+  async pruneOlderThan(days: number): Promise<{ events: number; sessions: number }> {
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-    const eventsResult = this.db.delete(playerEvents).where(lt(playerEvents.ts, cutoff)).run();
-    const sessionsResult = this.db
+    const deletedEvents = await this.db.delete(playerEvents).where(lt(playerEvents.ts, cutoff)).returning({ id: playerEvents.id });
+    const deletedSessions = await this.db
       .delete(playerSessions)
       .where(and(isNotNull(playerSessions.endedAt), lt(playerSessions.endedAt, cutoff)))
-      .run();
-    return { events: Number(eventsResult.changes), sessions: Number(sessionsResult.changes) };
+      .returning({ serverId: playerSessions.serverId });
+    return { events: deletedEvents.length, sessions: deletedSessions.length };
   }
 }

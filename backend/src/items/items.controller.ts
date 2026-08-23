@@ -27,7 +27,7 @@ export class ItemsController {
 
   @Get()
   async search(@Param('id') id: string, @Query() query: Record<string, unknown>) {
-    const server = this.serverQuery.mustGet(id);
+    const server = await this.serverQuery.mustGet(id);
     const params = searchSchema.parse(query);
     const { items, total } = await this.itemRegistry.search(server.id, params);
     const registry = await this.itemRegistry.getRegistry(server.id); // cache hit — just built above
@@ -43,8 +43,8 @@ export class ItemsController {
 
   @Post('rebuild')
   @HttpCode(202)
-  rebuild(@Param('id') id: string, @Req() req: Request) {
-    const server = this.serverQuery.mustGet(id);
+  async rebuild(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user ? req.user.username : 'admin';
     const taskId = this.tasks.run(
       `Rebuilding item registry for ${server.display_name}`,

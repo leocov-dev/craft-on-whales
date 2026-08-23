@@ -25,8 +25,8 @@ export class ApiKeysService {
     return this.dbService.db;
   }
 
-  getKey(provider: string): string | null {
-    const row = this.db.select().from(apiKeys).where(eq(apiKeys.provider, provider)).get();
+  async getKey(provider: string): Promise<string | null> {
+    const [row] = await this.db.select().from(apiKeys).where(eq(apiKeys.provider, provider)).limit(1);
     if (!row) return null;
     const key = this.secrets.tryDecrypt(row.keyCipher);
     if (key === null) {
@@ -35,21 +35,20 @@ export class ApiKeysService {
     return key;
   }
 
-  setKey(provider: string, key: string, { actor = 'system' }: { actor?: string } = {}): void {
-    this.db
+  async setKey(provider: string, key: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+    await this.db
       .insert(apiKeys)
       .values({ provider, keyCipher: this.secrets.encrypt(key) })
       .onConflictDoUpdate({
         target: apiKeys.provider,
         set: { keyCipher: this.secrets.encrypt(key), addedAt: sql`(datetime('now'))` },
-      })
-      .run();
+      });
     this.events.recordEvent({ actor, type: 'api-key-set', summary: `API key updated for ${provider}` });
 
     // Containers bake the key into their env at create time — a rotated key
     // only reaches CurseForge servers after a recreate. Flag them.
     if (provider === 'curseforge') {
-      const result = this.db
+      const flagged = await this.db
         .update(servers)
         .set({ pendingRecreate: true })
         .where(
@@ -57,47 +56,51 @@ export class ApiKeysService {
             isNull(servers.deletedAt),
             or(
               eq(servers.type, 'AUTO_CURSEFORGE'),
+              // packwiz always gets CF_API_KEY injected (a pack may reference
+              // CurseForge-hosted mods and there's no cheap way to know
+              // ahead of time) — flag it for recreate on rotation too.
+              eq(servers.type, 'PACKWIZ'),
               like(servers.envJson, '%CF_SLUG%'),
               like(servers.envJson, '%CURSEFORGE_FILES%')
             )
           )
         )
-        .run();
-      if (Number(result.changes) > 0) {
+        .returning({ id: servers.id });
+      if (flagged.length > 0) {
         this.events.recordEvent({
           actor,
           type: 'api-key-set',
-          summary: `${result.changes} CurseForge server(s) flagged for recreate to pick up the new key`,
+          summary: `${flagged.length} CurseForge server(s) flagged for recreate to pick up the new key`,
         });
       }
     }
   }
 
-  deleteKey(provider: string, { actor = 'system' }: { actor?: string } = {}): void {
-    this.db.delete(apiKeys).where(eq(apiKeys.provider, provider)).run();
+  async deleteKey(provider: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+    await this.db.delete(apiKeys).where(eq(apiKeys.provider, provider));
     this.events.recordEvent({ actor, type: 'api-key-removed', summary: `API key removed for ${provider}` });
   }
 
-  maskedKey(provider: string): string | null {
-    const key = this.getKey(provider);
+  async maskedKey(provider: string): Promise<string | null> {
+    const key = await this.getKey(provider);
     if (!key) return null;
     return key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••';
   }
 
   /** Live-test the CurseForge key against their games endpoint. */
-  async testCurseForgeKey(key: string | null = this.getKey('curseforge')): Promise<{ ok: true } | { ok: false; error: string }> {
-    if (!key) return { ok: false, error: 'No key stored' };
+  async testCurseForgeKey(key?: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+    const resolvedKey = key === undefined ? await this.getKey('curseforge') : key;
+    if (!resolvedKey) return { ok: false, error: 'No key stored' };
     try {
       const res = await fetch('https://api.curseforge.com/v1/games?index=0&pageSize=1', {
-        headers: { 'x-api-key': key, Accept: 'application/json' },
+        headers: { 'x-api-key': resolvedKey, Accept: 'application/json' },
         signal: AbortSignal.timeout(10000),
       });
       const ok = res.ok;
-      this.db
+      await this.db
         .update(apiKeys)
         .set({ lastTestedAt: sql`(datetime('now'))`, lastTestOk: ok })
-        .where(eq(apiKeys.provider, 'curseforge'))
-        .run();
+        .where(eq(apiKeys.provider, 'curseforge'));
       return ok ? { ok: true } : { ok: false, error: `CurseForge answered HTTP ${res.status} — check the key` };
     } catch (err) {
       return { ok: false, error: `Could not reach CurseForge: ${(err as Error).message}` };
@@ -105,11 +108,11 @@ export class ApiKeysService {
   }
 
   /** One-time import from .env so the user's key lands in the encrypted store. */
-  importFromEnvOnce(): void {
+  async importFromEnvOnce(): Promise<void> {
     if (!this.config.cfApiKeySeed) return;
-    const existing = this.db.select().from(apiKeys).where(eq(apiKeys.provider, 'curseforge')).get();
+    const [existing] = await this.db.select().from(apiKeys).where(eq(apiKeys.provider, 'curseforge')).limit(1);
     if (existing) return;
-    this.setKey('curseforge', this.config.cfApiKeySeed.replace(/^'|'$/g, ''), { actor: 'system' });
+    await this.setKey('curseforge', this.config.cfApiKeySeed.replace(/^'|'$/g, ''), { actor: 'system' });
     this.logger.log('imported CurseForge API key from .env into encrypted store');
   }
 }

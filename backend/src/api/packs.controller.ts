@@ -14,6 +14,7 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ModsService } from '../mods/mods.service';
 import { ModrinthApiService } from '../mods/modrinth-api.service';
 import { CurseforgeApiService } from '../mods/curseforge-api.service';
+import { PackwizApiService } from '../mods/packwiz-api.service';
 import { UpdateUpgradeService } from '../updates/update-upgrade.service';
 import { TasksService } from '../tasks/tasks.service';
 import { DbService } from '../db/db.service';
@@ -63,6 +64,7 @@ export class PacksController {
     private readonly mods: ModsService,
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
+    private readonly packwiz: PackwizApiService,
     private readonly upgrade: UpdateUpgradeService,
     private readonly tasks: TasksService,
     private readonly dbService: DbService
@@ -76,7 +78,7 @@ export class PacksController {
   async resolve(@Body() body: unknown) {
     const { platform, ref, versionId, mcVersion } = parseBody(
       z.object({
-        platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
+        platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh', 'packwiz']),
         ref: z.string().trim().min(1).max(400),
         versionId: z.string().trim().regex(/^[\w.-]{1,64}$/).optional(),
         mcVersion: z.string().trim().max(32).optional(),
@@ -90,7 +92,7 @@ export class PacksController {
   async applyToServer(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
     const { platform, ref, versionId, force } = parseBody(
       z.object({
-        platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
+        platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh', 'packwiz']),
         ref: z.string().trim().min(1).max(400),
         versionId: z.string().trim().regex(/^[\w.-]{1,64}$/).optional(),
         force: z.coerce.boolean().optional(),
@@ -104,12 +106,12 @@ export class PacksController {
 
   @Post('servers/:id/pack/upgrade')
   @HttpCode(202)
-  upgradePack(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async upgradePack(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
     const { versionId, skipBackup } = parseBody(
       z.object({ versionId: z.string().trim().regex(/^[\w.-]{1,64}$/).optional(), skipBackup: z.coerce.boolean().optional() }),
       body
     );
-    const server = this.serverQuery.mustGet(id);
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
     const taskId = this.tasks.run(`Upgrading pack on ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step(UPGRADE_STEP_LABELS.resolving!);
@@ -126,14 +128,17 @@ export class PacksController {
 
   @Post('servers/:id/pack/rollback')
   @HttpCode(202)
-  rollbackPack(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async rollbackPack(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
     const { backupId: backupIdInput } = parseBody(z.object({ backupId: z.string().trim().max(40).optional() }), body);
-    const server = this.serverQuery.mustGet(id);
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
-    const backupId =
-      backupIdInput ||
-      this.db.select({ id: backups.id }).from(backups).where(and(eq(backups.serverId, server.id), eq(backups.reason, 'pre-update'))).orderBy(desc(backups.createdAt)).get()?.id ||
-      null;
+    const [preUpdateBackup] = await this.db
+      .select({ id: backups.id })
+      .from(backups)
+      .where(and(eq(backups.serverId, server.id), eq(backups.reason, 'pre-update')))
+      .orderBy(desc(backups.createdAt))
+      .limit(1);
+    const backupId = backupIdInput || preUpdateBackup?.id || null;
     const taskId = this.tasks.run(`Rolling back pack on ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step(backupId ? 'Restoring pre-update backup & re-pinning' : 'Re-pinning previous version');
       return this.upgrade.rollbackPack(server.id, { backupId: backupId || undefined, actor });
@@ -158,7 +163,7 @@ export class PacksController {
   async details(@Query('platform') platformQ?: string, @Query('ref') refQ?: string, @Query('serverId') serverIdQ?: string) {
     const query = parseBody(
       z
-        .object({ platform: z.enum(['curseforge', 'modrinth']).optional(), ref: z.string().trim().min(1).max(400).optional(), serverId: z.string().trim().max(40).optional() })
+        .object({ platform: z.enum(['curseforge', 'modrinth', 'packwiz']).optional(), ref: z.string().trim().min(1).max(400).optional(), serverId: z.string().trim().max(40).optional() })
         .refine((v) => Boolean(v.serverId) || (v.platform && v.ref), { message: 'Provide platform+ref or serverId' }),
       { platform: platformQ, ref: refQ, serverId: serverIdQ }
     );
@@ -166,19 +171,28 @@ export class PacksController {
     let ref = query.ref;
     let installed: { serverId: string; serverName: string; versionId: string; versionName: string } | null = null;
     if (query.serverId) {
-      const server = this.serverQuery.mustGet(query.serverId);
-      const pin = this.packs.getPack(server.id);
+      const server = await this.serverQuery.mustGet(query.serverId);
+      const pin = await this.packs.getPack(server.id);
       if (!pin) throw new NotFoundException('This server has no managed modpack');
       if (pin.platform === 'ftb') throw new BadRequestException('FTB pack details are not supported yet');
       if (pin.platform === 'gtnh') throw new BadRequestException('GTNH pack details live on the GTNH site');
-      platform = pin.platform as 'curseforge' | 'modrinth';
+      platform = pin.platform as 'curseforge' | 'modrinth' | 'packwiz';
       ref = pin.projectRef;
       installed = { serverId: server.id, serverName: server.display_name, versionId: pin.pinnedVersionId, versionName: pin.pinnedVersionName };
     }
     const resolved = await this.packs.resolvePack(platform!, ref!, {});
     let description = '';
     let downloads: number | null = null;
-    if (platform === 'modrinth') {
+    let mods: { name: string; filename: string; side: string; updatePlatform: string | null }[] | null = null;
+    if (platform === 'packwiz') {
+      // No description/downloads concept — packwiz has neither. The useful
+      // thing to show instead is the mod list itself, straight from the
+      // pack's own index.toml (re-fetched here; resolvePack() already fetched
+      // it once to compute the pin hash, same double-fetch shape the
+      // Modrinth/CurseForge branches below have for their own project calls).
+      const raw = await this.packwiz.resolvePack(ref!);
+      mods = await this.packwiz.listMods(raw);
+    } else if (platform === 'modrinth') {
       const project = await this.modrinth.getProject(resolved.projectRef);
       downloads = project.downloads ?? null;
       description = sanitizePackHtml(marked.parse(String(project.body || ''), { async: false }));
@@ -202,6 +216,7 @@ export class PacksController {
         loaders: resolved.loaders || null,
         defaultVersionId: resolved.versionId,
         versions: resolved.allVersions || [],
+        mods,
         installed,
       },
     };
@@ -209,8 +224,8 @@ export class PacksController {
 
   @Get('servers/:id/pack/mods')
   async packMods(@Param('id') id: string) {
-    this.serverQuery.mustGet(id);
-    const pin = this.packs.getPack(id);
+    await this.serverQuery.mustGet(id);
+    const pin = await this.packs.getPack(id);
     if (!pin) throw new NotFoundException('This server has no managed modpack');
     const all = await this.mods.listContent(id);
     const rows = all.filter((m) => m.source === 'pack').map((m) => ({ name: m.name, file: m.file, kind: m.kind, version: m.version, size: m.size, enabled: m.enabled }));
@@ -227,7 +242,7 @@ export class PacksController {
           description: z.string().max(4000).optional(),
           icon: z.string().max(64).optional(),
           accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-          platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh']),
+          platform: z.enum(['curseforge', 'modrinth', 'ftb', 'gtnh', 'packwiz']),
           ref: z.string().trim().min(1).max(400),
           versionId: z.string().trim().regex(/^[\w.-]{1,64}$/).optional(),
           heapMb: z.coerce.number().int().min(512).max(262144).optional(),

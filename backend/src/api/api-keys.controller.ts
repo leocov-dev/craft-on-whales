@@ -20,8 +20,8 @@ export class ApiKeysController {
   constructor(private readonly apiKeys: ApiKeysService) {}
 
   @Get()
-  get() {
-    return { ok: true, curseforge: { masked: this.apiKeys.maskedKey('curseforge') } };
+  async get() {
+    return { ok: true, curseforge: { masked: await this.apiKeys.maskedKey('curseforge') } };
   }
 
   @Post('curseforge')
@@ -31,7 +31,7 @@ export class ApiKeysController {
     const { key } = parseBody(z.object({ key: z.string().trim().min(10).max(200) }), body);
     const test = await this.apiKeys.testCurseForgeKey(key);
     if (!test.ok) return { ok: false, error: test.error };
-    this.apiKeys.setKey('curseforge', key, { actor: req.user!.username });
+    await this.apiKeys.setKey('curseforge', key, { actor: req.user!.username });
     return { ok: true };
   }
 

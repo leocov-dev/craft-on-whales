@@ -42,7 +42,11 @@
             <q-badge color="warning" :label="`update: ${m.updateAvailable}`" />
           </q-item-section>
           <q-item-section side>
-            <q-toggle :model-value="m.enabled" @update:model-value="toggle(m)" />
+            <q-toggle
+              :model-value="m.enabled"
+              :disable="server?.type === 'PACKWIZ' && m.source === 'pack'"
+              @update:model-value="toggle(m)"
+            />
           </q-item-section>
           <q-item-section side>
             <q-btn flat dense round icon="delete" color="negative" @click="removeMod(m)" />

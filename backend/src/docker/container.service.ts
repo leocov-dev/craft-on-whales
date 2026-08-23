@@ -162,23 +162,23 @@ export class ContainerService {
   }
 
   /** Resolve the actual Docker name for a server — its custom name if one was set, else msm-<id>. */
-  private resolvedName(serverId: string): string {
-    const row = this.dbService.db
+  private async resolvedName(serverId: string): Promise<string> {
+    const [row] = await this.dbService.db
       .select({ containerName: servers.containerName })
       .from(servers)
       .where(eq(servers.id, serverId))
-      .get();
+      .limit(1);
     return row?.containerName || this.containerName(serverId);
   }
 
-  getContainer(serverId: string): Dockerode.Container {
-    return this.connection.getDocker().getContainer(this.resolvedName(serverId));
+  async getContainer(serverId: string): Promise<Dockerode.Container> {
+    return this.connection.getDocker().getContainer(await this.resolvedName(serverId));
   }
 
   /** Inspect → panel status. Returns { status, health, exitCode, startedAt, pid }. */
   async inspectStatus(serverId: string): Promise<InspectStatusResult> {
     try {
-      const info = await this.getContainer(serverId).inspect();
+      const info = await (await this.getContainer(serverId)).inspect();
       const s = info.State;
       const health = s.Health ? s.Health.Status : null; // starting | healthy | unhealthy
       let status: InspectStatusResult['status'];
@@ -208,7 +208,7 @@ export class ContainerService {
   }
 
   async startContainer(serverId: string): Promise<void> {
-    await this.getContainer(serverId).start();
+    await (await this.getContainer(serverId)).start();
   }
 
   /**
@@ -217,7 +217,7 @@ export class ContainerService {
    * generous grace period so the world always saves.
    */
   async stopContainer(serverId: string, { graceSeconds = 90 }: StopContainerOptions = {}): Promise<void> {
-    const container = this.getContainer(serverId);
+    const container = await this.getContainer(serverId);
     try {
       // Send the in-game `stop` (saves the world). execCapture reads +
       // destroys the exec stream and has a timeout, so we don't leak a
@@ -236,7 +236,7 @@ export class ContainerService {
 
   async killContainer(serverId: string): Promise<void> {
     try {
-      await this.getContainer(serverId).kill();
+      await (await this.getContainer(serverId)).kill();
     } catch (err: unknown) {
       const statusCode = (err as { statusCode?: number }).statusCode;
       if (statusCode !== 404 && statusCode !== 409) throw err; // 409 = not running
@@ -245,7 +245,7 @@ export class ContainerService {
 
   async removeContainer(serverId: string): Promise<void> {
     try {
-      await this.getContainer(serverId).remove({ force: true });
+      await (await this.getContainer(serverId)).remove({ force: true });
     } catch (err: unknown) {
       if ((err as { statusCode?: number }).statusCode !== 404) throw err;
     }
@@ -263,7 +263,7 @@ export class ContainerService {
     cmd: string[],
     { timeoutMs = 15000, wantExitCode = false }: ExecRawOptions = {}
   ): Promise<ExecRawResult> {
-    const container = this.getContainer(serverId);
+    const container = await this.getContainer(serverId);
     const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
     const stream = await exec.start({});
     const stdout: string = await new Promise<string>((resolve, reject) => {

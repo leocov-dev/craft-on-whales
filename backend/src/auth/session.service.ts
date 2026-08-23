@@ -12,8 +12,13 @@ import { AuthService, type PublicUser } from './auth.service';
 export const SESSION_COOKIE_NAME = 'msm.sid';
 
 /**
- * express-session Store backed by the panel's SQLite `sessions` table, via
- * Drizzle instead of raw SQL strings.
+ * express-session Store backed by the panel's `sessions` table, via Drizzle
+ * instead of raw SQL strings. The Store base class's methods are
+ * callback-style (not `async`) specifically because a persistent store's
+ * operations may be asynchronous — kept that way here (rather than marking
+ * these `async`, which would change their declared return type from `void`
+ * and risk mismatching the base class's signature) and promise-chained
+ * internally so it works unchanged against either DB driver.
  */
 export class SqliteSessionStore extends Store {
   constructor(private readonly db: DbService) {
@@ -21,40 +26,38 @@ export class SqliteSessionStore extends Store {
   }
 
   override get(sid: string, cb: (err: unknown, session?: SessionData | null) => void): void {
-    try {
-      const row = this.db.db.select().from(sessions).where(eqSid(sid)).get();
-      if (!row) return cb(null, null);
-      if (Date.parse(row.expiresAt) < Date.now()) {
-        this.db.db.delete(sessions).where(eqSid(sid)).run();
-        return cb(null, null);
-      }
-      cb(null, JSON.parse(row.dataJson));
-    } catch (err) {
-      cb(err);
-    }
+    this.db.db
+      .select()
+      .from(sessions)
+      .where(eqSid(sid))
+      .then(async (rows) => {
+        const row = rows[0];
+        if (!row) return cb(null, null);
+        if (Date.parse(row.expiresAt) < Date.now()) {
+          await this.db.db.delete(sessions).where(eqSid(sid));
+          return cb(null, null);
+        }
+        cb(null, JSON.parse(row.dataJson));
+      })
+      .catch((err: unknown) => cb(err));
   }
 
   override set(sid: string, session: SessionData, cb?: (err?: unknown) => void): void {
-    try {
-      const expires = session.cookie?.expires ? new Date(session.cookie.expires).toISOString() : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-      this.db.db
-        .insert(sessions)
-        .values({ sid, dataJson: JSON.stringify(session), expiresAt: expires })
-        .onConflictDoUpdate({ target: sessions.sid, set: { dataJson: JSON.stringify(session), expiresAt: expires } })
-        .run();
-      cb?.(null);
-    } catch (err) {
-      cb?.(err);
-    }
+    const expires = session.cookie?.expires ? new Date(session.cookie.expires).toISOString() : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    this.db.db
+      .insert(sessions)
+      .values({ sid, dataJson: JSON.stringify(session), expiresAt: expires })
+      .onConflictDoUpdate({ target: sessions.sid, set: { dataJson: JSON.stringify(session), expiresAt: expires } })
+      .then(() => cb?.(null))
+      .catch((err: unknown) => cb?.(err));
   }
 
   override destroy(sid: string, cb?: (err?: unknown) => void): void {
-    try {
-      this.db.db.delete(sessions).where(eqSid(sid)).run();
-      cb?.(null);
-    } catch (err) {
-      cb?.(err);
-    }
+    this.db.db
+      .delete(sessions)
+      .where(eqSid(sid))
+      .then(() => cb?.(null))
+      .catch((err: unknown) => cb?.(err));
   }
 
   override touch(sid: string, session: SessionData, cb?: (err?: unknown) => void): void {
@@ -85,10 +88,10 @@ export class SessionService {
    * expires_at is ISO-8601 ('…T…Z'); compare against the same ISO shape (a
    * naive datetime('now') would always sort as less-than because 'T' > ' ').
    */
-  pruneExpiredSessions(): void {
+  async pruneExpiredSessions(): Promise<void> {
     // expires_at is ISO-8601 ('…T…Z'); the cutoff must be too — a naive
     // space-separated 'now' would always sort as less-than because 'T' > ' '.
-    this.dbService.db.delete(sessions).where(lt(sessions.expiresAt, new Date().toISOString())).run();
+    await this.dbService.db.delete(sessions).where(lt(sessions.expiresAt, new Date().toISOString()));
   }
 
   /**
@@ -99,7 +102,7 @@ export class SessionService {
    * both the HTTP guard (via express-session itself) and future WS gateways
    * share one implementation of "what counts as a valid session."
    */
-  authenticateFromCookieHeader(cookieHeader: string | undefined): PublicUser | null {
+  async authenticateFromCookieHeader(cookieHeader: string | undefined): Promise<PublicUser | null> {
     try {
       const cookies = Object.fromEntries(
         (cookieHeader || '').split(';').map((c) => {
@@ -111,7 +114,7 @@ export class SessionService {
       if (!raw || !raw.startsWith('s:')) return null;
       const sid = signature.unsign(raw.slice(2), this.config.sessionSecret);
       if (!sid) return null;
-      const row = this.dbService.db.select().from(sessions).where(eqSid(sid)).get();
+      const [row] = await this.dbService.db.select().from(sessions).where(eqSid(sid)).limit(1);
       if (!row || Date.parse(row.expiresAt) < Date.now()) return null;
       const data: { userId?: string } = JSON.parse(row.dataJson);
       if (!data.userId) return null;

@@ -28,6 +28,7 @@ const FLAVOR_LABELS: Record<string, string> = {
   AUTO_CURSEFORGE: 'CurseForge pack',
   MODRINTH: 'Modrinth pack',
   FTBA: 'FTB pack',
+  PACKWIZ: 'packwiz pack',
   CUSTOM: 'Custom jar',
 };
 

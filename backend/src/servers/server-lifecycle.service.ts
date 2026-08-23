@@ -167,7 +167,7 @@ export class ServerLifecycleService {
     // CurseForge needs the API key present in the panel's store.
     const inputEnv = input.env || {};
     const wantsCurseforge = input.type === 'AUTO_CURSEFORGE' || inputEnv.CF_SLUG || inputEnv.CF_FILE_ID || inputEnv.CF_PAGE_URL || inputEnv.CURSEFORGE_FILES;
-    if (wantsCurseforge && !this.apiKeys.getKey('curseforge')) {
+    if (wantsCurseforge && !(await this.apiKeys.getKey('curseforge'))) {
       throw new PreconditionFailedException(
         'CurseForge needs an API key — add yours in Settings → API keys first (console.curseforge.com), then create the server.'
       );
@@ -202,7 +202,7 @@ export class ServerLifecycleService {
     const rconPassword = this.secrets.generatePassword();
     const defaults = this.config.defaults;
 
-    this.db
+    await this.db
       .insert(servers)
       .values({
         id,
@@ -234,16 +234,15 @@ export class ServerLifecycleService {
         networkName: input.networkName || null,
         extraPortsJson: JSON.stringify(input.extraPorts || []),
         extraBindsJson: JSON.stringify(input.extraBinds || []),
-      })
-      .run();
+      });
 
-    const server = this.query.getServer(id)!;
+    const server = (await this.query.getServer(id))!;
 
     try {
       fs.mkdirSync(this.pathGuard.dataPath('servers', id), { recursive: true });
       fs.mkdirSync(this.pathGuard.dataPath('logs', id, 'events'), { recursive: true });
 
-      const image = this.environment.resolveImage(server, { javaTagHint });
+      const image = await this.environment.resolveImage(server, { javaTagHint });
       onProgress(`Pulling image ${image} (first time can take a few minutes)…`);
       await this.images.ensureImage(image, ({ current, total }) => {
         if (total) onProgress(`Downloading image: ${Math.round((current / total) * 100)}%`);
@@ -253,22 +252,22 @@ export class ServerLifecycleService {
       const containerId = await this.containers.createContainer({
         serverId: id,
         image,
-        env: this.environment.assembleEnv(server),
+        env: await this.environment.assembleEnv(server),
         dataDir: this.pathGuard.dataPath('servers', id),
         ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
-        extraPorts: this.environment.mergeExtraPorts(server),
+        extraPorts: await this.environment.mergeExtraPorts(server),
         resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
         containerName: server.containerName ?? undefined,
         networkName: server.networkName ?? undefined,
         extraBinds: server.extraBinds,
       });
-      this.db.update(servers).set({ containerId }).where(eq(servers.id, id)).run();
+      await this.db.update(servers).set({ containerId }).where(eq(servers.id, id));
     } catch (err: unknown) {
       // Roll back: remove any partial container, drop the row (frees its
       // ports), and delete the freshly-made data/log dirs. Then surface the
       // original error.
       await this.containers.removeContainer(id).catch(() => {});
-      this.db.delete(servers).where(eq(servers.id, id)).run();
+      await this.db.delete(servers).where(eq(servers.id, id));
       try {
         fs.rmSync(this.pathGuard.dataPath('servers', id), { recursive: true, force: true });
       } catch {
@@ -297,7 +296,7 @@ export class ServerLifecycleService {
       onProgress('Starting server…');
       await this.startServer(id, { actor });
     }
-    return this.query.getServer(id)!;
+    return (await this.query.getServer(id))!;
   }
 
   startServer(id: string, opts: { actor?: string } = {}): Promise<void> {
@@ -317,22 +316,22 @@ export class ServerLifecycleService {
   }
 
   private async startServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
-    const server = this.query.mustGet(id);
+    const server = await this.query.mustGet(id);
     await this.environment.ensureOwnership(id);
     const info = await this.containers.inspectStatus(id);
     if (!info.exists || server.pending_recreate) {
       await this.recreateServerImpl(id, { actor, quiet: true });
     }
     await this.containers.startContainer(id);
-    this.db.update(servers).set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` }).where(eq(servers.id, id)).run();
+    await this.db.update(servers).set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` }).where(eq(servers.id, id));
     this.events.recordEvent({ serverId: id, actor, type: 'started', summary: 'Server start requested' });
   }
 
   private async stopServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
-    this.query.mustGet(id);
+    await this.query.mustGet(id);
     this.events.recordEvent({ serverId: id, actor, type: 'stop-requested', summary: 'Graceful stop requested' });
     await this.containers.stopContainer(id);
-    this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id)).run();
+    await this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id));
     const excerpt = await this.logs.fetchLogs(id, { tail: 100 }).catch(() => '');
     this.events.recordEvent({
       serverId: id,
@@ -351,33 +350,33 @@ export class ServerLifecycleService {
   }
 
   async killServer(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
-    this.query.mustGet(id);
+    await this.query.mustGet(id);
     this.events.recordEvent({ serverId: id, actor, type: 'kill-requested', summary: 'Force kill requested' });
     await this.containers.killContainer(id);
-    this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id)).run();
+    await this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id));
     this.events.recordEvent({ serverId: id, actor, type: 'killed', summary: 'Server force-killed (world may not have saved)' });
   }
 
   /** Recreate: remove + create with current env/resources. Applies pending changes. */
   private async recreateServerImpl(id: string, { actor = 'system', quiet = false }: { actor?: string; quiet?: boolean } = {}): Promise<void> {
-    const server = this.query.mustGet(id);
+    const server = await this.query.mustGet(id);
     await this.environment.ensureOwnership(id);
     const info = await this.containers.inspectStatus(id);
     const wasRunning = info.exists && ['running', 'starting', 'unhealthy'].includes(info.status);
     if (wasRunning) await this.containers.stopContainer(id);
     await this.containers.removeContainer(id);
 
-    const image = this.environment.resolveImage(server);
+    const image = await this.environment.resolveImage(server);
     await this.images.ensureImage(image);
     let containerId: string;
     try {
       containerId = await this.containers.createContainer({
         serverId: id,
         image,
-        env: this.environment.assembleEnv(server),
+        env: await this.environment.assembleEnv(server),
         dataDir: this.pathGuard.dataPath('servers', id),
         ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
-        extraPorts: this.environment.mergeExtraPorts(server),
+        extraPorts: await this.environment.mergeExtraPorts(server),
         resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
         containerName: server.containerName ?? undefined,
         networkName: server.networkName ?? undefined,
@@ -391,14 +390,14 @@ export class ServerLifecycleService {
       }
       throw err;
     }
-    this.db.update(servers).set({ containerId, pendingRecreate: false }).where(eq(servers.id, id)).run();
+    await this.db.update(servers).set({ containerId, pendingRecreate: false }).where(eq(servers.id, id));
     if (!quiet) this.events.recordEvent({ serverId: id, actor, type: 'recreated', summary: 'Container recreated with current configuration' });
     if (wasRunning) await this.startServerImpl(id, { actor });
   }
 
   /** Update config fields; computes a diff event and flags recreate needs. */
-  updateServer(id: string, changes: UpdateServerChanges, { actor = 'system' }: { actor?: string } = {}): UpdateServerResult {
-    const before = this.query.mustGet(id);
+  async updateServer(id: string, changes: UpdateServerChanges, { actor = 'system' }: { actor?: string } = {}): Promise<UpdateServerResult> {
+    const before = await this.query.mustGet(id);
     const RECREATE_FIELDS = new Set(['mcVersion', 'javaTag', 'heapMb', 'containerMemoryMb', 'cpus']);
     const columns: Record<string, keyof typeof servers.$inferInsert> = {
       name: 'displayName',
@@ -500,7 +499,7 @@ export class ServerLifecycleService {
 
     if (!Object.keys(set).length) return { server: before, needsRecreate: false };
     if (needsRecreate) set.pendingRecreate = true;
-    this.db.update(servers).set(set).where(eq(servers.id, id)).run();
+    await this.db.update(servers).set(set).where(eq(servers.id, id));
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -508,7 +507,7 @@ export class ServerLifecycleService {
       summary: `Configuration changed: ${Object.keys(diff).join(', ')}${needsRecreate ? ' (recreate required)' : ''}`,
       details: { diff, needsRecreate },
     });
-    return { server: this.query.getServer(id)!, needsRecreate };
+    return { server: (await this.query.getServer(id))!, needsRecreate };
   }
 
   /**
@@ -520,15 +519,15 @@ export class ServerLifecycleService {
    * require-cycle audit), resolved here via `forwardRef()` on both sides.
    */
   async deleteServer(id: string, { actor = 'system', keepWorld = false }: { actor?: string; keepWorld?: boolean } = {}): Promise<{ freedBytes: number }> {
-    const server = this.query.mustGet(id);
+    const server = await this.query.mustGet(id);
     await this.containers.stopContainer(id).catch(() => {});
     await this.containers.removeContainer(id);
 
     // Schedules: disarm the live cron jobs, not just the rows.
-    const scheduleRows = this.db.select({ id: schedules.id }).from(schedules).where(eq(schedules.serverId, id)).all();
+    const scheduleRows = await this.db.select({ id: schedules.id }).from(schedules).where(eq(schedules.serverId, id));
     for (const sched of scheduleRows) {
       try {
-        this.scheduler.deleteSchedule(sched.id, { actor });
+        await this.scheduler.deleteSchedule(sched.id, { actor });
       } catch (err: unknown) {
         // eslint-disable-next-line no-console
         console.error(`[delete] schedule ${sched.id}:`, (err as Error).message);
@@ -547,7 +546,7 @@ export class ServerLifecycleService {
         // directory for us.
         const code = (err as NodeJS.ErrnoException).code;
         if (code === 'EACCES' || code === 'EPERM') {
-          await this.containers.removeDataDir(dir, this.environment.resolveImage(server));
+          await this.containers.removeDataDir(dir, await this.environment.resolveImage(server));
           fs.rmSync(dir, { recursive: true, force: true }); // no-op if the container cleared it
         } else {
           throw err;
@@ -559,7 +558,7 @@ export class ServerLifecycleService {
     // rows block library deletions forever. (Schedules are already disarmed
     // and deleted above; the transaction's own schedules delete below is a
     // harmless no-op backstop in case a row survived the loop.)
-    const backupRows = this.db.select({ sizeBytes: backups.sizeBytes }).from(backups).where(eq(backups.serverId, id)).all();
+    const backupRows = await this.db.select({ sizeBytes: backups.sizeBytes }).from(backups).where(eq(backups.serverId, id));
     freedBytes += backupRows.reduce((n, b) => n + Number(b.sizeBytes || 0), 0);
     const backupsDir = this.pathGuard.dataPath('backups', id);
     if (fs.existsSync(backupsDir)) fs.rmSync(backupsDir, { recursive: true, force: true });
@@ -572,28 +571,58 @@ export class ServerLifecycleService {
     // mid-cleanup error can't leave a "live" (deleted_at IS NULL) server
     // whose content/backups are already gone — a zombie. Either everything
     // is removed or nothing is.
-    const contentIds = this.db.select({ id: serverContent.id }).from(serverContent).where(eq(serverContent.serverId, id)).all().map((r) => r.id);
-    this.db.transaction((tx) => {
-      tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`).run();
-      for (const cid of contentIds) {
-        tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`).run();
-      }
-      tx.delete(schedules).where(eq(schedules.serverId, id)).run();
-      tx.delete(backups).where(eq(backups.serverId, id)).run();
-      tx.delete(serverContent).where(eq(serverContent.serverId, id)).run();
-      tx.delete(serverPacks).where(eq(serverPacks.serverId, id)).run();
-      tx.delete(integrations).where(eq(integrations.serverId, id)).run();
-      tx.delete(playerEvents).where(eq(playerEvents.serverId, id)).run();
-      tx.delete(playerSessions).where(eq(playerSessions.serverId, id)).run();
-      tx.delete(playerStatSnapshots).where(eq(playerStatSnapshots.serverId, id)).run();
-      tx.delete(crashReports).where(eq(crashReports.serverId, id)).run();
-      // Added: these were previously leaked on delete (no FK cascade).
-      tx.delete(chatCommands).where(eq(chatCommands.serverId, id)).run();
-      tx.delete(chatCommandSettings).where(eq(chatCommandSettings.serverId, id)).run();
-      tx.delete(storageIndex).where(sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`).run();
-      // Keep the soft-deleted server row itself (history retains context).
-      tx.update(servers).set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' }).where(eq(servers.id, id)).run();
-    });
+    const contentRows = await this.db.select({ id: serverContent.id }).from(serverContent).where(eq(serverContent.serverId, id));
+    const contentIds = contentRows.map((r) => r.id);
+    // Drizzle's SQLite (sync-driver) transaction() rejects async callbacks at
+    // the type level (DrizzleTypeError: "Sync drivers can't use async
+    // functions in transactions!") — an async callback isn't awaited before
+    // the sync wrapper commits, so results would land outside the
+    // transaction. Postgres's transaction() requires the opposite: an async
+    // callback with awaited statements. Branch on the real driver so each
+    // dialect gets the form Drizzle actually supports.
+    if (this.dbService.driver === 'postgres') {
+      await (this.db.transaction as unknown as (cb: (tx: typeof this.db) => Promise<void>) => Promise<void>)(async (tx) => {
+        await tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`);
+        for (const cid of contentIds) {
+          await tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`);
+        }
+        await tx.delete(schedules).where(eq(schedules.serverId, id));
+        await tx.delete(backups).where(eq(backups.serverId, id));
+        await tx.delete(serverContent).where(eq(serverContent.serverId, id));
+        await tx.delete(serverPacks).where(eq(serverPacks.serverId, id));
+        await tx.delete(integrations).where(eq(integrations.serverId, id));
+        await tx.delete(playerEvents).where(eq(playerEvents.serverId, id));
+        await tx.delete(playerSessions).where(eq(playerSessions.serverId, id));
+        await tx.delete(playerStatSnapshots).where(eq(playerStatSnapshots.serverId, id));
+        await tx.delete(crashReports).where(eq(crashReports.serverId, id));
+        await tx.delete(chatCommands).where(eq(chatCommands.serverId, id));
+        await tx.delete(chatCommandSettings).where(eq(chatCommandSettings.serverId, id));
+        await tx.delete(storageIndex).where(sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`);
+        await tx.update(servers).set({ deletedAt: sql`now()::text`, status: 'stopped' }).where(eq(servers.id, id));
+      });
+    } else {
+      this.db.transaction((tx) => {
+        tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`).run();
+        for (const cid of contentIds) {
+          tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`).run();
+        }
+        tx.delete(schedules).where(eq(schedules.serverId, id)).run();
+        tx.delete(backups).where(eq(backups.serverId, id)).run();
+        tx.delete(serverContent).where(eq(serverContent.serverId, id)).run();
+        tx.delete(serverPacks).where(eq(serverPacks.serverId, id)).run();
+        tx.delete(integrations).where(eq(integrations.serverId, id)).run();
+        tx.delete(playerEvents).where(eq(playerEvents.serverId, id)).run();
+        tx.delete(playerSessions).where(eq(playerSessions.serverId, id)).run();
+        tx.delete(playerStatSnapshots).where(eq(playerStatSnapshots.serverId, id)).run();
+        tx.delete(crashReports).where(eq(crashReports.serverId, id)).run();
+        // Added: these were previously leaked on delete (no FK cascade).
+        tx.delete(chatCommands).where(eq(chatCommands.serverId, id)).run();
+        tx.delete(chatCommandSettings).where(eq(chatCommandSettings.serverId, id)).run();
+        tx.delete(storageIndex).where(sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`).run();
+        // Keep the soft-deleted server row itself (history retains context).
+        tx.update(servers).set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' }).where(eq(servers.id, id)).run();
+      });
+    }
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -606,7 +635,7 @@ export class ServerLifecycleService {
 
   /** Refresh cached status for all servers from Docker (called on boot + 60s poll). */
   async refreshStatuses(): Promise<void> {
-    for (const server of this.query.listServers()) {
+    for (const server of await this.query.listServers()) {
       try {
         const info = await this.containers.inspectStatus(server.id);
         let status = info.exists ? info.status : 'stopped';
@@ -623,7 +652,7 @@ export class ServerLifecycleService {
             status = 'starting';
           }
         }
-        if (status !== server.status) this.db.update(servers).set({ status }).where(eq(servers.id, server.id)).run();
+        if (status !== server.status) await this.db.update(servers).set({ status }).where(eq(servers.id, server.id));
       } catch {
         /* daemon offline — leave cached */
       }

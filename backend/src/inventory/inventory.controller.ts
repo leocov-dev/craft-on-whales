@@ -71,7 +71,7 @@ export class InventoryController {
   ) {}
 
   private async loadContext(id: string) {
-    const server = this.serverQuery.getServer(id);
+    const server = await this.serverQuery.getServer(id);
     if (!server) throw new NotFoundException('Server not found');
     let running = false;
     try {

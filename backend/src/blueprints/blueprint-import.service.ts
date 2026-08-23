@@ -134,7 +134,7 @@ export class BlueprintImportService {
   ): Promise<{ server: Server | null; report: ImportReportItem[] }> {
     let zipPath = zipRef;
     if (/^bp_/.test(zipRef)) {
-      zipPath = this.getBlueprintPath(zipRef);
+      zipPath = await this.getBlueprintPath(zipRef);
     }
     if (!fs.existsSync(zipPath)) throw new NotFoundException('Blueprint archive not found');
 
@@ -164,7 +164,7 @@ export class BlueprintImportService {
     };
     const server = await this.lifecycle.createServer(createInput, { actor, start: false, onProgress });
     if (manifest.resources.quotaStrict) {
-      this.lifecycle.updateServer(server.id, { quotaStrict: true }, { actor });
+      await this.lifecycle.updateServer(server.id, { quotaStrict: true }, { actor });
     }
 
     const report: ImportReportItem[] = [];
@@ -196,7 +196,7 @@ export class BlueprintImportService {
       }
 
       // Custom overlay: embedded payload first, else re-download + hash verify.
-      const freshServer = this.serverQuery.mustGet(server.id);
+      const freshServer = await this.serverQuery.mustGet(server.id);
       for (let i = 0; i < manifest.overlay.length; i += 1) {
         const entry = manifest.overlay[i];
         if (!entry) continue;
@@ -232,7 +232,7 @@ export class BlueprintImportService {
       details: { blueprint: manifest.name, report },
     });
     this.storageIndex.scan().catch(() => {});
-    return { server: this.serverQuery.getServer(server.id), report };
+    return { server: await this.serverQuery.getServer(server.id), report };
   }
 
   /** One overlay item → {name, status: 'ok'|'hash-mismatch'|'failed', error?}. */
@@ -256,7 +256,7 @@ export class BlueprintImportService {
       }
       if (!lib) throw new Error('Overlay item could not be resolved to a library file');
       const { filename } = await this.library.installToServer(lib.id, server.id, dirRel);
-      this.db
+      await this.db
         .insert(serverContent)
         .values({
           id: `sc_${nanoid(8)}`,
@@ -272,8 +272,7 @@ export class BlueprintImportService {
         .onConflictDoUpdate({
           target: [serverContent.serverId, serverContent.filename],
           set: { libraryId: lib.id, version: lib.version || entry.version },
-        })
-        .run();
+        });
       return { name: entry.name, status: 'ok' };
     } catch (err) {
       return { name: entry.name, status: 'failed', error: err instanceof Error ? err.message : String(err) };
@@ -348,7 +347,7 @@ export class BlueprintImportService {
   /** Register an extracted payload file in the shared library (dedupe by hash). */
   private async ingestLocalFile(absFile: string, entry: OverlayEntry, sha256: string) {
     const category = (entry.kind || 'mod') as LibraryCategory;
-    const existing = this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get();
+    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
     if (existing) return existing;
     const filename = sanitizeFilename(entry.filename || path.basename(absFile));
     const relPath = `${CATEGORY_DIR[category]}/${sha256.slice(0, 8)}-${filename}`;
@@ -358,7 +357,7 @@ export class BlueprintImportService {
     const id = `lib_${nanoid(8)}`;
     // onConflictDoNothing: a concurrent ingest of the same file no-ops here
     // (shared relPath), and we return whichever row exists for this (sha256, category).
-    this.db
+    await this.db
       .insert(libraryFiles)
       .values({
         id,
@@ -374,9 +373,9 @@ export class BlueprintImportService {
         fileId: entry.fileId,
         version: entry.version,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] })
-      .run();
-    return this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).get()!;
+      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
+    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    return row!;
   }
 
   /** One-click duplicate: full export (embedded files) + immediate import. */
@@ -384,7 +383,7 @@ export class BlueprintImportService {
     serverId: string,
     { includeWorld = false, actor = 'system', onProgress = (_msg: string) => {} }: { includeWorld?: boolean; actor?: string; onProgress?: (msg: string) => void } = {}
   ) {
-    const original = this.serverQuery.getServer(serverId);
+    const original = await this.serverQuery.getServer(serverId);
     if (!original) throw new NotFoundException('Server not found');
     onProgress('Exporting blueprint…');
     const blueprint = await this.exportService.exportBlueprint(serverId, { includeConfig: true, embedFiles: true, includeWorld }, { actor });
@@ -392,8 +391,8 @@ export class BlueprintImportService {
     return { server, report, blueprint };
   }
 
-  getBlueprintPath(id: string): string {
-    const row = this.db.select().from(blueprints).where(eq(blueprints.id, id)).get();
+  async getBlueprintPath(id: string): Promise<string> {
+    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     return this.pathGuard.dataPath(row.relPath);
   }

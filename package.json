@@ -21,7 +21,7 @@
     "frontend:build": "npm --prefix frontend run build",
     "backend:dev": "npm --prefix backend run start:dev",
     "backend:build": "npm --prefix backend run build",
-    "lint": "eslint scripts eslint.config.js",
+    "lint": "eslint tools eslint.config.js",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

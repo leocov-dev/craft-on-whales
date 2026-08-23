@@ -70,8 +70,8 @@ export class MapService {
     return this.dbService.db;
   }
 
-  getMapConfig(serverId: string): MapConfig {
-    const row = this.db.select().from(integrations).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, 'bluemap'))).get();
+  async getMapConfig(serverId: string): Promise<MapConfig> {
+    const [row] = await this.db.select().from(integrations).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, 'bluemap'))).limit(1);
     if (!row) return { enabled: false, hostPort: null };
     const cfg = JSON.parse(row.configJson || '{}') as { hostPort?: number };
     return { enabled: Boolean(row.enabled), hostPort: cfg.hostPort || null };
@@ -100,8 +100,8 @@ export class MapService {
    * already created keeps every other setting (name, sky-color, start-pos,
    * …) as-is.
    */
-  writeMapConfigs(serverId: string): void {
-    const server = this.serverQuery.getServer(serverId);
+  async writeMapConfigs(serverId: string): Promise<void> {
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) return;
     const level = this.worldProps.activeLevelName(server);
     const mapsDir = path.join(this.mapConfDir(serverId, server), 'maps');
@@ -128,7 +128,7 @@ export class MapService {
   }
 
   async enableMap(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<EnableMapResult> {
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     if (!this.supportsMap(server)) {
       throw new BadRequestException(`Live map needs a mod loader or plugin server — ${server.type} isn't supported by BlueMap`);
@@ -139,14 +139,13 @@ export class MapService {
     // this server's loader + MC version and installs it as an overlay entry.
     await this.mods.installFromUrl(serverId, 'https://modrinth.com/plugin/bluemap', { actor });
 
-    this.db
+    await this.db
       .insert(integrations)
       .values({ serverId, kind: 'bluemap', enabled: true, configJson: JSON.stringify({ hostPort }) })
       .onConflictDoUpdate({
         target: [integrations.serverId, integrations.kind],
         set: { enabled: true, configJson: JSON.stringify({ hostPort }) },
-      })
-      .run();
+      });
 
     // Pre-accept BlueMap's resource download so the map works without a
     // manual config edit (BlueMap merges missing keys with its defaults).
@@ -158,8 +157,8 @@ export class MapService {
     } else if (!/accept-download\s*:\s*true/.test(fs.readFileSync(coreConf, 'utf8'))) {
       fs.writeFileSync(coreConf, fs.readFileSync(coreConf, 'utf8').replace(/accept-download\s*:\s*false/, 'accept-download: true'));
     }
-    this.writeMapConfigs(serverId);
-    this.db.update(servers).set({ pendingRecreate: true }).where(eq(servers.id, serverId)).run();
+    await this.writeMapConfigs(serverId);
+    await this.db.update(servers).set({ pendingRecreate: true }).where(eq(servers.id, serverId));
     this.events.recordEvent({
       serverId,
       actor,
@@ -170,36 +169,32 @@ export class MapService {
   }
 
   async disableMap(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    this.db.update(integrations).set({ enabled: false }).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, 'bluemap'))).run();
+    await this.db.update(integrations).set({ enabled: false }).where(and(eq(integrations.serverId, serverId), eq(integrations.kind, 'bluemap')));
     // Remove the BlueMap jar (overlay row) if present.
-    const row = this.db
+    const overlayRows = await this.db
       .select({ filename: serverContent.filename })
       .from(serverContent)
-      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')))
-      .all()
-      .find((r) => r.filename.startsWith('BlueMap'));
+      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')));
+    const row = overlayRows.find((r) => r.filename.startsWith('BlueMap'));
     if (row) await this.mods.removeContent(serverId, row.filename, { actor }).catch(() => undefined);
-    this.db.update(servers).set({ pendingRecreate: true }).where(eq(servers.id, serverId)).run();
+    await this.db.update(servers).set({ pendingRecreate: true }).where(eq(servers.id, serverId));
     this.events.recordEvent({ serverId, actor, type: 'map-disabled', summary: 'Live map disabled — applies on next restart' });
   }
 
   /** Extra container ports for a server, consumed by the servers service. */
-  extraPortsFor(serverId: string): { container: string; host: number }[] {
-    const cfg = this.getMapConfig(serverId);
+  async extraPortsFor(serverId: string): Promise<{ container: string; host: number }[]> {
+    const cfg = await this.getMapConfig(serverId);
     return cfg.enabled && cfg.hostPort ? [{ container: BLUEMAP_CONTAINER_PORT, host: cfg.hostPort }] : [];
   }
 
   private async freePort(): Promise<number> {
-    const used = new Set(
-      this.db
-        .select({ configJson: integrations.configJson })
-        .from(integrations)
-        .where(eq(integrations.kind, 'bluemap'))
-        .all()
-        .map((r) => (JSON.parse(r.configJson || '{}') as { hostPort?: number }).hostPort)
-    );
+    const rows = await this.db
+      .select({ configJson: integrations.configJson })
+      .from(integrations)
+      .where(eq(integrations.kind, 'bluemap'));
+    const used = new Set(rows.map((r) => (JSON.parse(r.configJson || '{}') as { hostPort?: number }).hostPort));
     for (let port = HOST_PORT_START; port < HOST_PORT_START + 500; port += 1) {
       if (used.has(port)) continue;
       const free = await new Promise<boolean>((resolve) => {

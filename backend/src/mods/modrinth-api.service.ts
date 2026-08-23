@@ -39,7 +39,7 @@ export class ModrinthApiService {
     const url = new URL(BASE + pathname);
     if (search) for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
     const cacheKey = `modrinth:${url.pathname}${url.search}`;
-    const cached = this.cache.get(cacheKey);
+    const cached = await this.cache.get(cacheKey);
     if (cached && cached.ageMs < ttlMs) return cached.value as T;
     const res = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },

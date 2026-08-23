@@ -22,46 +22,46 @@ export class UsersController {
   constructor(private readonly authService: AuthService) {}
 
   @Get()
-  list() {
-    return { ok: true, users: this.authService.listUsers() };
+  async list() {
+    return { ok: true, users: await this.authService.listUsers() };
   }
 
   @Post()
-  create(@Req() req: Request, @Body() body: unknown) {
+  async create(@Req() req: Request, @Body() body: unknown) {
     const { username, password, role } = parseBody(
       z.object({ username: z.string().trim().min(2).max(32), password: z.string().min(8).max(200), role: z.enum(['admin', 'operator', 'viewer']) }),
       body
     );
-    const user = this.authService.createUser({ username, password, role }, { actor: req.user!.username });
+    const user = await this.authService.createUser({ username, password, role }, { actor: req.user!.username });
     return { ok: true, user };
   }
 
   @Post(':id/role')
-  setRole(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async setRole(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
     const { role } = parseBody(z.object({ role: z.enum(['admin', 'operator', 'viewer']) }), body);
-    this.authService.setRole(id, role, { actor: req.user!.username });
+    await this.authService.setRole(id, role, { actor: req.user!.username });
     return { ok: true };
   }
 
   @Post(':id/password')
-  setPassword(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async setPassword(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
     const { password } = parseBody(z.object({ password: z.string().min(8).max(200) }), body);
-    this.authService.setPassword(id, password, { actor: req.user!.username });
+    await this.authService.setPassword(id, password, { actor: req.user!.username });
     return { ok: true };
   }
 
   @Delete(':id')
-  remove(@Req() req: Request, @Param('id') id: string) {
-    this.authService.deleteUser(id, { actor: req.user!.username });
+  async remove(@Req() req: Request, @Param('id') id: string) {
+    await this.authService.deleteUser(id, { actor: req.user!.username });
     return { ok: true };
   }
 
   @Post(':id/totp/disable')
-  disableTotp(@Req() req: Request, @Param('id') id: string) {
+  async disableTotp(@Req() req: Request, @Param('id') id: string) {
     if (id === req.user!.id) {
       return { ok: false, error: 'Use your own account’s 2FA settings to disable it.' };
     }
-    this.authService.adminDisableTotp(id, { actor: req.user!.username });
+    await this.authService.adminDisableTotp(id, { actor: req.user!.username });
     return { ok: true };
   }
 }

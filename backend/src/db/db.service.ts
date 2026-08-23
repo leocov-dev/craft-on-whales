@@ -2,8 +2,10 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { drizzle } from 'drizzle-orm/node-sqlite';
-import { ConfigService } from '../config/config.service';
+import { Pool } from 'pg';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/node-sqlite';
+import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
+import { ConfigService, DbDriver } from '../config/config.service';
 
 // drizzle({ client: sqlite }) is required — drizzle(sqlite) silently opens a
 // throwaway :memory: DB instead of the real file (see DRIZZLE_NOTES.md).
@@ -24,19 +26,38 @@ import { ConfigService } from '../config/config.service';
 // for the lifecycle phase at all.
 @Injectable()
 export class DbService implements OnModuleDestroy {
-  private sqlite: DatabaseSync;
-  db: ReturnType<typeof drizzle>;
+  readonly driver: DbDriver;
+  private sqlite?: DatabaseSync;
+  private pool?: Pool;
+  // Always typed as the SQLite drizzle shape, even in Postgres mode — see
+  // schema/DUAL_DIALECT_NOTES.md. The cast below is safe specifically
+  // because schema/index.ts performs the matching cast on the table side:
+  // in Postgres mode both this client and every table object app code
+  // passes to it are genuinely real pg-core/node-postgres instances, just
+  // typed as if they were the SQLite ones.
+  db: ReturnType<typeof drizzleSqlite>;
 
   constructor(private readonly config: ConfigService) {
+    this.driver = config.dbDriver;
+    if (this.driver === 'postgres') {
+      this.pool = new Pool({ connectionString: config.databaseUrl });
+      this.db = drizzlePg({ client: this.pool }) as unknown as ReturnType<typeof drizzleSqlite>;
+      return;
+    }
+
     fs.mkdirSync(this.config.dataDir, { recursive: true });
     const dbFile = path.join(this.config.dataDir, 'panel.db');
     this.sqlite = new DatabaseSync(dbFile);
     this.sqlite.exec('PRAGMA journal_mode = WAL');
     this.sqlite.exec('PRAGMA foreign_keys = ON');
-    this.db = drizzle({ client: this.sqlite });
+    this.db = drizzleSqlite({ client: this.sqlite });
   }
 
-  onModuleDestroy(): void {
-    this.sqlite.close();
+  async onModuleDestroy(): Promise<void> {
+    if (this.driver === 'postgres') {
+      await this.pool?.end();
+    } else {
+      this.sqlite?.close();
+    }
   }
 }

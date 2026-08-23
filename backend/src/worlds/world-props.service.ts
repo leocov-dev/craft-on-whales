@@ -62,12 +62,12 @@ export class WorldPropsService {
   }
 
   /** Point the server at a new level: property always, LEVEL env when present. */
-  setActiveLevel(server: Server, levelName: string, { actor }: { actor?: string }): void {
+  async setActiveLevel(server: Server, levelName: string, { actor }: { actor?: string }): Promise<void> {
     this.setProp(server.id, 'level-name', levelName);
     if (server.env && server.env.LEVEL !== undefined) {
-      this.lifecycle.updateServer(server.id, { env: { ...server.env, LEVEL: levelName } }, { actor });
+      await this.lifecycle.updateServer(server.id, { env: { ...server.env, LEVEL: levelName } }, { actor });
     }
-    this.map.writeMapConfigs(server.id);
+    await this.map.writeMapConfigs(server.id);
   }
 
   /** Existing dim dirs for a world: [main, main_nether?, main_the_end?] (absolute). */

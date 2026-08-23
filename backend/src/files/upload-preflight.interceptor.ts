@@ -26,7 +26,7 @@ export class UploadPreflightInterceptor implements NestInterceptor {
     }
     if (declared > 0) {
       const serverId = (req.params.id as string | undefined) || null;
-      this.files.assertRoom(serverId, declared);
+      await this.files.assertRoom(serverId, declared);
       await this.files.assertDiskFree(declared);
     }
     return next.handle();

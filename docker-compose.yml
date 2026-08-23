@@ -20,8 +20,8 @@ services:
     restart: unless-stopped
     ports:
       # Web UI. Change the left side to move it; the panel itself listens on
-      # 25564 in-container. Bind to 127.0.0.1:25564 if a reverse proxy fronts it.
-      - '25564:25564'
+      # 3000 in-container. Bind to 127.0.0.1:3000 if a reverse proxy fronts it.
+      - '3000:3000'
     extra_hosts:
       # Lets the panel container reach sibling containers' HOST-published ports
       # (e.g. BlueMap's live map) via host.docker.internal — its own

@@ -29,11 +29,11 @@ export class SettingsController {
   ) {}
 
   @Get()
-  get(): SettingsResponseData {
+  async get(): Promise<SettingsResponseData> {
     return {
       ok: true,
-      publicHost: this.settings.getPublicHost(),
-      curseforge: { masked: this.apiKeys.maskedKey('curseforge') },
+      publicHost: await this.settings.getPublicHost(),
+      curseforge: { masked: await this.apiKeys.maskedKey('curseforge') },
       panel: { host: this.config.host, port: this.config.port },
       defaults: this.config.defaults,
     };
@@ -42,27 +42,27 @@ export class SettingsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin')
-  set(@Body() body: unknown): { ok: true; publicHost: string } {
+  async set(@Body() body: unknown): Promise<{ ok: true; publicHost: string }> {
     const { publicHost } = parseBody(z.object({ publicHost: z.string().max(255).optional() }), body);
-    const saved = this.settings.setPublicHost(publicHost || '');
+    const saved = await this.settings.setPublicHost(publicHost || '');
     return { ok: true, publicHost: saved };
   }
 
   @Get('localization')
-  localization(): { ok: true; localization: Localization } {
-    return { ok: true, localization: this.settings.localization() };
+  async localization(): Promise<{ ok: true; localization: Localization }> {
+    return { ok: true, localization: await this.settings.localization() };
   }
 
   @Post('localization')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  setLocalization(@Body() body: unknown): { ok: true; localization: Localization } {
+  async setLocalization(@Body() body: unknown): Promise<{ ok: true; localization: Localization }> {
     const { timezone, country } = parseBody(z.object({ timezone: z.string().max(64).optional(), country: z.string().max(8).optional() }), body);
     if (timezone !== undefined) {
-      this.settings.setTimezone(timezone);
-      this.scheduler.rearmAll();
+      await this.settings.setTimezone(timezone);
+      await this.scheduler.rearmAll();
     }
-    if (country !== undefined) this.settings.setCountry(country);
-    return { ok: true, localization: this.settings.localization() };
+    if (country !== undefined) await this.settings.setCountry(country);
+    return { ok: true, localization: await this.settings.localization() };
   }
 }

@@ -63,29 +63,30 @@ export class StorageController {
   @Roles('admin')
   async breakdown() {
     const { free, total } = await this.indexer.diskFree().catch(() => ({ free: 0, total: 0 }));
-    const categories = Object.entries(CATEGORY_NAMES)
-      .map(([rel, name]) => ({
-        name,
-        path: `${rel}/`,
-        link: `/files?path=${encodeURIComponent(rel)}`,
-        size: this.indexer.sizeOf(rel),
-      }))
-      .filter((c) => c.size > 0 || ['servers', 'backups', 'tmp'].includes(c.path.replace(/\/$/, '')));
+    const categories = (
+      await Promise.all(
+        Object.entries(CATEGORY_NAMES).map(async ([rel, name]) => ({
+          name,
+          path: `${rel}/`,
+          link: `/files?path=${encodeURIComponent(rel)}`,
+          size: await this.indexer.sizeOf(rel),
+        }))
+      )
+    ).filter((c) => c.size > 0 || ['servers', 'backups', 'tmp'].includes(c.path.replace(/\/$/, '')));
 
-    const snapshots = this.db
+    const snapshotRows = await this.db
       .select({ totalBytes: storageSnapshots.totalBytes })
       .from(storageSnapshots)
       .orderBy(desc(storageSnapshots.id))
-      .limit(14)
-      .all()
-      .reverse();
+      .limit(14);
+    const snapshots = snapshotRows.reverse();
     const maxSnap = Math.max(1, ...snapshots.map((s) => Number(s.totalBytes) || 0));
 
-    const totalUsed = this.indexer.sizeOf('');
+    const totalUsed = await this.indexer.sizeOf('');
     const segs = [
-      { label: 'Servers', color: 'positive', size: this.indexer.sizeOf('servers') },
-      { label: 'Backups', color: 'info', size: this.indexer.sizeOf('backups') },
-      { label: 'Library', color: 'warning', size: this.indexer.sizeOf('library') },
+      { label: 'Servers', color: 'positive', size: await this.indexer.sizeOf('servers') },
+      { label: 'Backups', color: 'info', size: await this.indexer.sizeOf('backups') },
+      { label: 'Library', color: 'warning', size: await this.indexer.sizeOf('library') },
     ];
     segs.push({
       label: 'Logs, blueprints, tmp',
@@ -117,7 +118,7 @@ export class StorageController {
       totalUsed,
       diskFree: free,
       diskTotal: total,
-      lastScan: this.indexer.lastScan() || null,
+      lastScan: (await this.indexer.lastScan()) || null,
       categories,
       breakdown,
       largestFiles: largest,

@@ -161,7 +161,7 @@ cp .env.example .env      # optional — all values have sane defaults
 npm start                 # or: npm run dev (auto-restart + CSS watch)
 ```
 
-Open **http://localhost:25564**. By default the panel binds to **localhost only** (`127.0.0.1`), so it's
+Open **http://localhost:3000**. By default the panel binds to **localhost only** (`127.0.0.1`), so it's
 reachable just from this machine; set `PANEL_HOST=0.0.0.0` to reach it across your LAN. The **first run**
 walks you through a system check, choosing your time zone, and creating the admin account. If Docker
 isn't running you still get the full UI, and the lifecycle features light up when the daemon comes up.
@@ -182,7 +182,7 @@ echo "DATA_DIR_HOST=/opt/msm/data" > .env   # ABSOLUTE host path for all panel d
 docker compose up -d
 ```
 
-Open **http://your-host:25564**. In Portainer/Dockge, paste the compose file as a stack and set
+Open **http://your-host:3000**. In Portainer/Dockge, paste the compose file as a stack and set
 `DATA_DIR_HOST` in the stack's environment.
 
 Want to build from source instead of pulling the published image? See the
@@ -197,8 +197,8 @@ How it works — and what to know:
   `/data`: bind mounts are resolved by the daemon against the **host** filesystem, so the panel
   re-roots every path it hands to Docker from its container-local view onto that host path. Without
   it the daemon would mount host directories that don't exist.
-- The container binds to `0.0.0.0` **inside its own network namespace**; publish `127.0.0.1:25564:25564`
-  instead of `25564:25564` if a reverse proxy on the host fronts the panel (then set `TRUST_PROXY` +
+- The container binds to `0.0.0.0` **inside its own network namespace**; publish `127.0.0.1:3000:3000`
+  instead of `3000:3000` if a reverse proxy on the host fronts the panel (then set `TRUST_PROXY` +
   `COOKIE_SECURE`).
 - Anything that holds the Docker socket is root-equivalent on the host — treat the panel's admin
   login accordingly and never expose the UI raw to the internet.
@@ -227,7 +227,7 @@ host.docker.internal:host-gateway` (Docker Engine 20.10+) for the fallback path;
 | `DATA_DIR`                                                                  | `./data`                   | Root for **all** panel state (DB, server data, backups, library).                                                                                                                                                                                                                                        |
 | `DATA_DIR_HOST`                                                             | = `DATA_DIR`               | Only when the panel runs **in a container**: the absolute host path of the `DATA_DIR` mount, used to re-root bind mounts for the host daemon.                                                                                                                                                            |
 | `MAP_PROXY_HOST`                                                            | see note                   | Address the panel uses to reach sibling containers' host-published ports (currently just the live map). `127.0.0.1` bare metal; auto-switches to `host.docker.internal` when `DATA_DIR_HOST` is set (containerized panel — needs `extra_hosts`, see above). Override for rootless Docker/remote daemons. |
-| `PANEL_HOST` / `PANEL_PORT`                                                 | `127.0.0.1` / `25564`      | Web UI bind address + port. Localhost-only by default; set `PANEL_HOST=0.0.0.0` for LAN access.                                                                                                                                                                                                          |
+| `PANEL_HOST` / `PANEL_PORT`                                                 | `127.0.0.1` / `3000`      | Web UI bind address + port. Localhost-only by default; set `PANEL_HOST=0.0.0.0` for LAN access.                                                                                                                                                                                                          |
 | `SESSION_SECRET`                                                            | auto-generated             | Signs session cookies + derives the at-rest encryption key. Auto-created and persisted if unset.                                                                                                                                                                                                         |
 | `TRUST_PROXY` / `COOKIE_SECURE`                                             | —                          | Set when behind a TLS-terminating reverse proxy, so `req.ip` (rate-limiting) and `Secure` cookies work.                                                                                                                                                                                                  |
 | `DOCKER_HOST`                                                               | auto-detected              | Docker endpoint override for rootless Docker, Podman, or a remote daemon (per-OS socket/pipe otherwise).                                                                                                                                                                                                 |
@@ -255,21 +255,21 @@ host.docker.internal:host-gateway` (Docker Engine 20.10+) for the fallback path;
 
 ## Networking, ports & remote access
 
-A fresh install is **localhost-only**: it answers only at `http://localhost:25564` on the machine
+A fresh install is **localhost-only**: it answers only at `http://localhost:3000` on the machine
 it runs on. This section covers how to reach it from elsewhere and exactly which ports to open.
 
 ### Ports at a glance
 
 | What                     | Port(s)                                      | Protocol  | Open to the internet?                     |
 | ------------------------ | -------------------------------------------- | --------- | ----------------------------------------- |
-| **Admin panel (web UI)** | `PANEL_PORT` — default **25564**             | TCP       | Only behind TLS (reverse proxy), not raw  |
+| **Admin panel (web UI)** | `PANEL_PORT` — default **3000**             | TCP       | Only behind TLS (reverse proxy), not raw  |
 | **Game server (Java)**   | from `PORT_GAME_START` (**25565**) upward    | TCP + UDP | **Yes** — this is how players connect     |
 | **RCON**                 | game port **+ 1000** (from **26565**)        | TCP       | **No — never.** Panel-internal management |
 | **Bedrock / Geyser**     | from `PORT_BEDROCK_START` (**19132**) upward | UDP       | Only if you run Bedrock                   |
 | **Live map (BlueMap)**   | auto-allocated                               | TCP       | **No** — served through the panel's proxy |
 
-The panel itself sits at **25564**, one below the game runway, so game instances count cleanly
-upward from 25565 with nothing interrupting the sequence. Game ports are then assigned **first-free**,
+The panel itself sits at **3000**, well clear of the game-port range, so game instances count
+cleanly upward from 25565 with nothing interrupting the sequence. Game ports are then assigned **first-free**,
 one game + RCON pair per server. Ten servers therefore occupy game `25565–25574` (TCP+UDP), RCON
 `26565–26574` (TCP), and, where Bedrock is enabled, `19132+` (UDP). The 1000-port RCON offset is
 deliberate: it keeps RCON in a separate block so you can open a contiguous **game** range without ever
@@ -285,7 +285,7 @@ The panel binds to `127.0.0.1` out of the box. To listen on all interfaces, set 
 
 ```env
 PANEL_HOST=0.0.0.0
-PANEL_PORT=25564
+PANEL_PORT=3000
 ```
 
 Restart the panel so it re-reads the environment. **Under PM2 you must pass `--update-env`**, or
@@ -299,15 +299,15 @@ pm2 restart <id> --update-env      # PM2 — --update-env is essential
 Confirm the bind address actually changed:
 
 ```bash
-ss -tlnp | grep 25564              # want 0.0.0.0:25564, not 127.0.0.1:25564
+ss -tlnp | grep 3000              # want 0.0.0.0:3000, not 127.0.0.1:3000
 ```
 
 Then open the panel port in **both** the host firewall and, on a VPS, your provider's separate
 cloud firewall (the one people forget):
 
 ```bash
-sudo ufw allow 25564/tcp                                                            # ufw
-# sudo firewall-cmd --add-port=25564/tcp --permanent && sudo firewall-cmd --reload  # firewalld
+sudo ufw allow 3000/tcp                                                            # ufw
+# sudo firewall-cmd --add-port=3000/tcp --permanent && sudo firewall-cmd --reload  # firewalld
 ```
 
 ### Open game ports for players
@@ -332,16 +332,16 @@ Exposing the raw panel port on the internet means logins travel over **plain HTT
 
   ```
   mc.example.com {
-      reverse_proxy 127.0.0.1:25564
+      reverse_proxy 127.0.0.1:3000
   }
   ```
 
-  You then open only `80`/`443`, never `25564`.
+  You then open only `80`/`443`, never `3000`.
 
 - **SSH tunnel**: no exposure, no firewall change, just for you:
 
   ```bash
-  ssh -L 25564:127.0.0.1:25564 user@your-server     # then open http://localhost:25564 locally
+  ssh -L 3000:127.0.0.1:3000 user@your-server     # then open http://localhost:3000 locally
   ```
 
 ### Running under a process manager (PM2 / systemd)

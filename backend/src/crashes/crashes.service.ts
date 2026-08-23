@@ -73,11 +73,11 @@ export class CrashesService implements OnModuleDestroy {
   async scanServer(serverId: string): Promise<string[]> {
     const inserted: string[] = [];
     for (const filename of await this.listCandidateFiles(serverId)) {
-      const existing = this.db
+      const [existing] = await this.db
         .select({ id: crashReports.id })
         .from(crashReports)
         .where(and(eq(crashReports.serverId, serverId), eq(crashReports.filename, filename)))
-        .get();
+        .limit(1);
       if (existing) continue;
 
       const abs = this.absPathFor(serverId, filename);
@@ -91,27 +91,24 @@ export class CrashesService implements OnModuleDestroy {
 
       const parsed = filename.startsWith('hs_err') ? this.parser.parseHsErr(text) : this.parser.parseCrashReport(text);
       const id = `cr_${nanoid(8)}`;
-      this.db
-        .insert(crashReports)
-        .values({
-          id,
-          serverId,
-          filename,
-          fileMtime: stat.mtime.toISOString(),
-          sizeBytes: stat.size,
-          summary: parsed.summary,
-          exception: parsed.exception,
-          suspectedJson: JSON.stringify(parsed.suspects),
-        })
-        .run();
-      const eventId = this.events.recordEvent({
+      await this.db.insert(crashReports).values({
+        id,
+        serverId,
+        filename,
+        fileMtime: stat.mtime.toISOString(),
+        sizeBytes: stat.size,
+        summary: parsed.summary,
+        exception: parsed.exception,
+        suspectedJson: JSON.stringify(parsed.suspects),
+      });
+      const eventId = await this.events.recordEventAndGetId({
         serverId,
         type: 'crash-report',
         actor: 'system',
         summary: `New crash report: ${filename} — ${parsed.exception || parsed.summary}`,
         details: { crashId: id },
       });
-      this.db.update(crashReports).set({ eventId }).where(eq(crashReports.id, id)).run();
+      await this.db.update(crashReports).set({ eventId }).where(eq(crashReports.id, id));
       inserted.push(id);
     }
     return inserted;
@@ -119,7 +116,7 @@ export class CrashesService implements OnModuleDestroy {
 
   /** Scan every (non-deleted) server; per-server errors are swallowed. */
   async scanAll(): Promise<void> {
-    for (const server of this.serverQuery.listServers()) {
+    for (const server of await this.serverQuery.listServers()) {
       try {
         await this.scanServer(server.id);
       } catch (err) {
@@ -153,46 +150,41 @@ export class CrashesService implements OnModuleDestroy {
     return { ...row, suspected: JSON.parse(row.suspectedJson || '[]') };
   }
 
-  listCrashes(serverId: string): DecoratedCrash[] {
-    return this.db
-      .select()
-      .from(crashReports)
-      .where(eq(crashReports.serverId, serverId))
-      .orderBy(desc(crashReports.fileMtime))
-      .all()
-      .map((row) => this.decorate(row));
+  async listCrashes(serverId: string): Promise<DecoratedCrash[]> {
+    const rows = await this.db.select().from(crashReports).where(eq(crashReports.serverId, serverId)).orderBy(desc(crashReports.fileMtime));
+    return rows.map((row) => this.decorate(row));
   }
 
-  getCrash(crashId: string): DecoratedCrash | null {
-    const row = this.db.select().from(crashReports).where(eq(crashReports.id, crashId)).get();
+  async getCrash(crashId: string): Promise<DecoratedCrash | null> {
+    const [row] = await this.db.select().from(crashReports).where(eq(crashReports.id, crashId)).limit(1);
     return row ? this.decorate(row) : null;
   }
 
   /** Read a report's full text. The filename MUST be one indexed for this server. */
-  getCrashText(serverId: string, filename: string): string {
-    const row = this.db
+  async getCrashText(serverId: string, filename: string): Promise<string> {
+    const [row] = await this.db
       .select({ id: crashReports.id })
       .from(crashReports)
       .where(and(eq(crashReports.serverId, serverId), eq(crashReports.filename, filename)))
-      .get();
+      .limit(1);
     if (!row) throw new NotFoundException('Crash report not found');
     return fs.readFileSync(this.absPathFor(serverId, filename), 'utf8');
   }
 
-  markViewed(crashId: string): void {
-    this.db.update(crashReports).set({ viewed: true }).where(eq(crashReports.id, crashId)).run();
+  async markViewed(crashId: string): Promise<void> {
+    await this.db.update(crashReports).set({ viewed: true }).where(eq(crashReports.id, crashId));
   }
 
   /** Delete a report: unlink the file + remove the row + record the event. */
-  deleteCrash(crashId: string, { actor = 'system' }: { actor?: string } = {}): { freedBytes: number } {
-    const row = this.getCrash(crashId);
+  async deleteCrash(crashId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
+    const row = await this.getCrash(crashId);
     if (!row) throw new NotFoundException('Crash report not found');
     try {
       fs.unlinkSync(this.absPathFor(row.serverId, row.filename));
     } catch {
       /* file already gone — still drop the row */
     }
-    this.db.delete(crashReports).where(eq(crashReports.id, crashId)).run();
+    await this.db.delete(crashReports).where(eq(crashReports.id, crashId));
     this.events.recordEvent({
       serverId: row.serverId,
       type: 'crash-report-deleted',
@@ -204,16 +196,15 @@ export class CrashesService implements OnModuleDestroy {
   }
 
   /** Bulk cleanup: delete this server's reports older than `days`. */
-  deleteOlderThan(serverId: string, days: number, { actor = 'system' }: { actor?: string } = {}): { deleted: number; freedBytes: number } {
+  async deleteOlderThan(serverId: string, days: number, { actor = 'system' }: { actor?: string } = {}): Promise<{ deleted: number; freedBytes: number }> {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    const rows = this.db
+    const rows = await this.db
       .select({ id: crashReports.id })
       .from(crashReports)
-      .where(and(eq(crashReports.serverId, serverId), lt(crashReports.fileMtime, cutoff)))
-      .all();
+      .where(and(eq(crashReports.serverId, serverId), lt(crashReports.fileMtime, cutoff)));
     let freedBytes = 0;
     for (const { id } of rows) {
-      freedBytes += this.deleteCrash(id, { actor }).freedBytes;
+      freedBytes += (await this.deleteCrash(id, { actor })).freedBytes;
     }
     return { deleted: rows.length, freedBytes };
   }

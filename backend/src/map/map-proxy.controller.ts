@@ -98,8 +98,8 @@ export class MapProxyController {
       res.status(405).send('Method not allowed');
       return;
     }
-    const server = this.serverQuery.getServer(id);
-    const cfg = server ? this.map.getMapConfig(server.id) : { enabled: false, hostPort: null };
+    const server = await this.serverQuery.getServer(id);
+    const cfg = server ? await this.map.getMapConfig(server.id) : { enabled: false, hostPort: null };
     if (!server || !cfg.enabled || !cfg.hostPort) {
       res.status(404).send('Live map is not enabled for this server');
       return;

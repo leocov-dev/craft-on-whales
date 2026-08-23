@@ -14,7 +14,7 @@ Run the backend and frontend as two separate dev servers:
 ```bash
 cd backend
 npm install
-npm run start:dev   # NestJS, auto-restart on change — http://localhost:25564
+npm run start:dev   # NestJS, auto-restart on change — http://localhost:3000
 ```
 
 ```bash

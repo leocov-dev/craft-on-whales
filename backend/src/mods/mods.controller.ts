@@ -111,19 +111,19 @@ export class ModsController {
         .refine((v) => Boolean(v.file) || Boolean(v.contentId), { message: 'Provide file or contentId' }),
       body
     );
-    const server = this.serverQuery.mustGet(id);
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
 
-    const row = contentId
-      ? this.db.select().from(serverContent).where(and(eq(serverContent.id, contentId), eq(serverContent.serverId, server.id))).get()
-      : this.db.select().from(serverContent).where(and(eq(serverContent.serverId, server.id), eq(serverContent.filename, file!))).get();
+    const [row] = contentId
+      ? await this.db.select().from(serverContent).where(and(eq(serverContent.id, contentId), eq(serverContent.serverId, server.id))).limit(1)
+      : await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, server.id), eq(serverContent.filename, file!))).limit(1);
     if (!row) throw new NotFoundException('This file is not panel-managed — reinstall it from a URL instead');
     if (row.managedBy === 'pack') throw new ConflictException('Pack-managed content updates with the pack — upgrade the modpack instead');
 
-    const lib = row.libraryId ? this.db.select().from(libraryFiles).where(eq(libraryFiles.id, row.libraryId)).get() : null;
+    const lib = row.libraryId ? (await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, row.libraryId)).limit(1))[0] : null;
     if (!lib || !lib.projectId) throw new ConflictException('No update source is known for this mod (installed from a direct URL or upload)');
 
-    const check = this.db.select().from(updateChecks).where(and(eq(updateChecks.subjectType, 'content'), eq(updateChecks.subjectId, row.id))).get();
+    const [check] = await this.db.select().from(updateChecks).where(and(eq(updateChecks.subjectType, 'content'), eq(updateChecks.subjectId, row.id))).limit(1);
     if (!check || !check.latestVersion) throw new ConflictException('No newer version is known — run an update check first');
 
     let ref: string;
@@ -153,17 +153,17 @@ export class ModsController {
   }
 
   @Get('pending-downloads')
-  pending(@Param('id') id: string) {
-    this.serverQuery.mustGet(id);
+  async pending(@Param('id') id: string) {
+    await this.serverQuery.mustGet(id);
     return { ok: true, mods: this.mods.pendingDownloads(id) };
   }
 
   @Post('pending-downloads/exclude')
-  exclude(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
-    this.serverQuery.mustGet(id);
+  async exclude(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+    await this.serverQuery.mustGet(id);
     const { filename } = parseBody(z.object({ filename: z.string().min(1).max(300) }), body);
     const token = this.mods.pendingExcludeToken(id, filename);
-    this.mods.excludePackMod(id, token, { actor: req.user!.username });
+    await this.mods.excludePackMod(id, token, { actor: req.user!.username });
     this.mods.clearPendingLine(id, filename);
     return { ok: true, excluded: token, mods: this.mods.pendingDownloads(id) };
   }
@@ -171,7 +171,7 @@ export class ModsController {
   @Post('mods/upload')
   @UseInterceptors(FileInterceptor('file', { dest: os.tmpdir(), limits: { fileSize: 250 * 1024 * 1024, files: 1 } }))
   async upload(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: Express.Multer.File, @Body() body: { excludeFilename?: string }) {
-    this.serverQuery.mustGet(id);
+    await this.serverQuery.mustGet(id);
     if (!file) throw new BadRequestException('No file uploaded');
     const excludeFilename = body?.excludeFilename || null;
     const excludeToken = excludeFilename ? this.mods.pendingExcludeToken(id, excludeFilename) : null;

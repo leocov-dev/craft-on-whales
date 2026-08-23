@@ -1,7 +1,7 @@
 <template>
   <q-card class="col-12" style="max-width: 380px">
-    <q-card-section class="row items-center justify-center q-gutter-x-sm">
-      <q-icon name="construction" color="primary" size="sm" />
+    <q-card-section class="column items-center q-gutter-y-sm">
+      <img src="/icons/splash.png" alt="Craft on Whales" width="120" height="120" />
       <div class="text-subtitle1">Craft on Whales</div>
     </q-card-section>
 

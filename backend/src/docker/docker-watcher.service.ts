@@ -112,19 +112,18 @@ export class DockerWatcherService implements OnModuleInit {
   private async handleEvent(evt: DockerEvent): Promise<void> {
     const serverId = evt.Actor && evt.Actor.Attributes && evt.Actor.Attributes[LABEL];
     if (!serverId) return;
-    const server = this.dbService.db.select().from(servers).where(eq(servers.id, serverId)).get();
+    const [server] = await this.dbService.db.select().from(servers).where(eq(servers.id, serverId)).limit(1);
     if (!server) return;
 
     if (evt.status === 'start') {
-      this.dbService.db
+      await this.dbService.db
         .update(servers)
         .set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` })
-        .where(eq(servers.id, serverId))
-        .run();
+        .where(eq(servers.id, serverId));
       return;
     }
     if (evt.status === 'health_status: healthy') {
-      this.dbService.db.update(servers).set({ status: 'running' }).where(eq(servers.id, serverId)).run();
+      await this.dbService.db.update(servers).set({ status: 'running' }).where(eq(servers.id, serverId));
       return;
     }
     if (evt.status === 'oom') {
@@ -138,7 +137,7 @@ export class DockerWatcherService implements OnModuleInit {
     if (evt.status !== 'die') return;
 
     const exitCode = Number(evt.Actor?.Attributes?.exitCode ?? -1);
-    const stopRequested = this.dbService.db
+    const [stopRequested] = await this.dbService.db
       .select({ x: sql<number>`1` })
       .from(eventsTable)
       .where(
@@ -148,7 +147,7 @@ export class DockerWatcherService implements OnModuleInit {
           gt(eventsTable.createdAt, sql`datetime('now', '-3 minutes')`)
         )
       )
-      .get();
+      .limit(1);
     // Clean exits are judged by the exit code, not just the request window:
     // 0 = normal, 143 = SIGTERM (docker stop), 130 = SIGINT — all intentional.
     const cleanExit = exitCode === 0 || exitCode === 143 || exitCode === 130;
@@ -159,7 +158,7 @@ export class DockerWatcherService implements OnModuleInit {
     const killedBySignal = exitCode === 137;
 
     if (cleanExit || (killedBySignal && stopRequested)) {
-      this.dbService.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, serverId)).run();
+      await this.dbService.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, serverId));
       if (!stopRequested) {
         this.eventsService.recordEvent({ serverId, type: 'stopped', summary: `Server stopped (exit code ${exitCode})` });
       }
@@ -168,7 +167,7 @@ export class DockerWatcherService implements OnModuleInit {
 
     // Crash path — even inside a stop/restart window a non-zero, non-signal
     // exit is a crash and must be recorded as one.
-    this.dbService.db.update(servers).set({ status: 'crashed' }).where(eq(servers.id, serverId)).run();
+    await this.dbService.db.update(servers).set({ status: 'crashed' }).where(eq(servers.id, serverId));
     const excerpt: string = await this.logs.fetchLogs(serverId, { tail: 300 }).catch(() => '');
 
     // Config errors never fix themselves — diagnose them so the crash event

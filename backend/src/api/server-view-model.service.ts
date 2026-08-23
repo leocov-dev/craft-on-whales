@@ -69,10 +69,10 @@ export class ServerViewModelService {
       resources: { heapMb: s.heap_mb, containerMemoryMb: s.container_memory_mb, cpus: s.cpus },
       stats: { cpuPct: 0, memUsedMb: 0, uptime: null },
       players: { online: 0, max: Number(s.env.MAX_PLAYERS) || 20, names: [] },
-      disk: { used: this.diskUsed(s.id), quota: s.disk_quota_bytes || 25 * GB },
-      pack: this.packVM(s.id),
-      updateAvailable: this.hasPackUpdate(s.id),
-      crashesUnread: this.crashesUnread(s.id),
+      disk: { used: await this.diskUsed(s.id), quota: s.disk_quota_bytes || 25 * GB },
+      pack: await this.packVM(s.id),
+      updateAvailable: await this.hasPackUpdate(s.id),
+      crashesUnread: await this.crashesUnread(s.id),
       autoStart: Boolean(s.auto_start),
       autoRestart: Boolean(s.auto_restart),
       notes: s.notes,
@@ -99,18 +99,19 @@ export class ServerViewModelService {
     return vm;
   }
 
-  private getPackUpdateCheck(serverId: string) {
-    return this.db
+  private async getPackUpdateCheck(serverId: string) {
+    const [row] = await this.db
       .select({ latestVersion: updateChecks.latestVersion, latestName: updateChecks.latestName })
       .from(updateChecks)
       .where(and(eq(updateChecks.subjectType, 'pack'), eq(updateChecks.subjectId, serverId)))
-      .get();
+      .limit(1);
+    return row;
   }
 
-  packVM(serverId: string): PackViewModel | null {
-    const pack = this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).get();
+  async packVM(serverId: string): Promise<PackViewModel | null> {
+    const [pack] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
     if (!pack) return null;
-    const check = this.getPackUpdateCheck(serverId);
+    const check = await this.getPackUpdateCheck(serverId);
     const platformName = PLATFORM_NAMES[pack.platform];
     return {
       platform: platformName || pack.platform,
@@ -122,33 +123,32 @@ export class ServerViewModelService {
     };
   }
 
-  private hasPackUpdate(serverId: string): boolean {
-    const pack = this.db
+  private async hasPackUpdate(serverId: string): Promise<boolean> {
+    const [pack] = await this.db
       .select({ pinnedVersionId: serverPacks.pinnedVersionId })
       .from(serverPacks)
       .where(eq(serverPacks.serverId, serverId))
-      .get();
+      .limit(1);
     if (!pack) return false;
-    const check = this.getPackUpdateCheck(serverId);
+    const check = await this.getPackUpdateCheck(serverId);
     return Boolean(check?.latestVersion && check.latestVersion !== pack.pinnedVersionId);
   }
 
-  private diskUsed(serverId: string): number {
-    const row = this.db
+  private async diskUsed(serverId: string): Promise<number> {
+    const [row] = await this.db
       .select({ sizeBytes: storageIndex.sizeBytes })
       .from(storageIndex)
       .where(eq(storageIndex.relPath, `servers/${serverId}`))
-      .get();
+      .limit(1);
     return row ? row.sizeBytes : 0;
   }
 
-  private crashesUnread(serverId: string): number {
-    return this.db
+  private async crashesUnread(serverId: string): Promise<number> {
+    const rows = await this.db
       .select({ viewed: crashReports.viewed })
       .from(crashReports)
-      .where(eq(crashReports.serverId, serverId))
-      .all()
-      .filter((r) => !r.viewed).length;
+      .where(eq(crashReports.serverId, serverId));
+    return rows.filter((r) => !r.viewed).length;
   }
 }
 

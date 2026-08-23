@@ -183,8 +183,8 @@ export class InventoryService implements OnModuleDestroy {
 
   // -------------------------------------------------------------- playerdata read
 
-  private playerdataDir(serverId: string): string {
-    const server: Server | null = this.serverQuery.getServer(serverId);
+  private async playerdataDir(serverId: string): Promise<string> {
+    const server: Server | null = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const level = this.worldProps.activeLevelName(server);
     const modern = this.pathGuard.dataPath('servers', serverId, level, 'players', 'data');
@@ -236,7 +236,7 @@ export class InventoryService implements OnModuleDestroy {
   /** Parse <world>/playerdata/<uuid>.dat. */
   async readPlayerData(serverId: string, uuidInput: string): Promise<PlayerInventoryData> {
     const uuid = assertUuid(uuidInput);
-    const file = path.join(this.playerdataDir(serverId), `${uuid}.dat`);
+    const file = path.join(await this.playerdataDir(serverId), `${uuid}.dat`);
     let stat: fs.Stats;
     try {
       stat = await fsp.stat(file);
@@ -310,7 +310,7 @@ export class InventoryService implements OnModuleDestroy {
 
   /** Every player with a playerdata file: [{uuid, name, lastModified}], newest first. */
   async listPlayersWithData(serverId: string): Promise<PlayerWithData[]> {
-    const dir = this.playerdataDir(serverId);
+    const dir = await this.playerdataDir(serverId);
     let entries: fs.Dirent[] = [];
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -379,7 +379,7 @@ export class InventoryService implements OnModuleDestroy {
   /** searchItems across every server: [{serverId, serverName, ...hit}]. */
   async searchAllServers(query: string | null | undefined, { limit = 500 }: { limit?: number } = {}): Promise<(ItemSearchHit & { serverId: string; serverName: string })[]> {
     const results: (ItemSearchHit & { serverId: string; serverName: string })[] = [];
-    for (const server of this.serverQuery.listServers()) {
+    for (const server of await this.serverQuery.listServers()) {
       if (results.length >= limit) break;
       let hits: ItemSearchHit[] = [];
       try {
@@ -546,17 +546,17 @@ export class InventoryService implements OnModuleDestroy {
    */
   startSnapshotWatcher({ intervalMs = 20000 }: { intervalMs?: number } = {}): void {
     if (this.watcherTimer) return;
-    try {
-      const row = this.dbService.db
-        .select({ maxId: sql<number | null>`MAX(id)` })
-        .from(playerEvents)
-        .get();
-      this.lastEventId = Number(row && row.maxId) || 0;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('[inventory] snapshot watcher init failed:', (err as Error).message);
-      this.lastEventId = 0;
-    }
+    this.dbService.db
+      .select({ maxId: sql<number | null>`MAX(id)` })
+      .from(playerEvents)
+      .then(([row]) => {
+        this.lastEventId = Number(row && row.maxId) || 0;
+      })
+      .catch((err: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error('[inventory] snapshot watcher init failed:', err instanceof Error ? err.message : String(err));
+        this.lastEventId = 0;
+      });
     this.watcherTimer = setInterval(() => {
       this.pollPlayerEvents().catch((err: Error) => console.error('[inventory] snapshot watcher:', err.message));
     }, intervalMs);
@@ -564,13 +564,12 @@ export class InventoryService implements OnModuleDestroy {
   }
 
   private async pollPlayerEvents(): Promise<void> {
-    const rows = this.dbService.db
+    const rows = await this.dbService.db
       .select({ id: playerEvents.id, serverId: playerEvents.serverId, type: playerEvents.type, player: playerEvents.player })
       .from(playerEvents)
       .where(and(gt(playerEvents.id, this.lastEventId), inArray(playerEvents.type, ['join', 'death'])))
       .orderBy(playerEvents.id)
-      .limit(200)
-      .all();
+      .limit(200);
     for (const row of rows) {
       this.lastEventId = Math.max(this.lastEventId, Number(row.id));
       const player = row.player == null ? null : String(row.player);
@@ -580,7 +579,7 @@ export class InventoryService implements OnModuleDestroy {
         const { byName } = this.usercacheMaps(serverId);
         const uuid = byName.get(player.toLowerCase());
         if (!uuid) continue; // never joined far enough to be cached
-        if (!fs.existsSync(path.join(this.playerdataDir(serverId), `${uuid}.dat`))) continue; // no .dat yet
+        if (!fs.existsSync(path.join(await this.playerdataDir(serverId), `${uuid}.dat`))) continue; // no .dat yet
         await this.snapshot(serverId, uuid, String(row.type));
         await this.pruneSnapshots(serverId);
       } catch {
@@ -699,7 +698,7 @@ export class InventoryService implements OnModuleDestroy {
 
   /** Read one slot straight from the .dat on disk (raw tree, no simplify). */
   private async readDatSlot(serverId: string, uuid: string, spec: SlotSpec): Promise<{ exists: boolean; id?: string | null; count?: number; hasComponents?: boolean }> {
-    const file = path.join(this.playerdataDir(serverId), `${uuid}.dat`);
+    const file = path.join(await this.playerdataDir(serverId), `${uuid}.dat`);
     const { parsed } = await nbt.parse(await fsp.readFile(file));
     const cur = offlineSlotRef(parsed.value as any, spec).get();
     if (!cur) return { exists: false };
@@ -841,7 +840,7 @@ export class InventoryService implements OnModuleDestroy {
     if (ctx.running && ctx.online) {
       throw new BadRequestException(`${ctx.name || ctx.uuid} is online — the server would overwrite file edits. This edit should have gone over RCON; reload and retry.`);
     }
-    const file = path.join(this.playerdataDir(serverId), `${ctx.uuid}.dat`);
+    const file = path.join(await this.playerdataDir(serverId), `${ctx.uuid}.dat`);
     // Serialize edits to the same .dat: two concurrent slot edits sharing one
     // temp path could interleave their writes and corrupt the save.
     return this.withDatLock(file, async () => {

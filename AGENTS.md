@@ -10,6 +10,8 @@ Guidance for coding agents (and contributors) working in this repo. Read this fi
   behavior a user would notice.
 - **[CHANGELOG.md](CHANGELOG.md)** — Keep a Changelog format; add an entry for user-visible changes.
 
+Coding agents should work in isolated git worktrees.
+
 ## Current state: two implementations, one in-flight cutover
 
 This repo is mid-rewrite. **Two complete implementations currently coexist**:

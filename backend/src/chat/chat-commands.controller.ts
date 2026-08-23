@@ -91,8 +91,8 @@ export class ChatCommandsController {
     private readonly containers: ContainerService
   ) {}
 
-  private requireServer(id: string): void {
-    if (!this.serverQuery.getServer(id)) throw new NotFoundException('Server not found');
+  private async requireServer(id: string): Promise<void> {
+    if (!(await this.serverQuery.getServer(id))) throw new NotFoundException('Server not found');
   }
 
   private async isRunning(serverId: string): Promise<boolean> {
@@ -105,12 +105,12 @@ export class ChatCommandsController {
   }
 
   @Get()
-  list(@Param('id') id: string) {
-    this.requireServer(id);
-    const commands = this.chatCommands.listCommands(id);
+  async list(@Param('id') id: string) {
+    await this.requireServer(id);
+    const commands = await this.chatCommands.listCommands(id);
     return {
       ok: true,
-      prefix: this.chatCommands.getPrefix(id),
+      prefix: await this.chatCommands.getPrefix(id),
       commands: commands.map((c) => publicCommand(c, this.chatCommands.actionSummary(c))),
       stats: {
         total: commands.length,
@@ -121,31 +121,31 @@ export class ChatCommandsController {
   }
 
   @Post()
-  create(@Param('id') id: string, @Req() req: Request) {
-    this.requireServer(id);
+  async create(@Param('id') id: string, @Req() req: Request) {
+    await this.requireServer(id);
     const input = parse(createSchema, req.body);
-    const command = this.chatCommands.createCommand(id, input, { actor: req.user!.username });
+    const command = await this.chatCommands.createCommand(id, input, { actor: req.user!.username });
     return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
   }
 
   @Patch(':cmdId')
-  update(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
-    this.requireServer(id);
+  async update(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+    await this.requireServer(id);
     const changes = parse(patchSchema, req.body);
-    const command = this.chatCommands.updateCommand(id, cmdId, changes, { actor: req.user!.username });
+    const command = await this.chatCommands.updateCommand(id, cmdId, changes, { actor: req.user!.username });
     return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
   }
 
   @Delete(':cmdId')
-  remove(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
-    this.requireServer(id);
-    this.chatCommands.deleteCommand(id, cmdId, { actor: req.user!.username });
+  async remove(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+    await this.requireServer(id);
+    await this.chatCommands.deleteCommand(id, cmdId, { actor: req.user!.username });
     return { ok: true };
   }
 
   @Post(':cmdId/test')
   async test(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
-    this.requireServer(id);
+    await this.requireServer(id);
     const { player } = parse(
       z.object({
         player: z
@@ -163,9 +163,9 @@ export class ChatCommandsController {
   }
 
   @Put('prefix')
-  setPrefix(@Param('id') id: string, @Req() req: Request) {
-    this.requireServer(id);
+  async setPrefix(@Param('id') id: string, @Req() req: Request) {
+    await this.requireServer(id);
     const { prefix } = parse(z.object({ prefix: z.string().trim().min(1).max(2) }), req.body);
-    return { ok: true, ...this.chatCommands.setPrefix(id, prefix, { actor: req.user!.username }) };
+    return { ok: true, ...(await this.chatCommands.setPrefix(id, prefix, { actor: req.user!.username })) };
   }
 }

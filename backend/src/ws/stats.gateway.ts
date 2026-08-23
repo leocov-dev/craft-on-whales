@@ -28,13 +28,13 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.cleanup(client);
     });
 
-    const user = this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
+    const user = await this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
     if (!user) {
       client.disconnect(true);
       return;
     }
     const serverId = String(client.handshake.query.serverId || '');
-    if (!serverId || !this.serverQuery.getServer(serverId)) {
+    if (!serverId || !(await this.serverQuery.getServer(serverId))) {
       client.disconnect(true);
       return;
     }

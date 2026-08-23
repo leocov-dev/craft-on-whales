@@ -32,7 +32,7 @@ export class DockerLogsService {
    */
   async fetchLogs(serverId: string, { tail = 500, timestamps = false }: FetchLogsOptions = {}): Promise<string> {
     try {
-      const buf = await this.containers.getContainer(serverId).logs({
+      const buf = await (await this.containers.getContainer(serverId)).logs({
         stdout: true,
         stderr: true,
         tail,
@@ -50,7 +50,7 @@ export class DockerLogsService {
    * utf8 lines-ish chunks. Caller must stop() on WebSocket close.
    */
   async followLogs(serverId: string, { tail = 200, timestamps = false }: FetchLogsOptions = {}): Promise<FollowLogsResult> {
-    const container = this.containers.getContainer(serverId);
+    const container = await this.containers.getContainer(serverId);
     const raw = (await container.logs({
       stdout: true,
       stderr: true,

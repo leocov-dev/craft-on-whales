@@ -1,4 +1,5 @@
-export type PackPlatform = 'curseforge' | 'modrinth' | 'ftb' | 'gtnh';
+export type PackPlatform =
+  'curseforge' | 'modrinth' | 'ftb' | 'gtnh' | 'packwiz';
 
 export interface PackVersionOption {
   id: string;

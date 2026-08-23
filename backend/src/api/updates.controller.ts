@@ -15,14 +15,15 @@ export class UpdatesController {
   ) {}
 
   @Get('updates')
-  list(): { ok: true; updates: OutdatedRow[]; lastChecked: string | null } {
+  async list(): Promise<{ ok: true; updates: OutdatedRow[]; lastChecked: string | null }> {
+    const outdated = await this.checker.listOutdated();
     return {
       ok: true,
-      updates: this.checker.listOutdated().map(({ changelogUrl, ...u }) => ({
+      updates: outdated.map(({ changelogUrl, ...u }) => ({
         ...u,
         changelog: /^https?:\/\//i.test(changelogUrl || '') ? changelogUrl : null,
       })),
-      lastChecked: this.checker.lastCheckedAt() || null,
+      lastChecked: (await this.checker.lastCheckedAt()) || null,
     };
   }
 
@@ -40,8 +41,8 @@ export class UpdatesController {
 
   @Post('servers/:id/updates/check')
   @HttpCode(202)
-  checkForServer(@Req() req: Request, @Param('id') id: string) {
-    const server = this.serverQuery.mustGet(id);
+  async checkForServer(@Req() req: Request, @Param('id') id: string) {
+    const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
     const taskId = this.tasks.run(`Checking updates for ${server.display_name}`, { serverId: server.id, actor }, async (t) => {
       t.step('Querying update sources');

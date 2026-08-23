@@ -61,29 +61,29 @@ export class IntegrationsController {
     private readonly statusPage: StatusService
   ) {}
 
-  private mustGet(id: string) {
+  private async mustGet(id: string) {
     const serverId = parse(serverIdSchema, id);
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     return server;
   }
 
   @Get()
   async get(@Param('id') id: string) {
-    const server = this.mustGet(id);
+    const server = await this.mustGet(id);
     return {
       ok: true,
-      discord: this.discord.getConfig(server.id),
-      statusPage: this.statusPage.getStatusPage(server.id),
+      discord: await this.discord.getConfig(server.id),
+      statusPage: await this.statusPage.getStatusPage(server.id),
       invite: await this.invites.inviteInfo(server.id),
     };
   }
 
   @Post('discord')
-  setDiscord(@Param('id') id: string, @Req() req: Request) {
-    const server = this.mustGet(id);
+  async setDiscord(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.mustGet(id);
     const input = parse(discordSchema, req.body);
-    const config = this.discord.setConfig(server.id, input);
+    const config = await this.discord.setConfig(server.id, input);
     this.events.recordEvent({
       serverId: server.id,
       actor: req.user ? req.user.username : 'admin',
@@ -95,19 +95,19 @@ export class IntegrationsController {
 
   @Post('discord/test')
   async testDiscord(@Param('id') id: string) {
-    const server = this.mustGet(id);
+    const server = await this.mustGet(id);
     return this.discord.testWebhook(server.id);
   }
 
   @Get('invite')
   async invite(@Param('id') id: string) {
-    const server = this.mustGet(id);
+    const server = await this.mustGet(id);
     return { ok: true, invite: await this.invites.inviteInfo(server.id) };
   }
 
   @Get('invite/modpack.mrpack')
   async mrpack(@Param('id') id: string, @Query('host') hostQuery: string | undefined, @Res() res: Response) {
-    const server = this.mustGet(id);
+    const server = await this.mustGet(id);
     const host = hostQuery ? parse(z.string().trim().max(260), hostQuery) : undefined;
     const pack = await this.invites.generateMrpack(server.id, { host });
     res.download(pack.absPath, pack.filename, () => {
@@ -116,10 +116,10 @@ export class IntegrationsController {
   }
 
   @Post('status-page')
-  setStatusPage(@Param('id') id: string, @Req() req: Request) {
-    const server = this.mustGet(id);
+  async setStatusPage(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.mustGet(id);
     const { enabled, slug } = parse(statusPageSchema, req.body);
-    const config = this.statusPage.setStatusPage(server.id, { enabled, slug: slug || undefined });
+    const config = await this.statusPage.setStatusPage(server.id, { enabled, slug: slug || undefined });
     this.events.recordEvent({
       serverId: server.id,
       actor: req.user ? req.user.username : 'admin',

@@ -22,7 +22,7 @@ npm install
 npm run start:dev   # auto-restart on change
 ```
 
-The API listens on `http://localhost:25564` by default (same port as the legacy app). Configuration
+The API listens on `http://localhost:3000` by default (same port as the legacy app). Configuration
 is read from environment variables — see the top-level README's configuration table; nothing needs
 to be set to start.
 

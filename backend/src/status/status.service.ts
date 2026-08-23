@@ -43,12 +43,12 @@ export class StatusService {
     return this.dbService.db;
   }
 
-  getStatusPage(serverId: string): StatusPageConfig {
-    const row = this.db
+  async getStatusPage(serverId: string): Promise<StatusPageConfig> {
+    const [row] = await this.db
       .select()
       .from(integrations)
       .where(and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND)))
-      .get();
+      .limit(1);
     const cfg = row ? JSON.parse(row.configJson || '{}') : {};
     return {
       enabled: Boolean(row?.enabled),
@@ -57,55 +57,52 @@ export class StatusService {
     };
   }
 
-  setStatusPage(serverId: string, { enabled, slug }: { enabled?: boolean; slug?: string }): StatusPageConfig {
+  async setStatusPage(serverId: string, { enabled, slug }: { enabled?: boolean; slug?: string }): Promise<StatusPageConfig> {
     // Disabling never needs a slug — keep the stored one so re-enabling
     // restores the same address.
     if (!enabled && !slug) {
-      const existing = this.getStatusPage(serverId);
-      this.upsert(serverId, false, { slug: existing.slug || null });
+      const existing = await this.getStatusPage(serverId);
+      await this.upsert(serverId, false, { slug: existing.slug || null });
       return this.getStatusPage(serverId);
     }
     if (!slug || !SLUG_RE.test(slug)) {
       throw new BadRequestException('Slug must be 3–40 chars of lowercase letters, digits, or dashes');
     }
-    const clash = this.db
+    const rows = await this.db
       .select({ serverId: integrations.serverId, configJson: integrations.configJson })
       .from(integrations)
-      .where(eq(integrations.kind, KIND))
-      .all()
-      .find((r) => r.serverId !== serverId && JSON.parse(r.configJson || '{}').slug === slug);
+      .where(eq(integrations.kind, KIND));
+    const clash = rows.find((r) => r.serverId !== serverId && JSON.parse(r.configJson || '{}').slug === slug);
     if (clash) throw new ConflictException(`The slug "${slug}" is already used by another server`);
 
-    this.upsert(serverId, Boolean(enabled), { slug });
+    await this.upsert(serverId, Boolean(enabled), { slug });
     return this.getStatusPage(serverId);
   }
 
-  private upsert(serverId: string, enabled: boolean, config: Record<string, unknown>): void {
-    this.db
+  private async upsert(serverId: string, enabled: boolean, config: Record<string, unknown>): Promise<void> {
+    await this.db
       .insert(integrations)
       .values({ serverId, kind: KIND, enabled, configJson: JSON.stringify(config) })
       .onConflictDoUpdate({
         target: [integrations.serverId, integrations.kind],
         set: { enabled, configJson: JSON.stringify(config), updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') },
-      })
-      .run();
+      });
   }
 
   /** Resolve an ENABLED status page by slug → server_id, or null. */
-  findBySlug(slug: string): string | null {
+  async findBySlug(slug: string): Promise<string | null> {
     if (!SLUG_RE.test(slug)) return null;
-    const row = this.db
+    const rows = await this.db
       .select({ serverId: integrations.serverId, configJson: integrations.configJson })
       .from(integrations)
-      .where(and(eq(integrations.kind, KIND), eq(integrations.enabled, true)))
-      .all()
-      .find((r) => JSON.parse(r.configJson || '{}').slug === slug);
+      .where(and(eq(integrations.kind, KIND), eq(integrations.enabled, true)));
+    const row = rows.find((r) => JSON.parse(r.configJson || '{}').slug === slug);
     return row ? row.serverId : null;
   }
 
-  loadPublicPage(slug: string): PublicStatusPage | null {
-    const serverId = this.findBySlug(slug);
-    const row = serverId ? this.serverQuery.getServer(serverId) : null;
+  async loadPublicPage(slug: string): Promise<PublicStatusPage | null> {
+    const serverId = await this.findBySlug(slug);
+    const row = serverId ? await this.serverQuery.getServer(serverId) : null;
     if (!row) return null;
     return {
       name: row.display_name,

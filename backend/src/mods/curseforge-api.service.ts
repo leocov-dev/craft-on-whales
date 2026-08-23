@@ -66,13 +66,13 @@ export class CurseforgeApiService {
   ) {}
 
   private async cfFetch<T = unknown>(pathname: string, { search, ttlMs = 10 * 60 * 1000, method = 'GET', body }: CfFetchOptions = {}): Promise<T> {
-    const key = this.apiKeys.getKey('curseforge');
+    const key = await this.apiKeys.getKey('curseforge');
     if (!key) throw new PreconditionFailedException('CurseForge API key not set — add it in Settings');
 
     const url = new URL(BASE + pathname);
     if (search) for (const [k, v] of Object.entries(search)) url.searchParams.set(k, String(v));
     const cacheKey = `curseforge:${method}:${url.pathname}${url.search}:${body ? JSON.stringify(body) : ''}`;
-    const cached = method === 'GET' ? this.cache.get(cacheKey) : null;
+    const cached = method === 'GET' ? await this.cache.get(cacheKey) : null;
     if (cached && cached.ageMs < ttlMs) return cached.value as T;
     const res = await fetch(url, {
       method,

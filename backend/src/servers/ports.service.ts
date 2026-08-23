@@ -33,8 +33,8 @@ export class PortsService {
     });
   }
 
-  private dbPortsInUse(): Set<number> {
-    const rows = this.dbService.db
+  private async dbPortsInUse(): Promise<Set<number>> {
+    const rows = await this.dbService.db
       .select({
         portGame: servers.portGame,
         portRcon: servers.portRcon,
@@ -42,8 +42,7 @@ export class PortsService {
         extraPortsJson: servers.extraPortsJson,
       })
       .from(servers)
-      .where(isNull(servers.deletedAt))
-      .all();
+      .where(isNull(servers.deletedAt));
     const used = new Set<number>();
     for (const r of rows) {
       used.add(r.portGame);
@@ -56,11 +55,10 @@ export class PortsService {
     // BlueMap's web-server port lives in `integrations`, not on the server
     // row — it must be unioned in too, or a fresh port allocation could
     // collide with it.
-    const integrationRows = this.dbService.db
+    const integrationRows = await this.dbService.db
       .select({ configJson: integrations.configJson })
       .from(integrations)
-      .where(and(eq(integrations.kind, 'bluemap'), eq(integrations.enabled, true)))
-      .all();
+      .where(and(eq(integrations.kind, 'bluemap'), eq(integrations.enabled, true)));
     for (const row of integrationRows) {
       const hostPort = (JSON.parse(row.configJson || '{}') as { hostPort?: number }).hostPort;
       if (hostPort) used.add(hostPort);
@@ -80,13 +78,13 @@ export class PortsService {
     if (!Number.isInteger(port)) return false;
     const p = port as number;
     if (p < 1024 || p > 65535) return false;
-    if (this.dbPortsInUse().has(p)) return false;
+    if ((await this.dbPortsInUse()).has(p)) return false;
     return this.probe(p);
   }
 
   /** Suggest a { game, rcon } pair (and bedrock when requested). */
   async suggestPorts({ withBedrock = false }: SuggestPortsOptions = {}): Promise<SuggestedPorts> {
-    const used = this.dbPortsInUse();
+    const used = await this.dbPortsInUse();
     let game = this.config.ports.gameStart;
     for (;;) {
       const rcon = game + this.config.ports.rconOffset;

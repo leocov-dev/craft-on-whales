@@ -10,6 +10,7 @@ import { JavaMatrixService } from '../servers/java-matrix.service';
 import { ModrinthApiService } from '../mods/modrinth-api.service';
 import { CurseforgeApiService } from '../mods/curseforge-api.service';
 import { GtnhApiService } from '../mods/gtnh-api.service';
+import { PackwizApiService } from '../mods/packwiz-api.service';
 import { ModsService } from '../mods/mods.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { WorldPropsService } from '../worlds/world-props.service';
@@ -34,6 +35,7 @@ export class PacksService {
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
     private readonly gtnh: GtnhApiService,
+    private readonly packwiz: PackwizApiService,
     private readonly mods: ModsService,
     private readonly pathGuard: PathGuardService,
     private readonly worldProps: WorldPropsService,
@@ -123,6 +125,27 @@ export class PacksService {
         allVersions: [],
       };
     }
+    if (platform === 'packwiz') {
+      // packwiz has no search API and no version registry: `ref` IS the
+      // pack.toml URL, and "the version" is the sha256 of the resolved
+      // index.toml — packwiz's own hash for exactly this content, and the
+      // only stable thing to pin/compare against since pack.toml's `version`
+      // field is free text authors aren't required to bump.
+      if (!/^https?:\/\//i.test(ref)) throw new BadRequestException('packwiz packs are referenced by their pack.toml URL');
+      const resolved = await this.packwiz.resolvePack(ref);
+      const loaders = (['fabric', 'forge', 'quilt', 'neoforge'] as const).filter((l) => resolved.pack.versions[l]);
+      return {
+        platform,
+        projectRef: ref,
+        projectId: ref,
+        projectName: resolved.pack.name,
+        versionId: resolved.indexHash,
+        versionName: resolved.pack.version || resolved.indexHash.slice(0, 12),
+        mcVersion: resolved.pack.versions.minecraft,
+        loaders: loaders.length ? loaders : undefined,
+        allVersions: [],
+      };
+    }
     // platform === 'gtnh'
     // GTNH is a single project with no search API: `ref` is the constant 'gtnh',
     // and a pack version is its own id. The Minecraft version is hardcoded
@@ -175,6 +198,14 @@ export class PacksService {
       // Pinning GTNH_PACK_VERSION alone is what prevents silent upgrades.
       return { TYPE: 'GTNH', GTNH_PACK_VERSION: resolved.versionId };
     }
+    if (resolved.platform === 'packwiz') {
+      // No pin var to speak of: PACKWIZ_URL always points at whatever the
+      // pack currently is. "Pinning" for packwiz means the panel tracking
+      // the index hash it resolved at install time (server_packs), not the
+      // container image — a re-check compares the URL's CURRENT hash against
+      // that stored one, same as every other platform's update check.
+      return { TYPE: 'PACKWIZ', PACKWIZ_URL: resolved.projectRef };
+    }
     return { TYPE: 'FTBA', FTB_MODPACK_ID: resolved.projectRef, FTB_MODPACK_VERSION_ID: resolved.versionId };
   }
 
@@ -188,7 +219,7 @@ export class PacksService {
     resolved: ResolvedPack,
     { actor = 'system', force = false }: { actor?: string; force?: boolean } = {}
   ): Promise<{ previous: ServerPackRow | null }> {
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
 
     // World-safety guard (learned the hard way): applying a pack that targets a
@@ -201,7 +232,8 @@ export class PacksService {
       }
     }
 
-    const previous = this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).get() ?? null;
+    const previousRows = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
+    const previous = previousRows[0] ?? null;
 
     // Strip EVERY previous pack-selection/exclusion env var (CF_/MODRINTH_/FTB_/GTNH_)
     // before merging the new pack env: switching platform (or even version)
@@ -209,7 +241,7 @@ export class PacksService {
     // user env is preserved. SKIP_GTNH_ is its own prefix (not GTNH_-prefixed)
     // because that env var name is dictated by the container image's contract.
     const cleanedEnv: Record<string, string> = Object.fromEntries(
-      Object.entries(server.env).filter(([key]) => !/^(CF_|MODRINTH_|FTB_|GTNH_|SKIP_GTNH_)/.test(key))
+      Object.entries(server.env).filter(([key]) => !/^(CF_|MODRINTH_|FTB_|GTNH_|SKIP_GTNH_|PACKWIZ_)/.test(key))
     );
     const env: Record<string, string> = { ...cleanedEnv, ...this.packEnv(resolved) };
     // GTNH's own server start scripts ship -Dfml.queryResult=confirm, and the
@@ -232,7 +264,7 @@ export class PacksService {
     const type = env.TYPE!;
     delete env.TYPE;
 
-    this.db
+    await this.db
       .update(servers)
       .set({
         type,
@@ -240,10 +272,9 @@ export class PacksService {
         pendingRecreate: true,
         ...(resolved.mcVersion ? { mcVersion: resolved.mcVersion } : {}),
       })
-      .where(eq(servers.id, serverId))
-      .run();
+      .where(eq(servers.id, serverId));
 
-    this.db
+    await this.db
       .insert(serverPacks)
       .values({
         serverId,
@@ -270,8 +301,7 @@ export class PacksService {
           maxJavaVersion: resolved.maxJavaVersion ?? null,
           channel: resolved.channel ?? null,
         },
-      })
-      .run();
+      });
 
     this.events.recordEvent({
       serverId,
@@ -289,15 +319,29 @@ export class PacksService {
     return { previous };
   }
 
-  getPack(serverId: string): ServerPackRow | null {
-    return this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).get() ?? null;
+  async getPack(serverId: string): Promise<ServerPackRow | null> {
+    const [row] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
+    return row ?? null;
   }
 
   /** Latest available version for a server's pinned pack (for the update checker). */
   async latestFor(serverId: string): Promise<PackLatestInfo | null> {
-    const pack = this.getPack(serverId);
+    const pack = await this.getPack(serverId);
     if (!pack) return null;
     if (pack.platform === 'ftb') return null; // FTB API not wired for checks yet
+    if (pack.platform === 'packwiz') {
+      // No version registry to page through: re-fetch the pinned URL and
+      // compare index hashes. `projectRef` IS the pack.toml URL for packwiz.
+      const resolved = await this.packwiz.resolvePack(pack.projectRef);
+      return {
+        current: { id: pack.pinnedVersionId, name: pack.pinnedVersionName },
+        latest: { id: resolved.indexHash, name: resolved.pack.version || resolved.indexHash.slice(0, 12) },
+        updateAvailable: resolved.indexHash !== pack.pinnedVersionId,
+        projectName: pack.projectName,
+        projectRef: pack.projectRef,
+        platform: pack.platform,
+      };
+    }
     if (pack.platform === 'gtnh') {
       // Track the channel this server was pinned from: a stable server must never
       // be offered a beta, and a beta server should see beta releases.
@@ -315,7 +359,7 @@ export class PacksService {
     }
     // Scope "latest" to the server's own MC version — otherwise the checker
     // offers upgrades that silently cross MC versions.
-    const server = this.serverQuery.getServer(serverId);
+    const server = await this.serverQuery.getServer(serverId);
     const mcVersion = server && !['LATEST', 'SNAPSHOT'].includes(server.mc_version) ? server.mc_version : undefined;
     const resolved = await this.resolvePack(pack.platform as PackPlatform, pack.projectRef, { mcVersion });
     return {

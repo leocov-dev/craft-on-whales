@@ -1,0 +1,16 @@
+{
+  "name": "@craft-on-whales/sqlite-to-postgres",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-shot cutover: copy an existing panel.db SQLite database into an already-migrated, empty Postgres database.",
+  "license": "MIT",
+  "bin": {
+    "sqlite-to-postgres": "./bin.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  }
+}

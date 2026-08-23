@@ -71,8 +71,8 @@ export class SchedulerService implements OnModuleInit {
     return this.dbService.db;
   }
 
-  onModuleInit(): void {
-    this.startScheduler();
+  async onModuleInit(): Promise<void> {
+    await this.startScheduler();
   }
 
   private async runTask(job: ScheduleRow): Promise<void> {
@@ -121,14 +121,14 @@ export class SchedulerService implements OnModuleInit {
         // Scheduled path only clears entries older than 24h so in-flight
         // downloads/uploads survive the 04:30 sweep (boot still wipes fully).
         this.dataRoot.cleanTmp({ olderThanMs: 24 * 60 * 60 * 1000 });
-        this.sessions.pruneExpiredSessions();
+        await this.sessions.pruneExpiredSessions();
         break;
       default:
         throw new Error(`Unknown task type ${job.taskType}`);
     }
   }
 
-  private schedule(job: ScheduleRow): void {
+  private async schedule(job: ScheduleRow): Promise<void> {
     this.stopJob(job.id);
     if (!job.enabled) return;
     try {
@@ -137,8 +137,9 @@ export class SchedulerService implements OnModuleInit {
       // timezone: without it croner evaluates the expression in the SYSTEM
       // timezone (UTC in most containers), not the operator's configured
       // one — "0 3 * * *" would then fire at 3am UTC, not 3am in Settings.
-      const cron = new Cron(job.cron, { catch: true, protect: true, timezone: this.settings.getTimezone() }, async () => {
-        this.db.update(schedules).set({ lastRunAt: new Date().toISOString().slice(0, 19).replace('T', ' ') }).where(eq(schedules.id, job.id)).run();
+      const timezone = await this.settings.getTimezone();
+      const cron = new Cron(job.cron, { catch: true, protect: true, timezone }, async () => {
+        await this.db.update(schedules).set({ lastRunAt: new Date().toISOString().slice(0, 19).replace('T', ' ') }).where(eq(schedules.id, job.id));
         this.events.recordEvent({
           serverId: job.serverId || null,
           actor: 'scheduler',
@@ -174,65 +175,61 @@ export class SchedulerService implements OnModuleInit {
   /** Re-arm every schedule against the CURRENT timezone — call after it
    *  changes in Settings, or already-running jobs keep firing on the old
    *  one until the panel restarts. */
-  rearmAll(): void {
-    for (const job of this.db.select().from(schedules).all()) this.schedule(job);
+  async rearmAll(): Promise<void> {
+    for (const job of await this.db.select().from(schedules)) await this.schedule(job);
   }
 
-  private startScheduler(): void {
-    this.seedGlobalDefaults();
-    for (const job of this.db.select().from(schedules).all()) this.schedule(job);
+  private async startScheduler(): Promise<void> {
+    await this.seedGlobalDefaults();
+    for (const job of await this.db.select().from(schedules)) await this.schedule(job);
     // eslint-disable-next-line no-console
     console.log(`[scheduler] ${this.jobs.size} job(s) armed`);
   }
 
   /** Global maintenance tasks exist from first boot; user can disable/edit. */
-  private seedGlobalDefaults(): void {
+  private async seedGlobalDefaults(): Promise<void> {
     const defaults: { taskType: string; cron: string }[] = [
       { taskType: 'update-check', cron: '0 3 * * *' },
       { taskType: 'storage-scan', cron: '0 */6 * * *' },
       { taskType: 'tmp-clean', cron: '30 4 * * *' },
     ];
     for (const d of defaults) {
-      const exists = this.db
+      const [exists] = await this.db
         .select({ id: schedules.id })
         .from(schedules)
         .where(and(eq(schedules.taskType, d.taskType), isNull(schedules.serverId)))
-        .get();
+        .limit(1);
       if (!exists) {
-        this.db
+        await this.db
           .insert(schedules)
-          .values({ id: `sch_${nanoid(8)}`, serverId: null, taskType: d.taskType, cron: d.cron, payloadJson: '{}', enabled: true })
-          .run();
+          .values({ id: `sch_${nanoid(8)}`, serverId: null, taskType: d.taskType, cron: d.cron, payloadJson: '{}', enabled: true });
       }
     }
   }
 
-  createSchedule(
+  async createSchedule(
     { serverId = null, taskType, cron, payload = {}, enabled = true }: CreateScheduleInput,
     { actor = 'system' }: { actor?: string } = {}
-  ): ScheduleView | undefined {
+  ): Promise<ScheduleView | undefined> {
     if (!TASK_TYPES[taskType as TaskType]) throw new BadRequestException(`Unknown task type ${taskType}`);
-    new Cron(cron, { timezone: this.settings.getTimezone() }); // validates; throws on bad expression
+    new Cron(cron, { timezone: await this.settings.getTimezone() }); // validates; throws on bad expression
     const id = `sch_${nanoid(8)}`;
-    this.db
-      .insert(schedules)
-      .values({ id, serverId, taskType, cron, payloadJson: JSON.stringify(payload), enabled })
-      .run();
-    const job = this.db.select().from(schedules).where(eq(schedules.id, id)).get()!;
-    this.schedule(job);
+    await this.db.insert(schedules).values({ id, serverId, taskType, cron, payloadJson: JSON.stringify(payload), enabled });
+    const [job] = await this.db.select().from(schedules).where(eq(schedules.id, id)).limit(1);
+    await this.schedule(job!);
     this.events.recordEvent({
       serverId,
       actor,
       type: 'schedule-created',
       summary: `Schedule created: ${TASK_TYPES[taskType as TaskType].label} (${cron})`,
     });
-    return this.listSchedules().find((s) => s.id === id);
+    return (await this.listSchedules()).find((s) => s.id === id);
   }
 
-  setEnabled(id: string, enabled: boolean, { actor = 'system' }: { actor?: string } = {}): void {
-    this.db.update(schedules).set({ enabled }).where(eq(schedules.id, id)).run();
-    const job = this.db.select().from(schedules).where(eq(schedules.id, id)).get();
-    if (job) this.schedule(job);
+  async setEnabled(id: string, enabled: boolean, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+    await this.db.update(schedules).set({ enabled }).where(eq(schedules.id, id));
+    const [job] = await this.db.select().from(schedules).where(eq(schedules.id, id)).limit(1);
+    if (job) await this.schedule(job);
     this.events.recordEvent({
       serverId: job?.serverId || null,
       actor,
@@ -243,10 +240,10 @@ export class SchedulerService implements OnModuleInit {
 
   /** Disarm and delete a schedule. Also called by `ServerLifecycleService`
    *  (via `forwardRef`) to disarm a server's cron jobs before it's deleted. */
-  deleteSchedule(id: string, { actor = 'system' }: { actor?: string } = {}): void {
-    const job = this.db.select().from(schedules).where(eq(schedules.id, id)).get();
+  async deleteSchedule(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+    const [job] = await this.db.select().from(schedules).where(eq(schedules.id, id)).limit(1);
     this.stopJob(id);
-    this.db.delete(schedules).where(eq(schedules.id, id)).run();
+    await this.db.delete(schedules).where(eq(schedules.id, id));
     if (job) {
       this.events.recordEvent({
         serverId: job.serverId,
@@ -257,42 +254,42 @@ export class SchedulerService implements OnModuleInit {
     }
   }
 
-  listSchedules(): ScheduleView[] {
-    return this.db
-      .select()
-      .from(schedules)
-      .all()
-      .map((s): ScheduleView => {
-        let next: string | null = null;
-        let nextMs: number | null = null;
-        try {
-          const nextRun = new Cron(s.cron, { timezone: this.settings.getTimezone() }).nextRun();
-          if (nextRun) {
-            next = nextRun.toISOString().replace('T', ' ').slice(0, 16);
-            nextMs = nextRun.getTime();
-          }
-        } catch {
-          /* invalid cron stays null */
+  async listSchedules(): Promise<ScheduleView[]> {
+    const rows = await this.db.select().from(schedules);
+    const tz = await this.settings.getTimezone();
+    const results: ScheduleView[] = [];
+    for (const s of rows) {
+      let next: string | null = null;
+      let nextMs: number | null = null;
+      try {
+        const nextRun = new Cron(s.cron, { timezone: tz }).nextRun();
+        if (nextRun) {
+          next = nextRun.toISOString().replace('T', ' ').slice(0, 16);
+          nextMs = nextRun.getTime();
         }
-        // lastRunAt is SQLite datetime('now') — UTC without a zone marker.
-        const lastRunMs = s.lastRunAt ? Date.parse(s.lastRunAt.replace(' ', 'T') + 'Z') : null;
-        const server = s.serverId
-          ? this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, s.serverId)).get()
-          : null;
-        return {
-          id: s.id,
-          serverId: s.serverId,
-          server: server ? server.displayName : '— global —',
-          task: TASK_TYPES[s.taskType as TaskType]?.label || s.taskType,
-          taskType: s.taskType,
-          cron: s.cron,
-          payload: JSON.parse(s.payloadJson || '{}'),
-          enabled: Boolean(s.enabled),
-          lastRun: s.lastRunAt,
-          lastRunMs: Number.isFinite(lastRunMs) ? lastRunMs : null,
-          next,
-          nextMs,
-        };
+      } catch {
+        /* invalid cron stays null */
+      }
+      // lastRunAt is SQLite datetime('now') — UTC without a zone marker.
+      const lastRunMs = s.lastRunAt ? Date.parse(s.lastRunAt.replace(' ', 'T') + 'Z') : null;
+      const server = s.serverId
+        ? (await this.db.select({ displayName: servers.displayName }).from(servers).where(eq(servers.id, s.serverId)).limit(1))[0]
+        : null;
+      results.push({
+        id: s.id,
+        serverId: s.serverId,
+        server: server ? server.displayName : '— global —',
+        task: TASK_TYPES[s.taskType as TaskType]?.label || s.taskType,
+        taskType: s.taskType,
+        cron: s.cron,
+        payload: JSON.parse(s.payloadJson || '{}'),
+        enabled: Boolean(s.enabled),
+        lastRun: s.lastRunAt,
+        lastRunMs: Number.isFinite(lastRunMs) ? lastRunMs : null,
+        next,
+        nextMs,
       });
+    }
+    return results;
   }
 }

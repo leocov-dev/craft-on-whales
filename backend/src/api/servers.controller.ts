@@ -215,15 +215,15 @@ export class ServersController {
 
   @Get('servers')
   async list() {
-    const rows = this.query.listServers();
+    const rows = await this.query.listServers();
     const list = await Promise.all(rows.map((s) => this.vm.serverVM(s)));
     return { ok: true, servers: list };
   }
 
   @Get('servers/live')
-  live() {
+  async live() {
     const out: Record<string, unknown> = {};
-    for (const row of this.db.select({ id: servers.id, status: servers.status }).from(servers).all()) {
+    for (const row of await this.db.select({ id: servers.id, status: servers.status }).from(servers)) {
       out[row.id] = { status: row.status, ...LIVE_EMPTY, phase: null };
     }
     return { ok: true, servers: out };
@@ -240,31 +240,31 @@ export class ServersController {
   @Post('servers/:id/start')
   async start(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.startServer(id, { actor: req.user!.username });
-    return { ok: true, server: publicServer(this.query.getServer(id)) };
+    return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/stop')
   async stop(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.stopServer(id, { actor: req.user!.username });
-    return { ok: true, server: publicServer(this.query.getServer(id)) };
+    return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/restart')
   async restart(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.restartServer(id, { actor: req.user!.username });
-    return { ok: true, server: publicServer(this.query.getServer(id)) };
+    return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/kill')
   async kill(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.killServer(id, { actor: req.user!.username });
-    return { ok: true, server: publicServer(this.query.getServer(id)) };
+    return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/recreate')
   async recreate(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.recreateServer(id, { actor: req.user!.username });
-    return { ok: true, server: publicServer(this.query.getServer(id)) };
+    return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Patch('servers/:id')
@@ -272,7 +272,7 @@ export class ServersController {
     const changes = parseBody(patchSchema, body);
     requireAdminForOverrides(req, changes);
     if (changes.containerName !== undefined || changes.networkName !== undefined || changes.extraPorts !== undefined || changes.extraBinds !== undefined) {
-      const before = this.query.mustGet(id);
+      const before = await this.query.mustGet(id);
       await this.dockerSpec.validateOverrides(
         {
           containerName: changes.containerName || null,
@@ -283,7 +283,7 @@ export class ServersController {
         { previousExtraPorts: before.extraPorts }
       );
     }
-    const { server, needsRecreate } = this.lifecycle.updateServer(id, changes as never, { actor: req.user!.username });
+    const { server, needsRecreate } = await this.lifecycle.updateServer(id, changes as never, { actor: req.user!.username });
     return { ok: true, needsRecreate, server: publicServer(server) };
   }
 
@@ -300,10 +300,10 @@ export class ServersController {
   }
 
   @Put('servers/:id/console-label')
-  consoleLabel(@Param('id') id: string, @Body() body: unknown) {
-    this.query.mustGet(id);
+  async consoleLabel(@Param('id') id: string, @Body() body: unknown) {
+    await this.query.mustGet(id);
     const { label } = parseBody(z.object({ label: z.string().max(48).optional() }), body);
-    return { ok: true, label: this.environment.setConsoleLabel(id, label) };
+    return { ok: true, label: await this.environment.setConsoleLabel(id, label) };
   }
 
   @Get('servers/:id/stats')
@@ -313,10 +313,10 @@ export class ServersController {
 
   @Get('servers/:id')
   async detail(@Param('id') id: string) {
-    const row = this.query.mustGet(id);
+    const row = await this.query.mustGet(id);
     const vm = await this.vm.serverVM(row);
     const addrs: string[] = [];
-    const publicAddr = this.settings.publicAddress(row.port_game);
+    const publicAddr = await this.settings.publicAddress(row.port_game);
     if (publicAddr) addrs.push(publicAddr);
     for (const nics of Object.values(os.networkInterfaces())) {
       for (const nic of nics || []) {
@@ -385,9 +385,9 @@ export class ServersController {
   @Get('servers/:id/docker-spec')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  serverDockerSpec(@Param('id') id: string) {
-    this.query.mustGet(id);
-    return { ok: true, yaml: this.dockerSpec.toYaml(this.preview.previewServerSpec(id) as never) };
+  async serverDockerSpec(@Param('id') id: string) {
+    await this.query.mustGet(id);
+    return { ok: true, yaml: this.dockerSpec.toYaml((await this.preview.previewServerSpec(id)) as never) };
   }
 
   // multipart field: 'icon'. Stores <dataDir>/library/icons/custom/<serverId><ext>
@@ -395,7 +395,7 @@ export class ServersController {
   @Post('servers/:id/icon')
   @UseInterceptors(FileInterceptor('icon', { limits: { fileSize: ICON_MAX_BYTES, files: 1 } }))
   async uploadIcon(@Req() req: Request, @Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {
-    const server = this.query.mustGet(id);
+    const server = await this.query.mustGet(id);
     try {
       if (!file) throw new BadRequestException('Attach an image (field "icon")');
       const ext = ICON_EXTS[file.mimetype];
@@ -412,7 +412,7 @@ export class ServersController {
         await fsp.copyFile(file.path, path.join(destDir, filename));
         await fsp.rm(file.path, { force: true });
       });
-      this.db.update(servers).set({ icon: `custom:${filename}` }).where(eq(servers.id, server.id)).run();
+      await this.db.update(servers).set({ icon: `custom:${filename}` }).where(eq(servers.id, server.id));
       this.events.recordEvent({
         serverId: server.id,
         actor: req.user!.username,

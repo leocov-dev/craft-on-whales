@@ -58,10 +58,10 @@ export class BackupsService {
   }
 
   async createBackup(serverId: string, { reason = 'manual', actor = 'system', note = '', task = null }: CreateBackupOptions = {}) {
-    const server = this.db.select().from(servers).where(and(eq(servers.id, serverId), isNull(servers.deletedAt))).get();
+    const [server] = await this.db.select().from(servers).where(and(eq(servers.id, serverId), isNull(servers.deletedAt))).limit(1);
     if (!server) throw new NotFoundException('Server not found');
 
-    const needed = this.indexer.sizeOf(`servers/${serverId}`) || 0;
+    const needed = (await this.indexer.sizeOf(`servers/${serverId}`)) || 0;
     const { free } = await this.indexer.diskFree();
     if (needed && free < needed * 1.1) {
       throw new HttpException(`Not enough disk space for a backup (~${(needed / 1024 ** 3).toFixed(1)} GB needed)`, 507);
@@ -113,7 +113,7 @@ export class BackupsService {
 
     const size = (await fsp.stat(absPath)).size;
     const id = `bk_${nanoid(8)}`;
-    this.db.insert(backups).values({ id, serverId, filename, relPath, sizeBytes: size, reason, note }).run();
+    await this.db.insert(backups).values({ id, serverId, filename, relPath, sizeBytes: size, reason, note });
     this.events.recordEvent({
       serverId,
       actor,
@@ -123,12 +123,13 @@ export class BackupsService {
     });
     await this.pruneRetention(serverId, { actor });
     this.indexer.scan().catch(() => {});
-    return this.db.select().from(backups).where(eq(backups.id, id)).get()!;
+    const [row] = await this.db.select().from(backups).where(eq(backups.id, id)).limit(1);
+    return row!;
   }
 
   /** Restore = stop server, wipe dir, extract archive. Safety backup first unless told not to. */
   async restoreBackup(serverId: string, backupId: string, { actor = 'system', skipSafety = false, task = null }: RestoreBackupOptions = {}): Promise<{ ok: true }> {
-    const backup = this.db.select().from(backups).where(and(eq(backups.id, backupId), eq(backups.serverId, serverId))).get();
+    const [backup] = await this.db.select().from(backups).where(and(eq(backups.id, backupId), eq(backups.serverId, serverId))).limit(1);
     if (!backup) throw new NotFoundException('Backup not found');
 
     const zipStat = await fsp.stat(this.pathGuard.dataPath(backup.relPath)).catch(() => null);
@@ -163,10 +164,10 @@ export class BackupsService {
   }
 
   async deleteBackup(backupId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
-    const backup = this.db.select().from(backups).where(eq(backups.id, backupId)).get();
+    const [backup] = await this.db.select().from(backups).where(eq(backups.id, backupId)).limit(1);
     if (!backup) return { freedBytes: 0 };
     await fsp.rm(this.pathGuard.dataPath(backup.relPath), { force: true });
-    this.db.delete(backups).where(eq(backups.id, backupId)).run();
+    await this.db.delete(backups).where(eq(backups.id, backupId));
     this.events.recordEvent({
       serverId: backup.serverId,
       actor,
@@ -178,16 +179,15 @@ export class BackupsService {
 
   /** Keep newest N scheduled; manual + pre-update are never auto-pruned. */
   async pruneRetention(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<number> {
-    const keepIds = this.db
+    const keepRows = await this.db
       .select({ id: backups.id })
       .from(backups)
       .where(and(eq(backups.serverId, serverId), eq(backups.reason, 'scheduled')))
       .orderBy(desc(backups.createdAt))
-      .limit(KEEP_SCHEDULED)
-      .all()
-      .map((r) => r.id);
-    const staleQuery = this.db.select().from(backups).where(and(eq(backups.serverId, serverId), eq(backups.reason, 'scheduled')));
-    const stale = (keepIds.length ? staleQuery.all().filter((b) => !keepIds.includes(b.id)) : staleQuery.all());
+      .limit(KEEP_SCHEDULED);
+    const keepIds = keepRows.map((r) => r.id);
+    const allScheduled = await this.db.select().from(backups).where(and(eq(backups.serverId, serverId), eq(backups.reason, 'scheduled')));
+    const stale = keepIds.length ? allScheduled.filter((b) => !keepIds.includes(b.id)) : allScheduled;
     for (const b of stale) await this.deleteBackup(b.id, { actor });
     return stale.length;
   }

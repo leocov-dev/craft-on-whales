@@ -221,40 +221,34 @@ export class ChatCommandsService {
     return { ...row, action: row.action as ChatAction, permission: row.permission as ChatPermission, params, enabled: Boolean(row.enabled) };
   }
 
-  listCommands(serverId: string): HydratedCommand[] {
-    return this.db
-      .select()
-      .from(chatCommands)
-      .where(eq(chatCommands.serverId, serverId))
-      .orderBy(asc(chatCommands.trigger))
-      .all()
-      .map((row) => this.hydrate(row));
+  async listCommands(serverId: string): Promise<HydratedCommand[]> {
+    const rows = await this.db.select().from(chatCommands).where(eq(chatCommands.serverId, serverId)).orderBy(asc(chatCommands.trigger));
+    return rows.map((row) => this.hydrate(row));
   }
 
-  getCommand(serverId: string, cmdId: string): HydratedCommand | null {
-    const row = this.db
+  async getCommand(serverId: string, cmdId: string): Promise<HydratedCommand | null> {
+    const [row] = await this.db
       .select()
       .from(chatCommands)
       .where(sql`${chatCommands.id} = ${cmdId} AND ${chatCommands.serverId} = ${serverId}`)
-      .get();
+      .limit(1);
     return row ? this.hydrate(row) : null;
   }
 
-  getPrefix(serverId: string): string {
-    const row = this.db.select({ prefix: chatCommandSettings.prefix }).from(chatCommandSettings).where(eq(chatCommandSettings.serverId, serverId)).get();
+  async getPrefix(serverId: string): Promise<string> {
+    const [row] = await this.db.select({ prefix: chatCommandSettings.prefix }).from(chatCommandSettings).where(eq(chatCommandSettings.serverId, serverId)).limit(1);
     return row ? row.prefix : '!';
   }
 
-  setPrefix(serverId: string, prefixInput: unknown, { actor = 'system' }: { actor?: string } = {}): { prefix: string } {
+  async setPrefix(serverId: string, prefixInput: unknown, { actor = 'system' }: { actor?: string } = {}): Promise<{ prefix: string }> {
     const prefix = String(prefixInput || '').trim();
     if (!PREFIX_RE.test(prefix)) {
       throw new BadRequestException('Prefix must be 1-2 characters from ! . # + ? $ % & * ~ ^ = - (never /)');
     }
-    this.db
+    await this.db
       .insert(chatCommandSettings)
       .values({ serverId, prefix })
-      .onConflictDoUpdate({ target: chatCommandSettings.serverId, set: { prefix } })
-      .run();
+      .onConflictDoUpdate({ target: chatCommandSettings.serverId, set: { prefix } });
     this.cache.delete(serverId);
     this.events.recordEvent({
       serverId,
@@ -266,28 +260,25 @@ export class ChatCommandsService {
     return { prefix };
   }
 
-  createCommand(serverId: string, input: ValidateSpecInput & { enabled?: boolean }, { actor = 'system' }: { actor?: string } = {}): HydratedCommand | null {
+  async createCommand(serverId: string, input: ValidateSpecInput & { enabled?: boolean }, { actor = 'system' }: { actor?: string } = {}): Promise<HydratedCommand | null> {
     const spec = this.validateSpec(input);
     const enabled = input.enabled !== false;
     const id = `ccmd_${nanoid(8)}`;
     try {
-      this.db
-        .insert(chatCommands)
-        .values({
-          id,
-          serverId,
-          trigger: spec.trigger,
-          description: spec.description,
-          action: spec.action,
-          params: JSON.stringify(spec.params),
-          permission: spec.permission,
-          cooldownSec: spec.cooldownSec,
-          enabled,
-          msgPending: spec.msgPending,
-          msgSuccess: spec.msgSuccess,
-          msgFailure: spec.msgFailure,
-        })
-        .run();
+      await this.db.insert(chatCommands).values({
+        id,
+        serverId,
+        trigger: spec.trigger,
+        description: spec.description,
+        action: spec.action,
+        params: JSON.stringify(spec.params),
+        permission: spec.permission,
+        cooldownSec: spec.cooldownSec,
+        enabled,
+        msgPending: spec.msgPending,
+        msgSuccess: spec.msgSuccess,
+        msgFailure: spec.msgFailure,
+      });
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) {
         throw new ConflictException(`A command named "${spec.trigger}" already exists on this server`);
@@ -299,26 +290,26 @@ export class ChatCommandsService {
       serverId,
       actor,
       type: 'chat-command-config',
-      summary: `Chat command ${this.getPrefix(serverId)}${spec.trigger} created (${this.actionSummary(spec)})`,
+      summary: `Chat command ${await this.getPrefix(serverId)}${spec.trigger} created (${this.actionSummary(spec)})`,
       details: { id, ...spec },
     });
     return this.getCommand(serverId, id);
   }
 
-  updateCommand(serverId: string, cmdId: string, changes: CommandChanges, { actor = 'system' }: { actor?: string } = {}): HydratedCommand | null {
-    const existing = this.getCommand(serverId, cmdId);
+  async updateCommand(serverId: string, cmdId: string, changes: CommandChanges, { actor = 'system' }: { actor?: string } = {}): Promise<HydratedCommand | null> {
+    const existing = await this.getCommand(serverId, cmdId);
     if (!existing) throw new NotFoundException('Chat command not found');
 
     // Enabled-only toggles skip full re-validation (fast path for the UI toggle).
     const keys = (Object.keys(changes) as (keyof CommandChanges)[]).filter((k) => changes[k] !== undefined);
     if (keys.length === 1 && keys[0] === 'enabled') {
-      this.db.update(chatCommands).set({ enabled: Boolean(changes.enabled) }).where(eq(chatCommands.id, cmdId)).run();
+      await this.db.update(chatCommands).set({ enabled: Boolean(changes.enabled) }).where(eq(chatCommands.id, cmdId));
       this.cache.delete(serverId);
       this.events.recordEvent({
         serverId,
         actor,
         type: 'chat-command-config',
-        summary: `Chat command ${this.getPrefix(serverId)}${existing.trigger} ${changes.enabled ? 'enabled' : 'disabled'}`,
+        summary: `Chat command ${await this.getPrefix(serverId)}${existing.trigger} ${changes.enabled ? 'enabled' : 'disabled'}`,
         details: { id: cmdId, enabled: Boolean(changes.enabled) },
       });
       return this.getCommand(serverId, cmdId);
@@ -337,7 +328,7 @@ export class ChatCommandsService {
     });
     const enabled = changes.enabled ?? existing.enabled;
     try {
-      this.db
+      await this.db
         .update(chatCommands)
         .set({
           trigger: spec.trigger,
@@ -351,8 +342,7 @@ export class ChatCommandsService {
           msgSuccess: spec.msgSuccess,
           msgFailure: spec.msgFailure,
         })
-        .where(eq(chatCommands.id, cmdId))
-        .run();
+        .where(eq(chatCommands.id, cmdId));
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) {
         throw new ConflictException(`A command named "${spec.trigger}" already exists on this server`);
@@ -364,22 +354,22 @@ export class ChatCommandsService {
       serverId,
       actor,
       type: 'chat-command-config',
-      summary: `Chat command ${this.getPrefix(serverId)}${spec.trigger} updated (${this.actionSummary(spec)})`,
+      summary: `Chat command ${await this.getPrefix(serverId)}${spec.trigger} updated (${this.actionSummary(spec)})`,
       details: { id: cmdId, ...spec, enabled },
     });
     return this.getCommand(serverId, cmdId);
   }
 
-  deleteCommand(serverId: string, cmdId: string, { actor = 'system' }: { actor?: string } = {}): { deleted: true } {
-    const existing = this.getCommand(serverId, cmdId);
+  async deleteCommand(serverId: string, cmdId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ deleted: true }> {
+    const existing = await this.getCommand(serverId, cmdId);
     if (!existing) throw new NotFoundException('Chat command not found');
-    this.db.delete(chatCommands).where(eq(chatCommands.id, cmdId)).run();
+    await this.db.delete(chatCommands).where(eq(chatCommands.id, cmdId));
     this.cache.delete(serverId);
     this.events.recordEvent({
       serverId,
       actor,
       type: 'chat-command-config',
-      summary: `Chat command ${this.getPrefix(serverId)}${existing.trigger} deleted`,
+      summary: `Chat command ${await this.getPrefix(serverId)}${existing.trigger} deleted`,
       details: { id: cmdId, trigger: existing.trigger },
     });
     return { deleted: true };
@@ -397,12 +387,12 @@ export class ChatCommandsService {
   // -------------------------------------------------------------------------
   // Runtime: cache, cooldowns, concurrency
 
-  private getRuntime(serverId: string): RuntimeEntry {
+  private async getRuntime(serverId: string): Promise<RuntimeEntry> {
     const hit = this.cache.get(serverId);
     if (hit && Date.now() - hit.at < CACHE_MS) return hit;
     const byTrigger = new Map<string, HydratedCommand>();
-    for (const cmd of this.listCommands(serverId)) byTrigger.set(cmd.trigger, cmd);
-    const entry: RuntimeEntry = { at: Date.now(), prefix: this.getPrefix(serverId), byTrigger };
+    for (const cmd of await this.listCommands(serverId)) byTrigger.set(cmd.trigger, cmd);
+    const entry: RuntimeEntry = { at: Date.now(), prefix: await this.getPrefix(serverId), byTrigger };
     this.cache.set(serverId, entry);
     return entry;
   }
@@ -514,12 +504,11 @@ export class ChatCommandsService {
     return base.charAt(0).toUpperCase() + base.slice(1);
   }
 
-  private bumpUsage(serverId: string, cmd: HydratedCommand): void {
-    this.db
+  private async bumpUsage(serverId: string, cmd: HydratedCommand): Promise<void> {
+    await this.db
       .update(chatCommands)
       .set({ uses: sql`${chatCommands.uses} + 1`, lastUsedAt: sql`(datetime('now'))` })
-      .where(eq(chatCommands.id, cmd.id))
-      .run();
+      .where(eq(chatCommands.id, cmd.id));
     this.cache.delete(serverId);
   }
 
@@ -531,7 +520,7 @@ export class ChatCommandsService {
     const text = String(message || '').trim();
     if (!text || !PLAYER_RE.test(String(player))) return;
 
-    const runtime = this.getRuntime(serverId);
+    const runtime = await this.getRuntime(serverId);
     if (!runtime.byTrigger.size || !text.startsWith(runtime.prefix)) return;
 
     const parts = text.slice(runtime.prefix.length).trim().split(/\s+/);
@@ -599,7 +588,7 @@ export class ChatCommandsService {
     if (cmd.msgPending) void this.whisper(serverId, player, this.renderTemplate(cmd.msgPending, baseVars));
     try {
       const { message: defaultMsg, result } = await this.executeAction(serverId, cmd, player, args, ctx);
-      this.bumpUsage(serverId, cmd);
+      await this.bumpUsage(serverId, cmd);
       // State 2 — success: custom template (with result placeholders) or the built-in message.
       const successMsg = cmd.msgSuccess ? this.renderTemplate(cmd.msgSuccess, { ...baseVars, ...this.resultVars(result) }) : defaultMsg;
       void this.whisper(serverId, player, successMsg);
@@ -634,7 +623,7 @@ export class ChatCommandsService {
    * turns it into a friendly JSON error); records an event either way.
    */
   async testCommand(serverId: string, cmdId: string, player: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ message: string; result: ActionResult }> {
-    const cmd = this.getCommand(serverId, cmdId);
+    const cmd = await this.getCommand(serverId, cmdId);
     if (!cmd) throw new NotFoundException('Chat command not found');
     if (!PLAYER_RE.test(String(player))) throw new BadRequestException('Invalid player name');
 
@@ -646,14 +635,14 @@ export class ChatCommandsService {
     if (cmd.msgPending) void this.whisper(serverId, player, this.renderTemplate(cmd.msgPending, baseVars));
     try {
       const { message: defaultMsg, result } = await this.executeAction(serverId, cmd, player, [], ctx);
-      this.bumpUsage(serverId, cmd);
+      await this.bumpUsage(serverId, cmd);
       const message = cmd.msgSuccess ? this.renderTemplate(cmd.msgSuccess, { ...baseVars, ...this.resultVars(result) }) : defaultMsg;
       void this.whisper(serverId, player, message);
       this.events.recordEvent({
         serverId,
         actor,
         type: 'chat-command',
-        summary: `${player} ran ${this.getPrefix(serverId)}${cmd.trigger} (${this.actionSummary(cmd)}) — panel test`,
+        summary: `${player} ran ${await this.getPrefix(serverId)}${cmd.trigger} (${this.actionSummary(cmd)}) — panel test`,
         details: { trigger: cmd.trigger, action: cmd.action, params: cmd.params, player, success: true, via: 'test' },
       });
       return { message, result };
@@ -664,7 +653,7 @@ export class ChatCommandsService {
         serverId,
         actor,
         type: 'chat-command',
-        summary: `Panel test of ${this.getPrefix(serverId)}${cmd.trigger} as ${player} failed: ${String(e.message || e).slice(0, 140)}`,
+        summary: `Panel test of ${await this.getPrefix(serverId)}${cmd.trigger} as ${player} failed: ${String(e.message || e).slice(0, 140)}`,
         details: { trigger: cmd.trigger, action: cmd.action, player, success: false, reason: e.message, via: 'test' },
       });
       throw err;

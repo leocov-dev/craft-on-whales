@@ -99,3 +99,67 @@ export interface ModrinthVersion {
 export interface CurseforgeResolved extends CurseforgeMod {
   fileId: number | null;
 }
+
+/** Parsed `pack.toml` (https://packwiz.infra.link/reference/pack-format/pack-toml/) — fields this codebase reads. */
+export interface PackwizPackToml {
+  name: string;
+  author?: string;
+  version?: string;
+  'pack-format': string;
+  index: { file: string; 'hash-format': string; hash: string };
+  versions: {
+    minecraft: string;
+    fabric?: string;
+    forge?: string;
+    liteloader?: string;
+    quilt?: string;
+    neoforge?: string;
+  };
+}
+
+/** Parsed `index.toml` (https://packwiz.infra.link/reference/pack-format/index-toml/) — fields this codebase reads. */
+export interface PackwizIndexToml {
+  'hash-format': string;
+  files?: {
+    file: string;
+    hash: string;
+    'hash-format'?: string;
+    alias?: string;
+    metafile?: boolean;
+    preserve?: boolean;
+  }[];
+}
+
+/** Parsed per-mod `*.toml` (https://packwiz.infra.link/reference/pack-format/mod-toml/) — fields this codebase reads. */
+export interface PackwizModToml {
+  name: string;
+  filename: string;
+  side?: 'both' | 'client' | 'server';
+  download: {
+    url?: string;
+    'hash-format': string;
+    hash: string;
+    mode?: string;
+  };
+  update?: {
+    curseforge?: { 'project-id': number; 'file-id': number };
+    modrinth?: { 'mod-id': string; version: string };
+  };
+}
+
+/** A packwiz pack, resolved from a `pack.toml` URL — the pack + its index, ready to hash/pin/list. */
+export interface PackwizResolved {
+  packUrl: string;
+  pack: PackwizPackToml;
+  indexText: string;
+  index: PackwizIndexToml;
+  indexHash: string;
+}
+
+/** One mod entry surfaced by the packwiz details modal. */
+export interface PackwizModInfo {
+  name: string;
+  filename: string;
+  side: 'both' | 'client' | 'server';
+  updatePlatform: 'curseforge' | 'modrinth' | null;
+}

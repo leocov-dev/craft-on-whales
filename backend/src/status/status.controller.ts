@@ -40,8 +40,8 @@ export class StatusController {
   }
 
   private async loadPage(slug: string): Promise<StatusPageData | null> {
-    const serverId = this.status.findBySlug(slug);
-    const row = serverId ? this.serverQuery.getServer(serverId) : null;
+    const serverId = await this.status.findBySlug(slug);
+    const row = serverId ? await this.serverQuery.getServer(serverId) : null;
     if (!row) return null;
 
     let online = 0;

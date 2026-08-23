@@ -63,10 +63,10 @@ export class CrashesController {
       : this.pathGuard.dataPath('servers', serverId, 'crash-reports', filename);
   }
 
-  private ownedCrash(id: string, crashId: string) {
+  private async ownedCrash(id: string, crashId: string) {
     const serverId = parse(serverIdSchema, id);
     const cid = parse(crashIdSchema, crashId);
-    const row = this.crashes.getCrash(cid);
+    const row = await this.crashes.getCrash(cid);
     if (!row || row.serverId !== serverId) throw new NotFoundException('Crash report not found');
     return row;
   }
@@ -75,14 +75,14 @@ export class CrashesController {
   async list(@Param('id') id: string) {
     const serverId = parse(serverIdSchema, id);
     await this.crashes.scanServer(serverId).catch(() => {});
-    return { ok: true, crashes: this.crashes.listCrashes(serverId).map(publicCrash) };
+    return { ok: true, crashes: (await this.crashes.listCrashes(serverId)).map(publicCrash) };
   }
 
   // Must be declared before /:crashId routes (matches legacy ordering).
   @Get('export.zip')
-  exportZip(@Param('id') id: string, @Res() res: Response) {
+  async exportZip(@Param('id') id: string, @Res() res: Response) {
     const serverId = parse(serverIdSchema, id);
-    const rows = this.crashes.listCrashes(serverId);
+    const rows = await this.crashes.listCrashes(serverId);
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="crash-reports-${serverId}.zip"`);
@@ -98,30 +98,30 @@ export class CrashesController {
   }
 
   @Delete()
-  deleteOlderThan(@Param('id') id: string, @Query('olderThanDays') olderThanDays: string, @Req() req: Request) {
+  async deleteOlderThan(@Param('id') id: string, @Query('olderThanDays') olderThanDays: string, @Req() req: Request) {
     const serverId = parse(serverIdSchema, id);
     const days = parse(z.coerce.number().int().min(1).max(3650), olderThanDays);
-    return { ok: true, ...this.crashes.deleteOlderThan(serverId, days, { actor: req.user?.username }) };
+    return { ok: true, ...(await this.crashes.deleteOlderThan(serverId, days, { actor: req.user?.username })) };
   }
 
   @Get(':crashId/text')
-  text(@Param('id') id: string, @Param('crashId') crashId: string, @Res() res: Response) {
-    const row = this.ownedCrash(id, crashId);
-    const text = this.crashes.getCrashText(row.serverId, row.filename);
-    this.crashes.markViewed(row.id);
+  async text(@Param('id') id: string, @Param('crashId') crashId: string, @Res() res: Response) {
+    const row = await this.ownedCrash(id, crashId);
+    const text = await this.crashes.getCrashText(row.serverId, row.filename);
+    await this.crashes.markViewed(row.id);
     res.type('text/plain').send(text);
   }
 
   @Post(':crashId/viewed')
-  markViewed(@Param('id') id: string, @Param('crashId') crashId: string) {
-    this.crashes.markViewed(this.ownedCrash(id, crashId).id);
+  async markViewed(@Param('id') id: string, @Param('crashId') crashId: string) {
+    await this.crashes.markViewed((await this.ownedCrash(id, crashId)).id);
     return { ok: true };
   }
 
   @Delete(':crashId')
-  deleteOne(@Param('id') id: string, @Param('crashId') crashId: string, @Req() req: Request) {
-    const row = this.ownedCrash(id, crashId);
-    const { freedBytes } = this.crashes.deleteCrash(row.id, { actor: req.user?.username });
+  async deleteOne(@Param('id') id: string, @Param('crashId') crashId: string, @Req() req: Request) {
+    const row = await this.ownedCrash(id, crashId);
+    const { freedBytes } = await this.crashes.deleteCrash(row.id, { actor: req.user?.username });
     return { ok: true, freedBytes };
   }
 }

@@ -1,15 +1,28 @@
 import * as path from 'node:path';
 import { sql } from 'drizzle-orm';
-import { migrate } from 'drizzle-orm/node-sqlite/migrator';
+import { migrate as migrateSqlite } from 'drizzle-orm/node-sqlite/migrator';
+import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { DbService } from './db.service';
 
 const MIGRATIONS_FOLDER = path.resolve(__dirname, '..', '..', 'drizzle');
+const PG_MIGRATIONS_FOLDER = path.resolve(__dirname, '..', '..', 'drizzle-pg');
 const MIGRATIONS_TABLE = '__drizzle_migrations';
 
 // Invoked explicitly from main.ts's bootstrap sequence, not from the DI
 // graph — migrations must run before any request-handling code touches db.
-export function runMigrations(dbService: DbService): void {
+export async function runMigrations(dbService: DbService): Promise<void> {
+  // Postgres installs are always new (there's no legacy pre-Drizzle Postgres
+  // install to adopt), so none of the SQLite baseline logic below applies —
+  // just run drizzle's migrator straight against its own migrations folder.
+  if (dbService.driver === 'postgres') {
+    // dbService.db is typed as the SQLite drizzle shape unconditionally
+    // (see schema/DUAL_DIALECT_NOTES.md) but is genuinely a NodePgDatabase
+    // at runtime here — cast back to call the Postgres migrator.
+    await migratePg(dbService.db as unknown as Parameters<typeof migratePg>[0], { migrationsFolder: PG_MIGRATIONS_FOLDER });
+    return;
+  }
+
   const db = dbService.db;
 
   const migrationsTableExists =
@@ -43,7 +56,7 @@ export function runMigrations(dbService: DbService): void {
     }
   }
 
-  migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  migrateSqlite(db, { migrationsFolder: MIGRATIONS_FOLDER });
 }
 
 function baselineExistingSchema(dbService: DbService): void {

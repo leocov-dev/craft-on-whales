@@ -66,7 +66,7 @@ export class ServerEnvironmentService {
    * (EULA, RCON, memory, STOP_DURATION) are applied last so user env in
    * env_json can never break panel management.
    */
-  assembleEnv(server: Server): Record<string, string> {
+  async assembleEnv(server: Server): Promise<Record<string, string>> {
     const env: Record<string, string> = { ...server.env };
     env.EULA = 'TRUE';
     env.TYPE = server.type;
@@ -77,7 +77,7 @@ export class ServerEnvironmentService {
     if (!rconPassword) {
       // SESSION_SECRET changed — self-heal: mint a fresh password and persist it.
       rconPassword = this.secrets.generatePassword();
-      this.db.update(servers).set({ rconPasswordCipher: this.secrets.encrypt(rconPassword) }).where(eq(servers.id, server.id)).run();
+      await this.db.update(servers).set({ rconPasswordCipher: this.secrets.encrypt(rconPassword) }).where(eq(servers.id, server.id));
       this.events.recordEvent({
         serverId: server.id,
         type: 'rcon-password-regenerated',
@@ -90,13 +90,23 @@ export class ServerEnvironmentService {
     // timestamps disagree with every other time shown in the panel (which
     // uses the configured panel timezone). Inherit it unless the user set
     // their own TZ for this server via the advanced env fields.
-    env.TZ = env.TZ || this.settings.getTimezone();
+    env.TZ = env.TZ || (await this.settings.getTimezone());
     // CurseForge features need the API key inside the container. It lives in
     // the panel's encrypted store — inject it whenever anything CF is in play.
+    // A packwiz pack can reference CurseForge-hosted mods too (mod.toml's
+    // `mode = 'metadata:curseforge'`) — there's no cheap way to know ahead of
+    // time whether a given pack does, so inject unconditionally for packwiz,
+    // same tradeoff the image itself makes.
     const usesCurseforge =
-      server.type === 'AUTO_CURSEFORGE' || env.CF_SLUG || env.CF_FILE_ID || env.CF_PAGE_URL || env.CURSEFORGE_FILES || env.CF_MODPACK_ZIP;
+      server.type === 'AUTO_CURSEFORGE' ||
+      server.type === 'PACKWIZ' ||
+      env.CF_SLUG ||
+      env.CF_FILE_ID ||
+      env.CF_PAGE_URL ||
+      env.CURSEFORGE_FILES ||
+      env.CF_MODPACK_ZIP;
     if (usesCurseforge && !env.CF_API_KEY) {
-      const cfKey = this.apiKeys.getKey('curseforge');
+      const cfKey = await this.apiKeys.getKey('curseforge');
       if (cfKey) env.CF_API_KEY = cfKey;
     }
     // The panel is the sole restart authority; never let packs override env.
@@ -126,17 +136,17 @@ export class ServerEnvironmentService {
    * never overrides an explicit `server.java_tag` (that column means "the
    * user overrode auto" and must keep winning).
    */
-  resolveImage(server: Server, { javaTagHint }: ResolveImageOptions = {}): string {
+  async resolveImage(server: Server, { javaTagHint }: ResolveImageOptions = {}): Promise<string> {
     // GTNH's Java support is a property of the pinned pack version, not of
     // the Minecraft version — read it straight from server_packs.
-    const maxJavaVersion = this.gtnhMaxJavaVersion(server);
+    const maxJavaVersion = await this.gtnhMaxJavaVersion(server);
     const tag = server.java_tag || (maxJavaVersion == null && javaTagHint) || this.javaMatrix.pickJavaTag(server.mc_version, server.type, { maxJavaVersion });
     return this.images.imageRef(tag);
   }
 
-  private gtnhMaxJavaVersion(server: Server): number | undefined {
+  private async gtnhMaxJavaVersion(server: Server): Promise<number | undefined> {
     if (server.type !== 'GTNH') return undefined;
-    const row = this.db.select({ maxJavaVersion: serverPacks.maxJavaVersion }).from(serverPacks).where(eq(serverPacks.serverId, server.id)).get();
+    const [row] = await this.db.select({ maxJavaVersion: serverPacks.maxJavaVersion }).from(serverPacks).where(eq(serverPacks.serverId, server.id)).limit(1);
     return row?.maxJavaVersion == null ? undefined : Number(row.maxJavaVersion);
   }
 
@@ -145,8 +155,8 @@ export class ServerEnvironmentService {
    * server's user-defined extra ports into the single array
    * `ContainerService.createContainer` expects.
    */
-  mergeExtraPorts(server: Server): { container: string; host: number | string }[] {
-    const bluemapPorts: { container: string; host: number | string }[] = this.map.extraPortsFor(server.id);
+  async mergeExtraPorts(server: Server): Promise<{ container: string; host: number | string }[]> {
+    const bluemapPorts: { container: string; host: number | string }[] = await this.map.extraPortsFor(server.id);
     const userPorts = (server.extraPorts || []).map((p) => ({
       container: `${p.containerPort}/${p.protocol}`,
       host: p.hostPort,
@@ -172,7 +182,7 @@ export class ServerEnvironmentService {
       return; // no data dir yet
     }
     if (st.uid === ids.uid && st.gid === ids.gid) return; // already ours — fast path
-    await this.containers.chownDataDir(dir, this.resolveImage(this.query.mustGet(id)), ids.uid, ids.gid);
+    await this.containers.chownDataDir(dir, await this.resolveImage(await this.query.mustGet(id)), ids.uid, ids.gid);
   }
 
   /**
@@ -180,12 +190,12 @@ export class ServerEnvironmentService {
    * panel-run console actions in-game. Strips control chars and § codes.
    * @returns the sanitized label ('' when cleared)
    */
-  setConsoleLabel(id: string, label: unknown): string {
+  async setConsoleLabel(id: string, label: unknown): Promise<string> {
     const clean = String(label || '')
       .replace(/[\r\n\x00-\x1f\x7f§]/g, '')
       .trim()
       .slice(0, 48);
-    this.dbService.db.update(servers).set({ consoleLabel: clean || null }).where(eq(servers.id, id)).run();
+    await this.dbService.db.update(servers).set({ consoleLabel: clean || null }).where(eq(servers.id, id));
     return clean;
   }
 }

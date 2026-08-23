@@ -99,24 +99,24 @@ export default defineConfig((/* ctx */) => {
       // proxying GET requests on those paths so Vite serves the SPA shell
       // instead of Express's own Handlebars/redirect handling for them.
       proxy: {
-        '/api': { target: 'http://localhost:25564' },
+        '/api': { target: 'http://localhost:3000' },
         // Only the JSON subpath — /status/:slug itself is a client-side SPA
         // route (StatusPage.vue), not proxied, so Vite serves the SPA shell
         // for a direct/shared link to it.
-        '/status/api': { target: 'http://localhost:25564' },
+        '/status/api': { target: 'http://localhost:3000' },
         '/login': {
-          target: 'http://localhost:25564',
+          target: 'http://localhost:3000',
           bypass: (req) => (req.method === 'GET' ? req.url : undefined),
         },
         '/logout': {
-          target: 'http://localhost:25564',
+          target: 'http://localhost:3000',
           bypass: (req) => (req.method === 'GET' ? req.url : undefined),
         },
         '/setup': {
-          target: 'http://localhost:25564',
+          target: 'http://localhost:3000',
           bypass: (req) => (req.method === 'GET' ? req.url : undefined),
         },
-        '/ws': { target: 'ws://localhost:25564', ws: true },
+        '/ws': { target: 'ws://localhost:3000', ws: true },
       },
     },
 

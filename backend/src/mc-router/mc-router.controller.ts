@@ -29,16 +29,16 @@ export class McRouterController {
   constructor(private readonly mcRouter: McRouterService) {}
 
   @Get()
-  get() {
-    return { ok: true, config: this.mcRouter.getConfig(), routes: this.mcRouter.listRoutes() };
+  async get() {
+    return { ok: true, config: await this.mcRouter.getConfig(), routes: await this.mcRouter.listRoutes() };
   }
 
   @Post()
   async set(@Body() body: unknown) {
     const input = configSchema.parse(body);
-    const cfg = this.mcRouter.setConfig(input);
+    const cfg = await this.mcRouter.setConfig(input);
     if (cfg.enabled) await this.mcRouter.activate();
     else await this.mcRouter.deactivate();
-    return { ok: true, config: cfg, routes: this.mcRouter.listRoutes() };
+    return { ok: true, config: cfg, routes: await this.mcRouter.listRoutes() };
   }
 }

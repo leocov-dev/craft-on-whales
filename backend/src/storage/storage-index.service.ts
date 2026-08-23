@@ -102,32 +102,48 @@ export class StorageIndexService {
       const total = await walk(root, '');
       results.set('', total);
 
-      this.db.transaction((tx) => {
-        tx.delete(storageIndex).run();
-        for (const [rel, v] of results) {
-          // Cache depth <= 3 to keep the table small; deeper paths are summed live.
-          if (rel.split('/').length <= 3) {
-            tx.insert(storageIndex).values({ relPath: rel, sizeBytes: v.size, fileCount: v.files }).run();
+      // Drizzle's SQLite (sync-driver) transaction() rejects async callbacks
+      // at the type level (a real constraint, not just style — an
+      // unawaited-by-the-wrapper async callback would let the sync driver
+      // commit before the statements inside it finish). Postgres requires
+      // the opposite: an async callback with awaited statements. Branch on
+      // the real driver so each dialect gets the form Drizzle supports.
+      if (this.dbService.driver === 'postgres') {
+        await (this.db.transaction as unknown as (cb: (tx: typeof this.db) => Promise<void>) => Promise<void>)(async (tx) => {
+          await tx.delete(storageIndex);
+          for (const [rel, v] of results) {
+            // Cache depth <= 3 to keep the table small; deeper paths are summed live.
+            if (rel.split('/').length <= 3) {
+              await tx.insert(storageIndex).values({ relPath: rel, sizeBytes: v.size, fileCount: v.files });
+            }
           }
-        }
-      });
+        });
+      } else {
+        this.db.transaction((tx) => {
+          tx.delete(storageIndex).run();
+          for (const [rel, v] of results) {
+            if (rel.split('/').length <= 3) {
+              tx.insert(storageIndex).values({ relPath: rel, sizeBytes: v.size, fileCount: v.files }).run();
+            }
+          }
+        });
+      }
 
       const perServer: Record<string, number> = {};
       for (const [rel, v] of results) {
         const m = /^servers\/([^/]+)$/.exec(rel);
         if (m) perServer[m[1] as string] = v.size;
       }
-      this.db.insert(storageSnapshots).values({ totalBytes: total.size, perServerJson: JSON.stringify(perServer) }).run();
+      await this.db.insert(storageSnapshots).values({ totalBytes: total.size, perServerJson: JSON.stringify(perServer) });
       // Retention: keep the last 500 snapshots.
-      const keepIds = this.db
+      const keepRows = await this.db
         .select({ id: storageSnapshots.id })
         .from(storageSnapshots)
         .orderBy(desc(storageSnapshots.id))
-        .limit(500)
-        .all()
-        .map((r) => r.id);
+        .limit(500);
+      const keepIds = keepRows.map((r) => r.id);
       if (keepIds.length) {
-        this.db.delete(storageSnapshots).where(notInArray(storageSnapshots.id, keepIds)).run();
+        await this.db.delete(storageSnapshots).where(notInArray(storageSnapshots.id, keepIds));
       }
 
       return { totalBytes: total.size, dirs: results.size, ms: Date.now() - started };
@@ -137,13 +153,13 @@ export class StorageIndexService {
   }
 
   /** Instant size lookup from cache; 0 when not yet scanned. */
-  sizeOf(relPath: string): number {
-    const row = this.db.select({ sizeBytes: storageIndex.sizeBytes }).from(storageIndex).where(eq(storageIndex.relPath, relPath)).get();
+  async sizeOf(relPath: string): Promise<number> {
+    const [row] = await this.db.select({ sizeBytes: storageIndex.sizeBytes }).from(storageIndex).where(eq(storageIndex.relPath, relPath)).limit(1);
     return row ? Number(row.sizeBytes) : 0;
   }
 
-  lastScan(): string | null {
-    const row = this.db.select({ t: sql<string | null>`max(${storageIndex.scannedAt})` }).from(storageIndex).get();
+  async lastScan(): Promise<string | null> {
+    const [row] = await this.db.select({ t: sql<string | null>`max(${storageIndex.scannedAt})` }).from(storageIndex).limit(1);
     return row && row.t != null ? String(row.t) : null;
   }
 
@@ -153,9 +169,9 @@ export class StorageIndexService {
   }
 
   /** Quota check used before disk-growing operations. Throws a friendly 409. */
-  assertUnderQuota(server: QuotaServer, aboutToAddBytes = 0): void {
+  async assertUnderQuota(server: QuotaServer, aboutToAddBytes = 0): Promise<void> {
     if (!server.disk_quota_bytes) return;
-    const used = this.sizeOf(`servers/${server.id}`);
+    const used = await this.sizeOf(`servers/${server.id}`);
     if (used + aboutToAddBytes > server.disk_quota_bytes) {
       throw new ConflictException(`${server.display_name} is over its disk quota — free space or raise the limit in Settings → Resources`);
     }
@@ -168,13 +184,12 @@ export class StorageIndexService {
    * indexer.ts back) — this port injects `ServerLifecycleService` directly.
    */
   async enforceStrictQuotas(): Promise<void> {
-    const rows = this.db
+    const rows = await this.db
       .select()
       .from(servers)
-      .where(and(isNull(servers.deletedAt), eq(servers.quotaStrict, true), gt(servers.diskQuotaBytes, 0)))
-      .all();
+      .where(and(isNull(servers.deletedAt), eq(servers.quotaStrict, true), gt(servers.diskQuotaBytes, 0)));
     for (const s of rows) {
-      const used = this.sizeOf(`servers/${s.id}`);
+      const used = await this.sizeOf(`servers/${s.id}`);
       if (used > s.diskQuotaBytes * 1.1 && ['running', 'starting', 'unhealthy'].includes(s.status)) {
         this.events.recordEvent({
           serverId: s.id,
