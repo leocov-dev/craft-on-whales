@@ -1,0 +1,42 @@
+# Local example: builds the panel image FROM SOURCE (the repo you're standing
+# in) instead of pulling ghcr.io/leocov-dev/craft-on-whales:latest. Good for
+# trying out an unreleased change, or just running the panel locally without
+# needing a registry pull.
+#
+# Usage (from this directory):
+#   docker compose up --build
+#   open http://localhost:25564
+#
+# All panel data (worlds, mods, backups, the DB) lands in ./data next to this
+# file — delete that folder to reset the panel to a clean slate.
+services:
+  panel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: craft-on-whales-local
+    restart: unless-stopped
+    ports:
+      # Web UI. Change the left side to move it; the panel itself listens on
+      # 25564 in-container.
+      - '${PANEL_PORT_HOST:-25564}:25564'
+    extra_hosts:
+      # Lets the panel container reach sibling containers' HOST-published
+      # ports (e.g. BlueMap's live map) via host.docker.internal. Docker
+      # Desktop resolves this for free; plain Linux Engine needs it mapped
+      # explicitly (Docker Engine 20.10+).
+      - 'host.docker.internal:host-gateway'
+    environment:
+      # $PWD is this directory (docker compose expands it from your shell at
+      # `up` time) — the panel needs its OWN absolute view of the host path
+      # backing ./data, since it hands that path to sibling Minecraft server
+      # containers as their bind-mount source. A relative path here would
+      # bind-mount the wrong thing on those containers.
+      DATA_DIR_HOST: ${DATA_DIR_HOST:-${PWD}/data}
+      # Uncomment to pin the session/crypto secret instead of the
+      # auto-generated one (regenerated on every `data` wipe otherwise):
+      # SESSION_SECRET: change-me-to-a-long-random-string
+    volumes:
+      - ./data:/data
+      # The panel manages servers through the host daemon (create/start/exec).
+      - /var/run/docker.sock:/var/run/docker.sock

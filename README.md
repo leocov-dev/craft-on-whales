@@ -185,6 +185,9 @@ docker compose up -d
 Open **http://your-host:25564**. In Portainer/Dockge, paste the compose file as a stack and set
 `DATA_DIR_HOST` in the stack's environment.
 
+Want to build from source instead of pulling the published image? See the
+[Docker Compose example](examples/docker-compose/README.md).
+
 How it works — and what to know:
 
 - The panel drives the **host's Docker daemon** through the mounted `/var/run/docker.sock` and creates
