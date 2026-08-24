@@ -44,7 +44,7 @@ async function bootstrap() {
         // 'auto' with TRUST_PROXY set) when serving over HTTPS behind a TLS proxy.
         secure: config.cookieSecure,
       },
-    })
+    }),
   );
 
   // Data root + migrations run BEFORE app.init() deliberately: init() fires

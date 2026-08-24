@@ -1,7 +1,14 @@
 // Postgres mirror of ../schema/chat.ts — see ./PG_SCHEMA_NOTES.md.
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, integer, boolean, uniqueIndex, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  integer,
+  boolean,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/pg-core';
 
 export const chatCommandSettings = pgTable('chat_command_settings', {
   serverId: text('server_id').primaryKey(),
@@ -22,7 +29,9 @@ export const chatCommands = pgTable(
     enabled: boolean('enabled').notNull().default(true),
     uses: integer('uses').notNull().default(0),
     lastUsedAt: text('last_used_at'),
-    createdAt: text('created_at').notNull().default(sql`now()::text`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`now()::text`),
     msgPending: text('msg_pending'),
     msgSuccess: text('msg_success'),
     msgFailure: text('msg_failure'),
@@ -30,5 +39,5 @@ export const chatCommands = pgTable(
   (t) => [
     index('idx_chatcmd_server').on(t.serverId),
     uniqueIndex('chat_commands_server_trigger').on(t.serverId, t.trigger),
-  ]
+  ],
 );

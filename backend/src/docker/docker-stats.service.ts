@@ -22,19 +22,28 @@ export class DockerStatsService {
     // CPU % per Docker's documented formula.
     let cpuPct = 0;
     try {
-      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
-      const sysDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
-      const online = stats.cpu_stats.online_cpus || (stats.cpu_stats.cpu_usage.percpu_usage || []).length || 1;
-      if (sysDelta > 0 && cpuDelta > 0) cpuPct = (cpuDelta / sysDelta) * online * 100;
+      const cpuDelta =
+        stats.cpu_stats.cpu_usage.total_usage -
+        stats.precpu_stats.cpu_usage.total_usage;
+      const sysDelta =
+        stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+      const online =
+        stats.cpu_stats.online_cpus ||
+        (stats.cpu_stats.cpu_usage.percpu_usage || []).length ||
+        1;
+      if (sysDelta > 0 && cpuDelta > 0)
+        cpuPct = (cpuDelta / sysDelta) * online * 100;
     } catch {
       /* fields absent on some platforms until second sample */
     }
 
     // memory_stats is documented as always present, but is defensively
     // guarded here since some platforms (Windows) omit sub-fields.
-    const mem: Partial<ContainerStats['memory_stats']> = stats.memory_stats || {};
+    const mem: Partial<ContainerStats['memory_stats']> =
+      stats.memory_stats || {};
     // Subtract page cache where reported so numbers match `docker stats`.
-    const cache = (mem.stats && (mem.stats.inactive_file ?? mem.stats.cache)) || 0;
+    const cache =
+      (mem.stats && (mem.stats.inactive_file ?? mem.stats.cache)) || 0;
     const memUsed = Math.max(0, (mem.usage || 0) - cache);
 
     let netRx = 0;
@@ -54,7 +63,9 @@ export class DockerStatsService {
 
   async statsOnce(serverId: string): Promise<NormalizedStats | null> {
     try {
-      const stats = (await (await this.containers.getContainer(serverId)).stats({ stream: false })) as unknown as ContainerStats;
+      const stats = await (
+        await this.containers.getContainer(serverId)
+      ).stats({ stream: false });
       return this.normalize(stats);
     } catch (err: unknown) {
       const statusCode = (err as { statusCode?: number }).statusCode;
@@ -64,8 +75,13 @@ export class DockerStatsService {
   }
 
   /** Stream stats; onSample(normalized) per tick. Returns stop(). */
-  async statsStream(serverId: string, onSample: (stats: NormalizedStats) => void): Promise<() => void> {
-    const raw = (await (await this.containers.getContainer(serverId)).stats({ stream: true })) as unknown as NodeJS.ReadableStream;
+  async statsStream(
+    serverId: string,
+    onSample: (stats: NormalizedStats) => void,
+  ): Promise<() => void> {
+    const raw = await (
+      await this.containers.getContainer(serverId)
+    ).stats({ stream: true });
     let buffer = '';
     // Without this, a container removal mid-stream emits an unhandled
     // 'error' event that would crash the whole panel process.

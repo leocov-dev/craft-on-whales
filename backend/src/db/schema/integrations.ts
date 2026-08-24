@@ -1,5 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
 
 export const integrations = sqliteTable(
   'integrations',
@@ -9,7 +14,9 @@ export const integrations = sqliteTable(
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
     configCipher: text('config_cipher'),
     configJson: text('config_json').notNull().default('{}'),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
-  (t) => [primaryKey({ columns: [t.serverId, t.kind] })]
+  (t) => [primaryKey({ columns: [t.serverId, t.kind] })],
 );

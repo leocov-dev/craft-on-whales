@@ -37,6 +37,7 @@ event name carrying a `kind` discriminator, matching legacy's single-channel
 JSON-blob design, rather than mapping each `kind` to its own socket.io event
 — minimizes churn for the eventual frontend rewrite since the payload shapes
 are byte-identical to today's raw-`ws` messages):
+
 - Console: `{kind:'log',text}`, `{kind:'log-end'}`, `{kind:'error',message}`,
   `{kind:'cmd-result',command,output,error?}`.
 - Stats: `{kind:'stats',...NormalizedStats}`, `{kind:'error',message}`.

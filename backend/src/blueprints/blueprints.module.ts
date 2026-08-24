@@ -12,9 +12,25 @@ import { BlueprintsLibraryService } from './blueprints-library.service';
 import { BlueprintsController } from './blueprints.controller';
 
 @Module({
-  imports: [ServersModule, PathGuardModule, StorageIndexModule, PacksModule, LibraryModule, ModsModule, WorldsModule],
+  imports: [
+    ServersModule,
+    PathGuardModule,
+    StorageIndexModule,
+    PacksModule,
+    LibraryModule,
+    ModsModule,
+    WorldsModule,
+  ],
   controllers: [BlueprintsController],
-  providers: [BlueprintExportService, BlueprintImportService, BlueprintsLibraryService],
-  exports: [BlueprintExportService, BlueprintImportService, BlueprintsLibraryService],
+  providers: [
+    BlueprintExportService,
+    BlueprintImportService,
+    BlueprintsLibraryService,
+  ],
+  exports: [
+    BlueprintExportService,
+    BlueprintImportService,
+    BlueprintsLibraryService,
+  ],
 })
 export class BlueprintsModule {}

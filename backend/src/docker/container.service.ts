@@ -33,7 +33,11 @@ export interface CreateContainerSpec {
   /** absolute panel-local data dir, re-rooted to the host and bind-mounted to /data */
   dataDir: string;
   /** { game, rcon, bedrock? } host ports */
-  ports: { game: number | string; rcon: number | string; bedrock?: number | string };
+  ports: {
+    game: number | string;
+    rcon: number | string;
+    bedrock?: number | string;
+  };
   /** { memoryMb, swapMb, cpus } */
   resources: { memoryMb: number; swapMb?: number; cpus?: number };
   /** Docker container name override; default `msm-<serverId>` */
@@ -84,7 +88,7 @@ export class ContainerService {
   constructor(
     private readonly connection: DockerConnectionService,
     private readonly hostPath: HostPathService,
-    private readonly dbService: DbService
+    private readonly dbService: DbService,
   ) {}
 
   containerName(serverId: string): string {
@@ -106,7 +110,9 @@ export class ContainerService {
     };
     if (spec.ports.bedrock) {
       exposed[`${BEDROCK_PORT}/udp`] = {};
-      bindings[`${BEDROCK_PORT}/udp`] = [{ HostPort: String(spec.ports.bedrock) }];
+      bindings[`${BEDROCK_PORT}/udp`] = [
+        { HostPort: String(spec.ports.bedrock) },
+      ];
     }
     // Feature ports (e.g. BlueMap's web server) + user-defined extras.
     for (const extra of spec.extraPorts || []) {
@@ -115,18 +121,22 @@ export class ContainerService {
     }
 
     const memoryBytes = Math.round(spec.resources.memoryMb * 1024 * 1024);
-    const swapBytes = memoryBytes + Math.round((spec.resources.swapMb || 0) * 1024 * 1024);
+    const swapBytes =
+      memoryBytes + Math.round((spec.resources.swapMb || 0) * 1024 * 1024);
 
     // Extra binds are already HOST paths (the admin types the real host
     // location), unlike dataDir which is panel-local and must be re-rooted
     // — running them through toHostPath would reject anything outside
     // DATA_DIR, which is the entire point of this escape hatch.
     const extraBindStrings = (spec.extraBinds || []).map(
-      (b) => `${b.hostPath}:${b.containerPath}${b.mode === 'ro' ? ':ro' : ''}`
+      (b) => `${b.hostPath}:${b.containerPath}${b.mode === 'ro' ? ':ro' : ''}`,
     );
 
     const hostConfig: Dockerode.HostConfig = {
-      Binds: [`${this.hostPath.toHostPath(spec.dataDir)}:/data`, ...extraBindStrings],
+      Binds: [
+        `${this.hostPath.toHostPath(spec.dataDir)}:/data`,
+        ...extraBindStrings,
+      ],
       PortBindings: bindings,
       Memory: memoryBytes,
       MemorySwap: swapBytes,
@@ -135,7 +145,10 @@ export class ContainerService {
     };
     if (spec.networkName) hostConfig.NetworkMode = spec.networkName;
 
-    const labels: Record<string, string> = { [LABEL]: spec.serverId, 'msm.managed': 'true' };
+    const labels: Record<string, string> = {
+      [LABEL]: spec.serverId,
+      'msm.managed': 'true',
+    };
     if (spec.routerHostname) {
       labels['mc-router.host'] = spec.routerHostname;
       if (spec.routerAutoScale === 'on') {
@@ -172,7 +185,9 @@ export class ContainerService {
   }
 
   async getContainer(serverId: string): Promise<Dockerode.Container> {
-    return this.connection.getDocker().getContainer(await this.resolvedName(serverId));
+    return this.connection
+      .getDocker()
+      .getContainer(await this.resolvedName(serverId));
   }
 
   /** Inspect → panel status. Returns { status, health, exitCode, startedAt, pid }. */
@@ -202,7 +217,8 @@ export class ContainerService {
         containerId: info.Id,
       };
     } catch (err: unknown) {
-      if ((err as { statusCode?: number }).statusCode === 404) return { exists: false, status: 'stopped' };
+      if ((err as { statusCode?: number }).statusCode === 404)
+        return { exists: false, status: 'stopped' };
       throw err;
     }
   }
@@ -216,20 +232,35 @@ export class ContainerService {
    * password needed via exec), then wait; fall back to docker stop with a
    * generous grace period so the world always saves.
    */
-  async stopContainer(serverId: string, { graceSeconds = 90 }: StopContainerOptions = {}): Promise<void> {
+  async stopContainer(
+    serverId: string,
+    { graceSeconds = 90 }: StopContainerOptions = {},
+  ): Promise<void> {
     const container = await this.getContainer(serverId);
     try {
       // Send the in-game `stop` (saves the world). execCapture reads +
       // destroys the exec stream and has a timeout, so we don't leak a
       // hijacked connection here.
-      await this.execCapture(serverId, ['rcon-cli', 'stop'], { timeoutMs: 15000 }).catch(() => {});
+      await this.execCapture(serverId, ['rcon-cli', 'stop'], {
+        timeoutMs: 15000,
+      }).catch(() => {});
       // Wait for the container to exit on its own after the stop command.
-      await Promise.race([container.wait(), new Promise((resolve) => setTimeout(resolve, graceSeconds * 1000).unref())]);
+      await Promise.race([
+        container.wait(),
+        new Promise((resolve) =>
+          setTimeout(resolve, graceSeconds * 1000).unref(),
+        ),
+      ]);
     } catch {
       // rcon unavailable (early boot, crashed loop) — fall through to docker stop
     }
     const info = await this.inspectStatus(serverId);
-    if (info.exists && (info.status === 'running' || info.status === 'starting' || info.status === 'unhealthy')) {
+    if (
+      info.exists &&
+      (info.status === 'running' ||
+        info.status === 'starting' ||
+        info.status === 'unhealthy')
+    ) {
       await container.stop({ t: graceSeconds });
     }
   }
@@ -261,10 +292,14 @@ export class ContainerService {
   async execRaw(
     serverId: string,
     cmd: string[],
-    { timeoutMs = 15000, wantExitCode = false }: ExecRawOptions = {}
+    { timeoutMs = 15000, wantExitCode = false }: ExecRawOptions = {},
   ): Promise<ExecRawResult> {
     const container = await this.getContainer(serverId);
-    const exec = await container.exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+    const exec = await container.exec({
+      Cmd: cmd,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
     const stream = await exec.start({});
     const stdout: string = await new Promise<string>((resolve, reject) => {
       const chunks: Buffer[] = [];
@@ -285,11 +320,17 @@ export class ContainerService {
         fn(arg);
       };
       const timer = setTimeout(
-        () => finish(reject, new Error(`exec timed out after ${timeoutMs}ms: ${cmd.join(' ')}`)),
-        timeoutMs
+        () =>
+          finish(
+            reject,
+            new Error(`exec timed out after ${timeoutMs}ms: ${cmd.join(' ')}`),
+          ),
+        timeoutMs,
       );
       timer.unref?.();
-      stream.on('end', () => finish(resolve, Buffer.concat(chunks).toString('utf8')));
+      stream.on('end', () =>
+        finish(resolve, Buffer.concat(chunks).toString('utf8')),
+      );
       stream.on('error', (err: Error) => finish(reject, err));
     });
     // The inspect is a second daemon round trip, opted into by the one
@@ -304,9 +345,12 @@ export class ContainerService {
       try {
         const inspected = await Promise.race([
           exec.inspect(),
-          new Promise<null>((resolve) => setTimeout(resolve, timeoutMs, null).unref?.()),
+          new Promise<null>((resolve) =>
+            setTimeout(resolve, timeoutMs, null).unref?.(),
+          ),
         ]);
-        if (inspected && typeof inspected.ExitCode === 'number') exitCode = inspected.ExitCode;
+        if (inspected && typeof inspected.ExitCode === 'number')
+          exitCode = inspected.ExitCode;
       } catch {
         /* exit code stays unknown */
       }
@@ -315,7 +359,11 @@ export class ContainerService {
   }
 
   /** Run a command via docker exec and capture its output (used for rcon-cli). */
-  async execCapture(serverId: string, cmd: string[], opts: ExecRawOptions = {}): Promise<string> {
+  async execCapture(
+    serverId: string,
+    cmd: string[],
+    opts: ExecRawOptions = {},
+  ): Promise<string> {
     const { stdout } = await this.execRaw(serverId, cmd, opts);
     return stdout;
   }
@@ -331,7 +379,11 @@ export class ContainerService {
    * didn't answer the inspect in time, which callers must treat as "not a
    * confirmed success", never as an error.
    */
-  async execCaptureChecked(serverId: string, cmd: string[], opts: ExecRawOptions = {}): Promise<ExecRawResult> {
+  async execCaptureChecked(
+    serverId: string,
+    cmd: string[],
+    opts: ExecRawOptions = {},
+  ): Promise<ExecRawResult> {
     return this.execRaw(serverId, cmd, { ...opts, wantExitCode: true });
   }
 
@@ -355,13 +407,19 @@ export class ContainerService {
       Cmd: [],
       User: '0:0',
       Labels: { 'msm.managed': 'true', 'msm.role': 'cleanup' },
-      HostConfig: { Binds: [`${this.hostPath.toHostPath(parent)}:/work`], AutoRemove: false, NetworkMode: 'none' },
+      HostConfig: {
+        Binds: [`${this.hostPath.toHostPath(parent)}:/work`],
+        AutoRemove: false,
+        NetworkMode: 'none',
+      },
     });
     try {
       await container.start();
-      const res = await container.wait(); // rm exits 0 on success
+      const res = (await container.wait()) as { StatusCode?: number } | null; // rm exits 0 on success
       if (res && res.StatusCode !== 0) {
-        throw new Error(`cleanup container exited ${res.StatusCode} while removing ${base}`);
+        throw new Error(
+          `cleanup container exited ${res.StatusCode} while removing ${base}`,
+        );
       }
     } finally {
       await container.remove({ force: true }).catch(() => {});
@@ -375,7 +433,12 @@ export class ContainerService {
    * Mounts the PARENT and chowns the target by name; `Cmd: []` clears the
    * image's default CMD (see removeDataDir).
    */
-  async chownDataDir(dir: string, image: string, uid: number | string, gid: number | string): Promise<void> {
+  async chownDataDir(
+    dir: string,
+    image: string,
+    uid: number | string,
+    gid: number | string,
+  ): Promise<void> {
     const docker = this.connection.getDocker();
     const parent = path.dirname(dir);
     const base = path.basename(dir);
@@ -385,11 +448,15 @@ export class ContainerService {
       Cmd: [],
       User: '0:0',
       Labels: { 'msm.managed': 'true', 'msm.role': 'chown' },
-      HostConfig: { Binds: [`${this.hostPath.toHostPath(parent)}:/work`], AutoRemove: false, NetworkMode: 'none' },
+      HostConfig: {
+        Binds: [`${this.hostPath.toHostPath(parent)}:/work`],
+        AutoRemove: false,
+        NetworkMode: 'none',
+      },
     });
     try {
       await container.start();
-      const res = await container.wait();
+      const res = (await container.wait()) as { StatusCode?: number } | null;
       if (res && res.StatusCode !== 0) {
         throw new Error(`chown container exited ${res.StatusCode} for ${base}`);
       }

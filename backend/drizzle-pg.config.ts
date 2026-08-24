@@ -8,6 +8,8 @@ export default defineConfig({
   schema: './src/db/schema-pg/index.ts',
   out: './drizzle-pg',
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/panel',
+    url:
+      process.env.DATABASE_URL ??
+      'postgres://postgres:postgres@localhost:5432/panel',
   },
 });

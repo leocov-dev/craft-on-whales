@@ -3,12 +3,13 @@
 // "\x1b[0m" ends up displayed as a player named "[0m". Ported verbatim from
 // src/utils/ansi.ts.
 
+// eslint-disable-next-line no-control-regex -- intentional: matches the literal ESC byte
 const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 // Some log pipelines lose the ESC byte and leave bare "[0;39m" fragments.
 const BARE_SGR_RE = /\[[0-9;]{1,8}m/g;
 
 export function stripAnsi(text: unknown): string {
-  return String(text ?? '')
+  return (typeof text === 'string' ? text : '')
     .replace(ANSI_RE, '')
     .replace(BARE_SGR_RE, '');
 }

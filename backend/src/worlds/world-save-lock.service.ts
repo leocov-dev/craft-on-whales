@@ -21,14 +21,14 @@ export class WorldSaveLockService {
     const prev = this.tails.get(key) || Promise.resolve();
     const result = prev.then(
       () => fn(),
-      () => fn()
+      () => fn(),
     );
     const tail = result.then(
       () => {},
-      () => {}
+      () => {},
     );
     this.tails.set(key, tail);
-    tail.then(() => {
+    void tail.then(() => {
       if (this.tails.get(key) === tail) this.tails.delete(key);
     });
     return result;

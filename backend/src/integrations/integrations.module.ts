@@ -11,7 +11,15 @@ import { InvitesService } from './invites.service';
 import { IntegrationsController } from './integrations.controller';
 
 @Module({
-  imports: [AuthModule, PathGuardModule, ServersModule, ModsModule, PlayersModule, StatusModule, EventsModule],
+  imports: [
+    AuthModule,
+    PathGuardModule,
+    ServersModule,
+    ModsModule,
+    PlayersModule,
+    StatusModule,
+    EventsModule,
+  ],
   controllers: [IntegrationsController],
   providers: [DiscordService, InvitesService],
   exports: [DiscordService, InvitesService],

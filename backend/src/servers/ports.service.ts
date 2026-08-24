@@ -19,7 +19,7 @@ export interface SuggestPortsOptions {
 export class PortsService {
   constructor(
     private readonly dbService: DbService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
   ) {}
 
   private probe(port: number, host: string = '0.0.0.0'): Promise<boolean> {
@@ -48,7 +48,9 @@ export class PortsService {
       used.add(r.portGame);
       used.add(r.portRcon);
       if (r.portBedrock) used.add(r.portBedrock);
-      for (const p of JSON.parse(r.extraPortsJson || '[]') as { hostPort?: number }[]) {
+      for (const p of JSON.parse(r.extraPortsJson || '[]') as {
+        hostPort?: number;
+      }[]) {
         if (p && p.hostPort) used.add(p.hostPort);
       }
     }
@@ -58,9 +60,13 @@ export class PortsService {
     const integrationRows = await this.dbService.db
       .select({ configJson: integrations.configJson })
       .from(integrations)
-      .where(and(eq(integrations.kind, 'bluemap'), eq(integrations.enabled, true)));
+      .where(
+        and(eq(integrations.kind, 'bluemap'), eq(integrations.enabled, true)),
+      );
     for (const row of integrationRows) {
-      const hostPort = (JSON.parse(row.configJson || '{}') as { hostPort?: number }).hostPort;
+      const hostPort = (
+        JSON.parse(row.configJson || '{}') as { hostPort?: number }
+      ).hostPort;
       if (hostPort) used.add(hostPort);
     }
     used.add(this.config.port); // never hand out the panel's own port
@@ -83,16 +89,28 @@ export class PortsService {
   }
 
   /** Suggest a { game, rcon } pair (and bedrock when requested). */
-  async suggestPorts({ withBedrock = false }: SuggestPortsOptions = {}): Promise<SuggestedPorts> {
+  async suggestPorts({
+    withBedrock = false,
+  }: SuggestPortsOptions = {}): Promise<SuggestedPorts> {
     const used = await this.dbPortsInUse();
     let game = this.config.ports.gameStart;
     for (;;) {
       const rcon = game + this.config.ports.rconOffset;
-      if (!used.has(game) && !used.has(rcon) && (await this.probe(game)) && (await this.probe(rcon))) break;
+      if (
+        !used.has(game) &&
+        !used.has(rcon) &&
+        (await this.probe(game)) &&
+        (await this.probe(rcon))
+      )
+        break;
       game += 1;
       if (game > 65000) throw new Error('No free game ports available');
     }
-    const result: SuggestedPorts = { game, rcon: game + this.config.ports.rconOffset, bedrock: null };
+    const result: SuggestedPorts = {
+      game,
+      rcon: game + this.config.ports.rconOffset,
+      bedrock: null,
+    };
     if (withBedrock) {
       let b = this.config.ports.bedrockStart;
       while (used.has(b) || !(await this.probe(b))) {

@@ -31,14 +31,17 @@ export class DockerConnectionService {
 
   private detectOptions(): DockerOptions {
     if (process.env.DOCKER_HOST) return {}; // dockerode reads DOCKER_HOST itself
-    if (process.platform === 'win32') return { socketPath: '//./pipe/docker_engine' };
+    if (process.platform === 'win32')
+      return { socketPath: '//./pipe/docker_engine' };
     // Prefer the classic system socket, but recent Docker Desktop (macOS) and
     // rootless Docker/Podman only expose a per-user socket — probe those too
     // so a stranger with a default install isn't told "daemon unavailable".
     const candidates: string[] = [
       '/var/run/docker.sock',
       path.join(os.homedir(), '.docker', 'run', 'docker.sock'),
-      process.env.XDG_RUNTIME_DIR ? path.join(process.env.XDG_RUNTIME_DIR, 'docker.sock') : null,
+      process.env.XDG_RUNTIME_DIR
+        ? path.join(process.env.XDG_RUNTIME_DIR, 'docker.sock')
+        : null,
     ].filter((p): p is string => Boolean(p));
     const found = candidates.find((p) => {
       try {
@@ -82,19 +85,28 @@ export class DockerConnectionService {
     };
     try {
       const docker = this.getDocker();
-      const [version, info] = await Promise.all([docker.version(), docker.info()]);
+      const [version, info] = await Promise.all([
+        docker.version(),
+        docker.info() as Promise<{
+          OperatingSystem?: string;
+          NCPU?: number;
+          MemTotal?: number;
+        }>,
+      ]);
       status.available = true;
       status.installed = true;
       status.version = version.Version;
       status.os = info.OperatingSystem || '';
-      status.ncpu = info.NCPU;
-      status.memTotal = info.MemTotal;
+      status.ncpu = info.NCPU ?? null;
+      status.memTotal = info.MemTotal ?? null;
       status.isDockerDesktop = /docker desktop/i.test(status.os || '');
     } catch (err: unknown) {
       const e = err as NodeJS.ErrnoException & { message?: string };
       status.error = e.code || e.message || String(err);
       if (process.platform === 'win32') {
-        status.installed = fs.existsSync(process.env.ProgramFiles + '\\Docker\\Docker\\Docker Desktop.exe');
+        status.installed = fs.existsSync(
+          process.env.ProgramFiles + '\\Docker\\Docker\\Docker Desktop.exe',
+        );
       }
     }
     return status;

@@ -16,7 +16,8 @@ export type ColorName =
   | 'yellow'
   | 'white';
 
-export type FormatFlag = 'bold' | 'italic' | 'underlined' | 'strikethrough' | 'obfuscated';
+export type FormatFlag =
+  'bold' | 'italic' | 'underlined' | 'strikethrough' | 'obfuscated';
 
 export interface TextComponent {
   text: string;

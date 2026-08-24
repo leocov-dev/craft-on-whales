@@ -18,11 +18,13 @@ const PLAYER_RE = /^[.*]?[A-Za-z0-9_]{2,16}$/;
 const CHAT_RE = new RegExp(`^<(${NAME})> (.*)$`);
 const SERVER_CHAT_RE = /^\[(?:Server|Rcon)\] (.*)$/;
 const JOIN_RE = new RegExp(`^(${NAME}) joined the game$`);
-const LOGGED_IN_RE = new RegExp(`^(${NAME})\\[\\/([^\\]]+)\\] logged in with entity id `);
+const LOGGED_IN_RE = new RegExp(
+  `^(${NAME})\\[\\/([^\\]]+)\\] logged in with entity id `,
+);
 const LEAVE_RE = new RegExp(`^(${NAME}) left the game$`);
 const LOST_CONN_RE = new RegExp(`^(${NAME}) lost connection: (.*)$`);
 const ADVANCEMENT_RE = new RegExp(
-  `^(${NAME}) has (?:made the advancement|completed the challenge|reached the goal) \\[(.+)\\]$`
+  `^(${NAME}) has (?:made the advancement|completed the challenge|reached the goal) \\[(.+)\\]$`,
 );
 
 // Vanilla death messages that carry no meaningful killer token, or where the
@@ -167,13 +169,31 @@ export class LogClassifierService {
 
     let m;
     if ((m = text.match(CHAT_RE))) {
-      return { time, type: 'chat', player: m[1] ?? '', target: '', message: m[2] ?? '' };
+      return {
+        time,
+        type: 'chat',
+        player: m[1] ?? '',
+        target: '',
+        message: m[2] ?? '',
+      };
     }
     if ((m = text.match(SERVER_CHAT_RE))) {
-      return { time, type: 'chat', player: '[Server]', target: '', message: m[1] ?? '' };
+      return {
+        time,
+        type: 'chat',
+        player: '[Server]',
+        target: '',
+        message: m[1] ?? '',
+      };
     }
     if ((m = text.match(JOIN_RE))) {
-      return { time, type: 'join', player: m[1] ?? '', target: '', message: '' };
+      return {
+        time,
+        type: 'join',
+        player: m[1] ?? '',
+        target: '',
+        message: '',
+      };
     }
     if ((m = text.match(LOGGED_IN_RE))) {
       // Secondary join line; the IP (port stripped) goes to target, never message.
@@ -187,13 +207,32 @@ export class LogClassifierService {
       };
     }
     if ((m = text.match(LEAVE_RE))) {
-      return { time, type: 'leave', player: m[1] ?? '', target: '', message: '' };
+      return {
+        time,
+        type: 'leave',
+        player: m[1] ?? '',
+        target: '',
+        message: '',
+      };
     }
     if ((m = text.match(LOST_CONN_RE))) {
-      return { time, type: 'leave', player: m[1] ?? '', target: '', message: m[2] ?? '', dedupe: true };
+      return {
+        time,
+        type: 'leave',
+        player: m[1] ?? '',
+        target: '',
+        message: m[2] ?? '',
+        dedupe: true,
+      };
     }
     if ((m = text.match(ADVANCEMENT_RE))) {
-      return { time, type: 'advancement', player: m[1] ?? '', target: '', message: m[2] ?? '' };
+      return {
+        time,
+        type: 'advancement',
+        player: m[1] ?? '',
+        target: '',
+        message: m[2] ?? '',
+      };
     }
 
     // Death messages: "<player> <verb...>" where player is the first token.
@@ -227,6 +266,11 @@ export class LogClassifierService {
 
   /** True when a (death) event was a player-vs-player kill. */
   isPvp(evt: ClassifiedEvent | null | undefined): boolean {
-    return Boolean(evt && evt.type === 'death' && evt.target && this.looksLikePlayer(evt.target));
+    return Boolean(
+      evt &&
+      evt.type === 'death' &&
+      evt.target &&
+      this.looksLikePlayer(evt.target),
+    );
   }
 }

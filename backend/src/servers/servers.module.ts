@@ -15,7 +15,14 @@ import { ServerLocksService } from './server-locks.service';
 import { ServerLifecycleService } from './server-lifecycle.service';
 
 @Module({
-  imports: [DockerModule, AuthModule, ApiKeysModule, SettingsModule, forwardRef(() => SchedulerModule), forwardRef(() => MapModule)],
+  imports: [
+    DockerModule,
+    AuthModule,
+    ApiKeysModule,
+    SettingsModule,
+    forwardRef(() => SchedulerModule),
+    forwardRef(() => MapModule),
+  ],
   providers: [
     JavaMatrixService,
     PortsService,

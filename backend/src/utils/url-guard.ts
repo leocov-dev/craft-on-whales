@@ -18,7 +18,8 @@ const MAX_REDIRECTS = 5;
 
 function isBlockedIpv4(ip: string): boolean {
   const p = ip.split('.').map(Number);
-  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255))
+    return true;
   const [a, b] = p as [number, number, number, number];
   if (a === 0) return true; // 0.0.0.0/8 "this host"
   if (a === 10) return true; // private
@@ -40,7 +41,8 @@ function expandIpv6(ip: string): string[] {
   const dq = s.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (dq) {
     const [, prefix, a, b, c, d] = dq;
-    const g = (x: string, y: string) => ((Number(x) << 8) | Number(y)).toString(16);
+    const g = (x: string, y: string) =>
+      ((Number(x) << 8) | Number(y)).toString(16);
     s = `${prefix}${g(a!, b!)}:${g(c!, d!)}`;
   }
   if (s.includes('::')) {
@@ -48,7 +50,8 @@ function expandIpv6(ip: string): string[] {
     const headParts = head ? head.split(':') : [];
     const tailParts = tail ? tail.split(':') : [];
     const missing = 8 - headParts.length - tailParts.length;
-    s = [...headParts, ...Array(Math.max(0, missing)).fill('0'), ...tailParts].join(':');
+    const zeros: string[] = Array<string>(Math.max(0, missing)).fill('0');
+    s = [...headParts, ...zeros, ...tailParts].join(':');
   }
   return s.split(':');
 }
@@ -59,7 +62,8 @@ function ipv6MappedIpv4(groups: string[]): string | null {
   // Compare NUMERICALLY, not by string: a group may be spelled with 1–4 hex
   // digits, so "0", "00", "0000" are all zero and "ffff"/"FFFF" all 0xffff.
   // A leading-zero spelling like "0:00:0:0:0:ffff:7f00:1" must not slip past.
-  const hex = (g: string) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN);
+  const hex = (g: string) =>
+    /^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN;
   const parts = groups.map(hex);
   if (parts.some(Number.isNaN)) return null;
   if (!parts.slice(0, 5).every((n) => n === 0)) return null;
@@ -102,7 +106,9 @@ function isAmbiguousNumericHost(host: string): boolean {
 
 function isBlockedIp(ip: string): boolean {
   // Normalize IPv4-mapped IPv6 (::ffff:1.2.3.4) to its v4 form.
-  const v4 = ip.toLowerCase().startsWith('::ffff:') ? ip.slice(ip.lastIndexOf(':') + 1) : ip;
+  const v4 = ip.toLowerCase().startsWith('::ffff:')
+    ? ip.slice(ip.lastIndexOf(':') + 1)
+    : ip;
   if (net.isIPv4(v4)) return isBlockedIpv4(v4);
   if (net.isIPv6(ip)) return isBlockedIpv6(ip);
   return true; // unknown format — block
@@ -117,14 +123,18 @@ async function assertPublicUrl(rawUrl: string): Promise<URL> {
     throw new BadRequestException('Invalid URL');
   }
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-    throw new BadRequestException(`Only http(s) URLs are allowed (got ${u.protocol})`);
+    throw new BadRequestException(
+      `Only http(s) URLs are allowed (got ${u.protocol})`,
+    );
   }
   const host = u.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
   let addrs: string[];
   if (net.isIP(host)) {
     addrs = [host];
   } else if (isAmbiguousNumericHost(host)) {
-    throw new BadRequestException(`Refusing to resolve an ambiguous numeric host (${host})`);
+    throw new BadRequestException(
+      `Refusing to resolve an ambiguous numeric host (${host})`,
+    );
   } else {
     let results: LookupAddress[];
     try {
@@ -135,7 +145,9 @@ async function assertPublicUrl(rawUrl: string): Promise<URL> {
     addrs = results.map((r) => r.address);
   }
   if (!addrs.length || addrs.some(isBlockedIp)) {
-    throw new BadRequestException(`Refusing to fetch a private or internal address (${host})`);
+    throw new BadRequestException(
+      `Refusing to fetch a private or internal address (${host})`,
+    );
   }
   return u;
 }
@@ -145,16 +157,24 @@ async function assertPublicUrl(rawUrl: string): Promise<URL> {
  * resolves to a public address before connecting. Options are passed through;
  * `redirect` is forced to manual so hops can be re-checked.
  */
-async function safeFetch(rawUrl: string, options: RequestInit = {}): Promise<Response> {
+async function safeFetch(
+  rawUrl: string,
+  options: RequestInit = {},
+): Promise<Response> {
   let current = String(rawUrl);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(current);
     const res = await fetch(current, { ...options, redirect: 'manual' });
-    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    const location =
+      res.status >= 300 && res.status < 400
+        ? res.headers.get('location')
+        : null;
     if (!location) return res;
     current = new URL(location, current).toString();
   }
-  throw new BadGatewayException(`Too many redirects (more than ${MAX_REDIRECTS})`);
+  throw new BadGatewayException(
+    `Too many redirects (more than ${MAX_REDIRECTS})`,
+  );
 }
 
 export { safeFetch, assertPublicUrl, isBlockedIp, isAmbiguousNumericHost };

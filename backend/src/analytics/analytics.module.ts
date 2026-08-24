@@ -10,7 +10,13 @@ import { StatsService } from './stats.service';
 import { AnalyticsController } from './analytics.controller';
 
 @Module({
-  imports: [DockerModule, ServersModule, PathGuardModule, WorldsModule, ChatModule],
+  imports: [
+    DockerModule,
+    ServersModule,
+    PathGuardModule,
+    WorldsModule,
+    ChatModule,
+  ],
   controllers: [AnalyticsController],
   providers: [LogClassifierService, LogIngestService, StatsService],
   exports: [LogClassifierService, LogIngestService, StatsService],

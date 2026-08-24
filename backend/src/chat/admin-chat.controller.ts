@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -24,15 +33,22 @@ export class AdminChatController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly events: EventsService,
-    private readonly chat: ChatService
+    private readonly chat: ChatService,
   ) {}
 
   @Post()
   @HttpCode(201)
-  async send(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async send(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.serverQuery.mustGet(id);
     const input = sendSchema.parse(body);
-    const result = await this.chat.sendChat(id, { ...input, actor: req.user!.username });
+    const result = await this.chat.sendChat(id, {
+      ...input,
+      actor: req.user!.username,
+    });
     return { ok: true, ...result };
   }
 
@@ -40,9 +56,20 @@ export class AdminChatController {
   async history(@Param('id') id: string, @Query('limit') limitRaw?: string) {
     await this.serverQuery.mustGet(id);
     const limit = Math.min(200, Math.max(1, Number(limitRaw) || 50));
-    const rows = await this.events.listEvents({ serverId: id, type: 'chat-sent', limit });
+    const rows = await this.events.listEvents({
+      serverId: id,
+      type: 'chat-sent',
+      limit,
+    });
     const history = rows
-      .map((e): ChatHistoryEntry => ({ ts: e.createdAt, actor: e.actor, ...e.details }) as ChatHistoryEntry)
+      .map(
+        (e): ChatHistoryEntry =>
+          ({
+            ts: e.createdAt,
+            actor: e.actor,
+            ...e.details,
+          }) as ChatHistoryEntry,
+      )
       .reverse();
     return { ok: true, history };
   }

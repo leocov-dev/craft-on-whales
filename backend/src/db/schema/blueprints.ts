@@ -10,7 +10,9 @@ export const blueprints = sqliteTable('blueprints', {
   sizeBytes: integer('size_bytes').notNull(),
   builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
   manifestJson: text('manifest_json').notNull(),
-  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(datetime('now'))`),
 });
 
 export const backups = sqliteTable(
@@ -26,7 +28,9 @@ export const backups = sqliteTable(
     sha256: text('sha256'),
     reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update'
     note: text('note').notNull().default(''),
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
-  (t) => [index('idx_backups_server').on(t.serverId, t.createdAt)]
+  (t) => [index('idx_backups_server').on(t.serverId, t.createdAt)],
 );

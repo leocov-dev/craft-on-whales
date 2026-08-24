@@ -54,8 +54,10 @@ export class McRouterDockerService {
       AUTO_SCALE_DOWN: String(spec.autoScale.down),
       AUTO_SCALE_DOWN_AFTER: spec.autoScale.downAfter,
     };
-    if (spec.autoScale.asleepMotd) env.AUTO_SCALE_ASLEEP_MOTD = spec.autoScale.asleepMotd;
-    if (spec.autoScale.loadingMotd) env.AUTO_SCALE_LOADING_MOTD = spec.autoScale.loadingMotd;
+    if (spec.autoScale.asleepMotd)
+      env.AUTO_SCALE_ASLEEP_MOTD = spec.autoScale.asleepMotd;
+    if (spec.autoScale.loadingMotd)
+      env.AUTO_SCALE_LOADING_MOTD = spec.autoScale.loadingMotd;
 
     const hostConfig: Dockerode.HostConfig = {
       Binds: [`${spec.dockerSocketPath}:/var/run/docker.sock`],
@@ -100,7 +102,8 @@ export class McRouterDockerService {
       else status = s.ExitCode === 0 ? 'stopped' : 'crashed';
       return { exists: true, status, containerId: info.Id };
     } catch (err: unknown) {
-      if ((err as { statusCode?: number }).statusCode === 404) return { exists: false, status: 'stopped' };
+      if ((err as { statusCode?: number }).statusCode === 404)
+        return { exists: false, status: 'stopped' };
       throw err;
     }
   }

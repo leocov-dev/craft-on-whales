@@ -27,7 +27,11 @@ export class SettingsService {
   }
 
   async get(key: string, fallback: unknown = null): Promise<unknown> {
-    const [row] = await this.db.select().from(settings).where(eq(settings.key, key)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, key))
+      .limit(1);
     if (!row) return fallback;
     try {
       return JSON.parse(row.valueJson);
@@ -40,7 +44,10 @@ export class SettingsService {
     await this.db
       .insert(settings)
       .values({ key, valueJson: JSON.stringify(value) })
-      .onConflictDoUpdate({ target: settings.key, set: { valueJson: JSON.stringify(value) } });
+      .onConflictDoUpdate({
+        target: settings.key,
+        set: { valueJson: JSON.stringify(value) },
+      });
   }
 
   async remove(key: string): Promise<void> {
@@ -51,7 +58,7 @@ export class SettingsService {
   // Public host / domain: shown in connect addresses instead of the LAN IP.
 
   private normalizeHost(host: unknown): string {
-    let h = String(host || '').trim();
+    let h = (typeof host === 'string' ? host : '').trim();
     if (!h) return '';
     h = h
       .replace(/^https?:\/\//i, '')
@@ -60,9 +67,15 @@ export class SettingsService {
       .trim()
       .toLowerCase();
     const valid =
-      /^[a-z0-9.-]{1,253}$/.test(h) && !h.startsWith('.') && !h.endsWith('.') && !h.startsWith('-') && !h.includes('..');
+      /^[a-z0-9.-]{1,253}$/.test(h) &&
+      !h.startsWith('.') &&
+      !h.endsWith('.') &&
+      !h.startsWith('-') &&
+      !h.includes('..');
     if (!valid) {
-      throw new BadRequestException('Enter a valid domain or hostname, e.g. mc.example.com (no scheme, path or port).');
+      throw new BadRequestException(
+        'Enter a valid domain or hostname, e.g. mc.example.com (no scheme, path or port).',
+      );
     }
     return h;
   }
@@ -132,13 +145,15 @@ export class SettingsService {
 
   /** Store (or clear, when blank/"auto") the time zone. Returns the effective value. */
   async setTimezone(tz: unknown): Promise<string> {
-    const clean = String(tz || '').trim();
+    const clean = (typeof tz === 'string' ? tz : '').trim();
     if (!clean || clean.toLowerCase() === 'auto') {
       await this.remove('timezone');
       return this.getTimezone();
     }
     if (!this.isValidTimezone(clean)) {
-      throw new BadRequestException(`Unknown time zone "${clean}". Use an IANA name like "America/New_York" or "Europe/Paris".`);
+      throw new BadRequestException(
+        `Unknown time zone "${clean}". Use an IANA name like "America/New_York" or "Europe/Paris".`,
+      );
     }
     await this.set('timezone', clean);
     return clean;
@@ -152,13 +167,15 @@ export class SettingsService {
 
   /** Store (or clear, when blank/"auto") the country. Returns the effective value. */
   async setCountry(cc: unknown): Promise<string> {
-    const clean = String(cc || '').trim().toUpperCase();
+    const clean = (typeof cc === 'string' ? cc : '').trim().toUpperCase();
     if (!clean || clean === 'AUTO') {
       await this.remove('country');
       return this.getCountry();
     }
     if (!this.isValidCountry(clean)) {
-      throw new BadRequestException('Country must be a 2-letter ISO code, e.g. US, GB, DE.');
+      throw new BadRequestException(
+        'Country must be a 2-letter ISO code, e.g. US, GB, DE.',
+      );
     }
     await this.set('country', clean);
     return clean;
@@ -194,6 +211,9 @@ export class SettingsService {
 
   /** Slim object exposed to the browser for client-side formatting. */
   async clientLocalization(): Promise<{ timezone: string; locale: string }> {
-    return { timezone: await this.getTimezone(), locale: await this.resolveLocale() };
+    return {
+      timezone: await this.getTimezone(),
+      locale: await this.resolveLocale(),
+    };
   }
 }

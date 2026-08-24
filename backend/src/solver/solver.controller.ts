@@ -12,7 +12,7 @@ const solveSchema = z.object({
 export class SolverController {
   constructor(
     private readonly solver: SolverService,
-    private readonly modrinth: ModrinthApiService
+    private readonly modrinth: ModrinthApiService,
   ) {}
 
   @Get('search')

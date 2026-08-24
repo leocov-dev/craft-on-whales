@@ -1,4 +1,17 @@
-import { BadRequestException, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Req,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import * as fsp from 'node:fs/promises';
@@ -20,7 +33,10 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -31,7 +47,9 @@ const worldNameSchema = z
   .min(1)
   .max(64)
   .regex(/^[^\\/\0]+$/, 'World names cannot contain path separators')
-  .refine((v) => !v.startsWith('.'), { message: 'World names cannot start with a dot' });
+  .refine((v) => !v.startsWith('.'), {
+    message: 'World names cannot start with a dot',
+  });
 const modeSchema = z.enum(['replace', 'alongside']);
 
 function libVM(row: typeof libraryFiles.$inferSelect): SimpleWorld {
@@ -55,7 +73,7 @@ export class WorldsController {
     private readonly library: WorldLibraryService,
     private readonly db: DbService,
     private readonly events: EventsService,
-    private readonly pathGuard: PathGuardService
+    private readonly pathGuard: PathGuardService,
   ) {}
 
   @Get()
@@ -68,12 +86,27 @@ export class WorldsController {
   // file is only ever read then deleted by importArchive(), so which OS temp
   // area it transits through doesn't matter for correctness.
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file', { dest: os.tmpdir(), limits: { fileSize: 20 * 1024 ** 3 } }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: os.tmpdir(),
+      limits: { fileSize: 20 * 1024 ** 3 },
+    }),
+  )
   async upload(@UploadedFile() file: Express.Multer.File, @Req() req: Request) {
-    if (!file) throw new BadRequestException('Attach a world archive (zip, .mcworld, tar or tar.gz)');
-    const { name } = parseBody(z.object({ name: z.string().trim().max(120).optional() }), req.body || {});
+    if (!file)
+      throw new BadRequestException(
+        'Attach a world archive (zip, .mcworld, tar or tar.gz)',
+      );
+    const { name } = parseBody(
+      z.object({ name: z.string().trim().max(120).optional() }),
+      req.body || {},
+    );
     try {
-      const row = await this.library.importArchive(file.path, { name, originalName: file.originalname, actor: actorOf(req) });
+      const row = await this.library.importArchive(file.path, {
+        name,
+        originalName: file.originalname,
+        actor: actorOf(req),
+      });
       return { ok: true, world: libVM(row) };
     } catch (err) {
       await fsp.rm(file.path, { force: true }).catch(() => {});
@@ -83,37 +116,73 @@ export class WorldsController {
 
   @Post('extract')
   async extract(@Req() req: Request) {
-    const { serverId, name } = parseBody(z.object({ serverId: z.string().trim().min(1).max(40), name: z.string().trim().max(120).optional() }), req.body);
-    const row = await this.ops.extractFromServer(serverId, { name, actor: actorOf(req) });
+    const { serverId, name } = parseBody(
+      z.object({
+        serverId: z.string().trim().min(1).max(40),
+        name: z.string().trim().max(120).optional(),
+      }),
+      req.body,
+    );
+    const row = await this.ops.extractFromServer(serverId, {
+      name,
+      actor: actorOf(req),
+    });
     return { ok: true, world: libVM(row) };
   }
 
   @Post(':id/install')
   async install(@Param('id') worldId: string, @Req() req: Request) {
     const { serverId, mode, newName, confirm } = parseBody(
-      z.object({ serverId: z.string().trim().min(1).max(40), mode: modeSchema.default('replace'), newName: worldNameSchema.optional(), confirm: z.coerce.boolean().optional() }),
-      req.body
+      z.object({
+        serverId: z.string().trim().min(1).max(40),
+        mode: modeSchema.default('replace'),
+        newName: worldNameSchema.optional(),
+        confirm: z.coerce.boolean().optional(),
+      }),
+      req.body,
     );
     const warnings = await this.ops.installWarnings(worldId, serverId);
-    if (warnings.length && !confirm) return { ok: true, requiresConfirm: true, warnings };
-    const result = await this.ops.installToServer(worldId, serverId, { mode, newName, actor: actorOf(req) });
+    if (warnings.length && !confirm)
+      return { ok: true, requiresConfirm: true, warnings };
+    const result = await this.ops.installToServer(worldId, serverId, {
+      mode,
+      newName,
+      actor: actorOf(req),
+    });
     return { ok: true, ...result };
   }
 
   @Get(':id/download')
   async download(@Param('id') id: string, @Res() res: Response) {
-    const [lib] = await this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).limit(1);
+    const [lib] = await this.db.db
+      .select()
+      .from(libraryFiles)
+      .where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world')))
+      .limit(1);
     if (!lib) throw new NotFoundException('World not found in the library');
     const filename = lib.filename;
-    res.download(this.pathGuard.dataPath(lib.relPath), filename.endsWith('.zip') ? filename : `${filename}.zip`);
+    res.download(
+      this.pathGuard.dataPath(lib.relPath),
+      filename.endsWith('.zip') ? filename : `${filename}.zip`,
+    );
   }
 
   @Patch(':id')
   async rename(@Param('id') id: string, @Req() req: Request) {
-    const { name } = parseBody(z.object({ name: z.string().trim().min(1).max(120) }), req.body);
-    const [lib] = await this.db.db.select().from(libraryFiles).where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world'))).limit(1);
+    const { name } = parseBody(
+      z.object({ name: z.string().trim().min(1).max(120) }),
+      req.body,
+    );
+    const [lib] = await this.db.db
+      .select()
+      .from(libraryFiles)
+      .where(and(eq(libraryFiles.id, id), eq(libraryFiles.category, 'world')))
+      .limit(1);
     if (!lib) throw new NotFoundException('World not found in the library');
-    await this.db.db.update(libraryFiles).set({ name }).where(eq(libraryFiles.id, lib.id));
+    await this.db.db
+      .update(libraryFiles)
+      .set({ name })
+      .where(eq(libraryFiles.id, lib.id));
     this.events.recordEvent({
       actor: actorOf(req),
       type: 'world-renamed',
@@ -125,7 +194,10 @@ export class WorldsController {
 
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request) {
-    return { ok: true, ...(await this.library.deleteLibraryWorld(id, { actor: actorOf(req) })) };
+    return {
+      ok: true,
+      ...(await this.library.deleteLibraryWorld(id, { actor: actorOf(req) })),
+    };
   }
 }
 
@@ -142,25 +214,52 @@ export class ServerWorldsController {
   @Post('copy-to')
   async copyTo(@Param('id') id: string, @Req() req: Request) {
     const { targetServerId, mode, newName, confirm } = parseBody(
-      z.object({ targetServerId: z.string().trim().min(1).max(40), mode: modeSchema.default('replace'), newName: worldNameSchema.optional(), confirm: z.coerce.boolean().optional() }),
-      req.body
+      z.object({
+        targetServerId: z.string().trim().min(1).max(40),
+        mode: modeSchema.default('replace'),
+        newName: worldNameSchema.optional(),
+        confirm: z.coerce.boolean().optional(),
+      }),
+      req.body,
     );
     const warnings = await this.ops.copyWarnings(id, targetServerId);
-    if (warnings.length && !confirm) return { ok: true, requiresConfirm: true, warnings };
-    const result = await this.ops.copyBetweenServers(id, targetServerId, { mode, newName, actor: actorOf(req) });
-    return { ok: true, installedAs: result.installedAs, mode: result.mode, sizeBytes: result.sizeBytes, warnings: result.warnings };
+    if (warnings.length && !confirm)
+      return { ok: true, requiresConfirm: true, warnings };
+    const result = await this.ops.copyBetweenServers(id, targetServerId, {
+      mode,
+      newName,
+      actor: actorOf(req),
+    });
+    return {
+      ok: true,
+      installedAs: result.installedAs,
+      mode: result.mode,
+      sizeBytes: result.sizeBytes,
+      warnings: result.warnings,
+    };
   }
 
   @Post('duplicate')
   async duplicate(@Param('id') id: string, @Req() req: Request) {
     const { world } = parseBody(z.object({ world: worldNameSchema }), req.body);
-    return { ok: true, ...(await this.ops.duplicateWorld(id, world, { actor: actorOf(req) })) };
+    return {
+      ok: true,
+      ...(await this.ops.duplicateWorld(id, world, { actor: actorOf(req) })),
+    };
   }
 
   @Post('rename')
   async rename(@Param('id') id: string, @Req() req: Request) {
-    const { world, newName } = parseBody(z.object({ world: worldNameSchema, newName: worldNameSchema }), req.body);
-    return { ok: true, ...(await this.ops.renameWorld(id, world, newName, { actor: actorOf(req) })) };
+    const { world, newName } = parseBody(
+      z.object({ world: worldNameSchema, newName: worldNameSchema }),
+      req.body,
+    );
+    return {
+      ok: true,
+      ...(await this.ops.renameWorld(id, world, newName, {
+        actor: actorOf(req),
+      })),
+    };
   }
 
   @Post('reset')
@@ -169,32 +268,54 @@ export class ServerWorldsController {
       z.object({
         seedMode: z.enum(['keep', 'random', 'custom']).default('random'),
         seed: z.string().trim().max(200).optional(),
-        levelType: z.enum(['DEFAULT', 'FLAT', 'LARGEBIOMES', 'AMPLIFIED']).optional(),
+        levelType: z
+          .enum(['DEFAULT', 'FLAT', 'LARGEBIOMES', 'AMPLIFIED'])
+          .optional(),
         backup: z.coerce.boolean().default(true),
       }),
-      req.body
+      req.body,
     );
-    return { ok: true, ...(await this.ops.resetWorld(id, { ...opts, actor: actorOf(req) })) };
+    return {
+      ok: true,
+      ...(await this.ops.resetWorld(id, { ...opts, actor: actorOf(req) })),
+    };
   }
 
   @Post('activate')
   async activate(@Param('id') id: string, @Req() req: Request) {
     const { world } = parseBody(z.object({ world: worldNameSchema }), req.body);
-    return { ok: true, ...(await this.ops.activateWorld(id, world, { actor: actorOf(req) })) };
+    return {
+      ok: true,
+      ...(await this.ops.activateWorld(id, world, { actor: actorOf(req) })),
+    };
   }
 
   @Get(':world/download')
-  async download(@Param('id') id: string, @Param('world') worldRaw: string, @Req() req: Request, @Res() res: Response) {
+  async download(
+    @Param('id') id: string,
+    @Param('world') worldRaw: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     const world = worldNameSchema.parse(worldRaw);
-    const staged = await this.ops.prepareWorldDownload(id, world, { actor: actorOf(req) });
+    const staged = await this.ops.prepareWorldDownload(id, world, {
+      actor: actorOf(req),
+    });
     res.download(staged.absPath, staged.filename, () => {
       fsp.rm(staged.absPath, { force: true }).catch(() => {});
     });
   }
 
   @Delete(':world')
-  async remove(@Param('id') id: string, @Param('world') worldRaw: string, @Req() req: Request) {
+  async remove(
+    @Param('id') id: string,
+    @Param('world') worldRaw: string,
+    @Req() req: Request,
+  ) {
     const world = worldNameSchema.parse(worldRaw);
-    return { ok: true, ...(await this.ops.deleteServerWorld(id, world, { actor: actorOf(req) })) };
+    return {
+      ok: true,
+      ...(await this.ops.deleteServerWorld(id, world, { actor: actorOf(req) })),
+    };
   }
 }

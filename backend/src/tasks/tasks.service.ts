@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { nanoid } from 'nanoid';
-import type { CreateTaskOptions, FailableError, Task, TaskHandle, TaskView } from './tasks.types';
+import type {
+  CreateTaskOptions,
+  FailableError,
+  Task,
+  TaskHandle,
+  TaskView,
+} from './tasks.types';
 
 const TTL_MS = 10 * 60 * 1000; // finished tasks linger for late polls
 
@@ -28,7 +34,10 @@ export class TasksService {
    *   t.log('…')                          — append a detail line (kept last 50)
    *   t.done(result) / t.fail(error)      — finish
    */
-  createTask(title: string, { serverId = null, actor = 'system' }: CreateTaskOptions = {}): TaskHandle {
+  createTask(
+    title: string,
+    { serverId = null, actor = 'system' }: CreateTaskOptions = {},
+  ): TaskHandle {
     const id = `task_${nanoid(10)}`;
     const task: Task = {
       id,
@@ -88,13 +97,16 @@ export class TasksService {
   }
 
   /** Fire-and-track: returns the task id immediately; fn runs in background. */
-  run(title: string, opts: CreateTaskOptions, fn: (t: TaskHandle) => Promise<unknown>): string {
+  run(
+    title: string,
+    opts: CreateTaskOptions,
+    fn: (t: TaskHandle) => Promise<unknown>,
+  ): string {
     const t = this.createTask(title, opts);
     Promise.resolve()
       .then(() => fn(t))
       .then((result) => t.done(result))
       .catch((err: Error) => {
-        // eslint-disable-next-line no-console
         console.error(`[task] ${title}:`, err.message);
         t.fail(err);
       });
@@ -112,7 +124,9 @@ export class TasksService {
       step: t.stepLabel,
       current: t.current,
       total: t.total,
-      percent: t.total ? Math.min(100, Math.round((t.current / t.total) * 100)) : null,
+      percent: t.total
+        ? Math.min(100, Math.round((t.current / t.total) * 100))
+        : null,
       logs: t.logs.slice(-10),
       result: t.result,
       error: t.error,
@@ -134,6 +148,9 @@ export class TasksService {
         if (view) out.push(view);
       }
     }
-    return out.sort((a, b) => (a.state === 'running' ? -1 : 1) - (b.state === 'running' ? -1 : 1));
+    return out.sort(
+      (a, b) =>
+        (a.state === 'running' ? -1 : 1) - (b.state === 'running' ? -1 : 1),
+    );
   }
 }

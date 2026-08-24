@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -15,7 +20,11 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { serverContent, updateChecks } from '../db/schema';
 import type { Server } from '../servers/types';
-import type { ContentItem, PendingDownload, ContentKind as SharedContentKind } from '../../../shared/types/mods';
+import type {
+  ContentItem,
+  PendingDownload,
+  ContentKind as SharedContentKind,
+} from '../../../shared/types/mods';
 
 export type { ContentItem, PendingDownload };
 
@@ -27,7 +36,16 @@ export type { ContentItem, PendingDownload };
 //   overlay — panel-managed via the shared library; survives pack updates;
 //             toggled instantly by renaming to .jar.disabled.
 
-const PLUGIN_TYPES = new Set(['PAPER', 'PURPUR', 'PUFFERFISH', 'LEAF', 'FOLIA', 'SPIGOT', 'BUKKIT', 'CANYON']);
+const PLUGIN_TYPES = new Set([
+  'PAPER',
+  'PURPUR',
+  'PUFFERFISH',
+  'LEAF',
+  'FOLIA',
+  'SPIGOT',
+  'BUKKIT',
+  'CANYON',
+]);
 
 type ContentKind = SharedContentKind;
 
@@ -54,7 +72,7 @@ export class ModsService {
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
     private readonly query: ServerQueryService,
-    private readonly lifecycle: ServerLifecycleService
+    private readonly lifecycle: ServerLifecycleService,
   ) {}
 
   private get db() {
@@ -98,33 +116,66 @@ export class ModsService {
   }
 
   loaderOf(server: Server): string | null {
-    const map: Record<string, string> = { FABRIC: 'fabric', QUILT: 'quilt', FORGE: 'forge', NEOFORGE: 'neoforge' };
+    const map: Record<string, string> = {
+      FABRIC: 'fabric',
+      QUILT: 'quilt',
+      FORGE: 'forge',
+      NEOFORGE: 'neoforge',
+    };
     if (map[server.type]) return map[server.type]!;
     if (PLUGIN_TYPES.has(server.type)) return 'paper';
-    if (server.type === 'AUTO_CURSEFORGE' || server.type === 'MODRINTH' || server.type === 'FTBA') {
-      const envLoader = (server.env.MODRINTH_LOADER || server.env.CF_MOD_LOADER || '').toLowerCase();
+    if (
+      server.type === 'AUTO_CURSEFORGE' ||
+      server.type === 'MODRINTH' ||
+      server.type === 'FTBA'
+    ) {
+      const envLoader = (
+        server.env.MODRINTH_LOADER ||
+        server.env.CF_MOD_LOADER ||
+        ''
+      ).toLowerCase();
       return envLoader || this.detectPackLoader(server.id) || null;
     }
     // packwiz has no env var carrying the loader (PACKWIZ_URL is the only
     // install-time env it sets) — the on-disk manifest sniff is the only source.
-    if (server.type === 'PACKWIZ') return this.detectPackLoader(server.id) || null;
+    if (server.type === 'PACKWIZ')
+      return this.detectPackLoader(server.id) || null;
     return null;
   }
 
   isPackServer(server: Pick<Server, 'type'>): boolean {
-    return ['AUTO_CURSEFORGE', 'MODRINTH', 'FTBA', 'CURSEFORGE', 'GTNH', 'PACKWIZ'].includes(server.type);
+    return [
+      'AUTO_CURSEFORGE',
+      'MODRINTH',
+      'FTBA',
+      'CURSEFORGE',
+      'GTNH',
+      'PACKWIZ',
+    ].includes(server.type);
   }
 
-  private async updateFor(row: typeof serverContent.$inferSelect | undefined): Promise<string | null> {
+  private async updateFor(
+    row: typeof serverContent.$inferSelect | undefined,
+  ): Promise<string | null> {
     if (!row) return null;
     const [check] = await this.db
-      .select({ latestVersion: updateChecks.latestVersion, latestName: updateChecks.latestName })
+      .select({
+        latestVersion: updateChecks.latestVersion,
+        latestName: updateChecks.latestName,
+      })
       .from(updateChecks)
-      .where(and(eq(updateChecks.subjectType, 'content'), eq(updateChecks.subjectId, row.id)))
+      .where(
+        and(
+          eq(updateChecks.subjectType, 'content'),
+          eq(updateChecks.subjectId, row.id),
+        ),
+      )
       .limit(1);
     // latestName is only set when the checker saw a genuinely newer build;
     // compare name-to-name (latestVersion holds the platform id, not a name).
-    return check && check.latestName && check.latestName !== row.version ? check.latestName : null;
+    return check && check.latestName && check.latestName !== row.version
+      ? check.latestName
+      : null;
   }
 
   /** List installed content: DB overlay rows + on-disk scan for pack/unknown files. */
@@ -135,8 +186,13 @@ export class ModsService {
     const dirRel = this.contentDir(server, kind);
     const dirAbs = this.pathGuard.dataPath('servers', serverId, dirRel);
 
-    const rows = await this.db.select().from(serverContent).where(eq(serverContent.serverId, serverId));
-    const byFile = new Map(rows.map((r) => [r.filename.replace(/\.disabled$/, ''), r]));
+    const rows = await this.db
+      .select()
+      .from(serverContent)
+      .where(eq(serverContent.serverId, serverId));
+    const byFile = new Map(
+      rows.map((r) => [r.filename.replace(/\.disabled$/, ''), r]),
+    );
     const seen = new Set<string>();
     const items: ContentItem[] = [];
 
@@ -154,20 +210,33 @@ export class ModsService {
       if (!baseName.endsWith('.jar') && !baseName.endsWith('.zip')) continue;
       seen.add(baseName);
       const row = byFile.get(baseName);
-      const stat = await fsp.stat(path.join(dirAbs, entry.name)).catch(() => null);
-      const lib = row && row.libraryId ? await this.library.getLibraryFile(row.libraryId) : undefined;
+      const stat = await fsp
+        .stat(path.join(dirAbs, entry.name))
+        .catch(() => null);
+      const lib =
+        row && row.libraryId
+          ? await this.library.getLibraryFile(row.libraryId)
+          : undefined;
       items.push({
         id: row ? row.id : null,
         name: row ? row.name : this.prettifyJarName(baseName),
         file: baseName,
         kind,
-        source: row ? row.managedBy : this.isPackServer(server) ? 'pack' : 'unknown',
+        source: row
+          ? row.managedBy
+          : this.isPackServer(server)
+            ? 'pack'
+            : 'unknown',
         version: row ? row.version : null,
         size: stat ? stat.size : 0,
         enabled: !isDisabled,
-        disabledVia: row && row.managedBy === 'pack' && !isDisabled ? null : undefined,
+        disabledVia:
+          row && row.managedBy === 'pack' && !isDisabled ? null : undefined,
         sharedWith: lib ? await this.library.usageCount(lib.id) : null,
-        iconUrl: (lib && lib.iconRelPath ? `/${lib.iconRelPath}` : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
+        iconUrl:
+          (lib && lib.iconRelPath
+            ? `/${lib.iconRelPath}`
+            : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
         updateAvailable: await this.updateFor(row),
       });
     }
@@ -228,28 +297,51 @@ export class ModsService {
   async installFromUrl(
     serverId: string,
     input: string,
-    { actor = 'system', kind, onProgress }: { actor?: string; kind?: ContentKind; onProgress?: (...args: unknown[]) => void } = {}
+    {
+      actor = 'system',
+      kind,
+      onProgress,
+    }: {
+      actor?: string;
+      kind?: ContentKind;
+      onProgress?: (...args: unknown[]) => void;
+    } = {},
   ) {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const targetKind: ContentKind = kind || (PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod');
-    const mcVersion = server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT' ? undefined : server.mc_version;
+    const targetKind: ContentKind =
+      kind || (PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod');
+    const mcVersion =
+      server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
+        ? undefined
+        : server.mc_version;
     const loader = this.loaderOf(server);
 
     const source = this.classifyModSource(input);
     if (source.kind === 'invalid') {
-      throw new BadRequestException('Enter a Modrinth/CurseForge URL, a direct download URL, or a Modrinth project slug');
+      throw new BadRequestException(
+        'Enter a Modrinth/CurseForge URL, a direct download URL, or a Modrinth project slug',
+      );
     }
 
     let downloadUrl = source.ref;
-    const meta: Record<string, unknown> = { category: targetKind, platform: 'url' };
+    const meta: Record<string, unknown> = {
+      category: targetKind,
+      platform: 'url',
+    };
 
     if (source.kind === 'modrinth') {
       const resolved = await this.modrinth.resolveUrl(source.ref);
       const versions = resolved.versionId
         ? [await this.modrinth.getVersion(resolved.versionId)]
-        : await this.modrinth.getVersions(resolved.projectId, { loader: loader || undefined, mcVersion });
-      if (!versions.length) throw new NotFoundException(`No ${resolved.title} build matches ${loader || 'this loader'} ${mcVersion || ''}`.trim());
+        : await this.modrinth.getVersions(resolved.projectId, {
+            loader: loader || undefined,
+            mcVersion,
+          });
+      if (!versions.length)
+        throw new NotFoundException(
+          `No ${resolved.title} build matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
+        );
       const version = versions[0]!;
       const file = this.modrinth.primaryFile(version);
       downloadUrl = file.url;
@@ -266,9 +358,22 @@ export class ModsService {
       });
     } else if (source.kind === 'curseforge') {
       const resolved = await this.curseforge.resolveUrl(source.ref);
-      const file = resolved.fileId ? await this.curseforge.getFile(resolved.modId, resolved.fileId) : (await this.curseforge.getFiles(resolved.modId, { mcVersion, loader: loader || undefined }))[0];
-      if (!file) throw new NotFoundException(`No ${resolved.name} file matches ${loader || 'this loader'} ${mcVersion || ''}`.trim());
-      if (!file.downloadUrl) throw new ConflictException(`${resolved.name} disallows automated downloads — download it in a browser and upload the jar instead`);
+      const file = resolved.fileId
+        ? await this.curseforge.getFile(resolved.modId, resolved.fileId)
+        : (
+            await this.curseforge.getFiles(resolved.modId, {
+              mcVersion,
+              loader: loader || undefined,
+            })
+          )[0];
+      if (!file)
+        throw new NotFoundException(
+          `No ${resolved.name} file matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
+        );
+      if (!file.downloadUrl)
+        throw new ConflictException(
+          `${resolved.name} disallows automated downloads — download it in a browser and upload the jar instead`,
+        );
       downloadUrl = file.downloadUrl;
       Object.assign(meta, {
         platform: 'curseforge',
@@ -283,14 +388,31 @@ export class ModsService {
     }
     // source.kind === 'direct' → plain download of the URL as-is.
 
-    const lib = await this.library.downloadToLibrary(downloadUrl, meta, { onProgress, actor });
+    const lib = await this.library.downloadToLibrary(downloadUrl, meta, {
+      onProgress,
+      actor,
+    });
     await this.indexer.assertUnderQuota(server, lib.sizeBytes);
-    const { filename } = await this.library.installToServer(lib.id, serverId, this.contentDir(server, targetKind));
+    const { filename } = await this.library.installToServer(
+      lib.id,
+      serverId,
+      this.contentDir(server, targetKind),
+    );
 
     const id = `sc_${nanoid(8)}`;
     await this.db
       .insert(serverContent)
-      .values({ id, serverId, libraryId: lib.id, kind: targetKind, managedBy: 'overlay', name: lib.name, filename, version: lib.version, iconUrl: lib.iconUrl })
+      .values({
+        id,
+        serverId,
+        libraryId: lib.id,
+        kind: targetKind,
+        managedBy: 'overlay',
+        name: lib.name,
+        filename,
+        version: lib.version,
+        iconUrl: lib.iconUrl,
+      })
       .onConflictDoUpdate({
         target: [serverContent.serverId, serverContent.filename],
         set: { libraryId: lib.id, version: lib.version },
@@ -307,21 +429,52 @@ export class ModsService {
   }
 
   /** Toggle content. Overlay: rename instantly. Pack: exclusion env + recreate flag. */
-  async setEnabled(serverId: string, file: string, enabled: boolean, { actor = 'system' }: { actor?: string } = {}): Promise<{ applied: 'instant' | 'on-restart' }> {
+  async setEnabled(
+    serverId: string,
+    file: string,
+    enabled: boolean,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ applied: 'instant' | 'on-restart' }> {
     this.assertBareContentName(file);
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const [row] = await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).limit(1);
-    const managedBy = row ? row.managedBy : this.isPackServer(server) ? 'pack' : 'overlay';
+    const [row] = await this.db
+      .select()
+      .from(serverContent)
+      .where(
+        and(
+          eq(serverContent.serverId, serverId),
+          eq(serverContent.filename, file),
+        ),
+      )
+      .limit(1);
+    const managedBy = row
+      ? row.managedBy
+      : this.isPackServer(server)
+        ? 'pack'
+        : 'overlay';
 
     if (managedBy === 'overlay' || !this.isPackServer(server)) {
-      const dirRel = this.contentDir(server, (row ? row.kind : 'mod') as ContentKind);
+      const dirRel = this.contentDir(
+        server,
+        (row ? row.kind : 'mod') as ContentKind,
+      );
       const base = this.pathGuard.dataPath('servers', serverId, dirRel, file);
       const disabled = `${base}.disabled`;
       if (enabled && fs.existsSync(disabled)) await fsp.rename(disabled, base);
-      else if (!enabled && fs.existsSync(base)) await fsp.rename(base, disabled);
-      if (row) await this.db.update(serverContent).set({ enabled }).where(eq(serverContent.id, row.id));
-      this.events.recordEvent({ serverId, actor, type: enabled ? 'mod-enabled' : 'mod-disabled', summary: `${file} ${enabled ? 'enabled' : 'disabled'} (instant)` });
+      else if (!enabled && fs.existsSync(base))
+        await fsp.rename(base, disabled);
+      if (row)
+        await this.db
+          .update(serverContent)
+          .set({ enabled })
+          .where(eq(serverContent.id, row.id));
+      this.events.recordEvent({
+        serverId,
+        actor,
+        type: enabled ? 'mod-enabled' : 'mod-disabled',
+        summary: `${file} ${enabled ? 'enabled' : 'disabled'} (instant)`,
+      });
       return { applied: 'instant' };
     }
 
@@ -330,7 +483,9 @@ export class ModsService {
     // actually stop the pack installer from re-adding the file. Reject
     // explicitly rather than silently writing a useless var.
     if (server.type === 'PACKWIZ') {
-      throw new BadRequestException('packwiz-managed mods can’t be toggled from the panel — edit the pack and re-apply the URL instead');
+      throw new BadRequestException(
+        'packwiz-managed mods can’t be toggled from the panel — edit the pack and re-apply the URL instead',
+      );
     }
 
     // Pack-managed: manipulate the exclusion env var. Prefer the real CF project
@@ -340,58 +495,131 @@ export class ModsService {
     const env = { ...server.env };
     const isCF = server.type === 'AUTO_CURSEFORGE';
     const varName = isCF ? 'CF_EXCLUDE_MODS' : 'MODRINTH_EXCLUDE_FILES';
-    const fromManifest = this.packManifestIndex(serverId).get(file.replace(/\.disabled$/, ''));
-    const token = (fromManifest && (fromManifest.slug || fromManifest.projectId)) || (row && row.iconUrl && row.name ? row.name.toLowerCase().replace(/\s+/g, '-') : file.replace(/(-[\d.]+.*)?\.jar$/, ''));
-    const list = (env[varName] || '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
-    const next = enabled ? list.filter((t) => t !== token) : [...new Set([...list, token])];
+    const fromManifest = this.packManifestIndex(serverId).get(
+      file.replace(/\.disabled$/, ''),
+    );
+    const token =
+      (fromManifest && (fromManifest.slug || fromManifest.projectId)) ||
+      (row && row.iconUrl && row.name
+        ? row.name.toLowerCase().replace(/\s+/g, '-')
+        : file.replace(/(-[\d.]+.*)?\.jar$/, ''));
+    const list = (env[varName] || '')
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const next = enabled
+      ? list.filter((t) => t !== token)
+      : [...new Set([...list, token])];
     env[varName] = next.join('\n');
     env[isCF ? 'CF_FORCE_SYNCHRONIZE' : 'MODRINTH_FORCE_SYNCHRONIZE'] = 'true';
     await this.lifecycle.updateServer(serverId, { env }, { actor });
-    this.events.recordEvent({ serverId, actor, type: enabled ? 'mod-enabled' : 'mod-disabled', summary: `${file} ${enabled ? 're-included' : 'excluded'} via ${varName} — applies on next restart` });
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: enabled ? 'mod-enabled' : 'mod-disabled',
+      summary: `${file} ${enabled ? 're-included' : 'excluded'} via ${varName} — applies on next restart`,
+    });
     return { applied: 'on-restart' };
   }
 
   /** Remove overlay content (file + row); pack content is excluded, not removed. */
-  async removeContent(serverId: string, file: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
+  async removeContent(
+    serverId: string,
+    file: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ freedBytes: number }> {
     this.assertBareContentName(file);
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const [row] = await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, serverId), eq(serverContent.filename, file))).limit(1);
-    if (row && row.managedBy === 'pack') throw new ConflictException('Pack-managed content is excluded, not deleted — use Disable');
-    const dirRel = this.contentDir(server, (row ? row.kind : 'mod') as ContentKind);
+    const [row] = await this.db
+      .select()
+      .from(serverContent)
+      .where(
+        and(
+          eq(serverContent.serverId, serverId),
+          eq(serverContent.filename, file),
+        ),
+      )
+      .limit(1);
+    if (row && row.managedBy === 'pack')
+      throw new ConflictException(
+        'Pack-managed content is excluded, not deleted — use Disable',
+      );
+    const dirRel = this.contentDir(
+      server,
+      (row ? row.kind : 'mod') as ContentKind,
+    );
     let freed = 0;
     for (const candidate of [file, `${file}.disabled`]) {
-      const abs = this.pathGuard.dataPath('servers', serverId, dirRel, candidate);
+      const abs = this.pathGuard.dataPath(
+        'servers',
+        serverId,
+        dirRel,
+        candidate,
+      );
       if (fs.existsSync(abs)) {
         freed = (await fsp.stat(abs)).size;
         await fsp.rm(abs);
       }
     }
-    if (row) await this.db.delete(serverContent).where(eq(serverContent.id, row.id));
-    this.events.recordEvent({ serverId, actor, type: 'mod-removed', summary: `Removed ${file} (${(freed / 1024 / 1024).toFixed(1)} MB freed)` });
+    if (row)
+      await this.db.delete(serverContent).where(eq(serverContent.id, row.id));
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: 'mod-removed',
+      summary: `Removed ${file} (${(freed / 1024 / 1024).toFixed(1)} MB freed)`,
+    });
     return { freedBytes: freed };
   }
 
   /** Re-apply the overlay after a pack install/update (belt-and-braces). */
-  async reapplyOverlay(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ restored: number }> {
+  async reapplyOverlay(
+    serverId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ restored: number }> {
     const allRows = await this.db
       .select()
       .from(serverContent)
-      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')));
+      .where(
+        and(
+          eq(serverContent.serverId, serverId),
+          eq(serverContent.managedBy, 'overlay'),
+        ),
+      );
     const rows = allRows.filter((r) => r.libraryId != null);
     let restored = 0;
     const serverType = (await this.query.mustGet(serverId)).type;
     for (const row of rows) {
-      const dirRel = this.contentDir({ type: serverType }, row.kind as ContentKind);
-      const target = this.pathGuard.dataPath('servers', serverId, dirRel, row.enabled ? row.filename : `${row.filename}.disabled`);
+      const dirRel = this.contentDir(
+        { type: serverType },
+        row.kind as ContentKind,
+      );
+      const target = this.pathGuard.dataPath(
+        'servers',
+        serverId,
+        dirRel,
+        row.enabled ? row.filename : `${row.filename}.disabled`,
+      );
       if (!fs.existsSync(target) && !fs.existsSync(`${target}.disabled`)) {
-        await this.library.installToServer(row.libraryId!, serverId, dirRel, { filename: row.filename });
-        if (!row.enabled) await fsp.rename(this.pathGuard.dataPath('servers', serverId, dirRel, row.filename), target);
+        await this.library.installToServer(row.libraryId!, serverId, dirRel, {
+          filename: row.filename,
+        });
+        if (!row.enabled)
+          await fsp.rename(
+            this.pathGuard.dataPath('servers', serverId, dirRel, row.filename),
+            target,
+          );
         restored += 1;
       }
     }
     if (restored > 0) {
-      this.events.recordEvent({ serverId, actor, type: 'overlay-reapplied', summary: `Custom overlay re-applied: ${restored} file(s) restored after pack operation` });
+      this.events.recordEvent({
+        serverId,
+        actor,
+        type: 'overlay-reapplied',
+        summary: `Custom overlay re-applied: ${restored} file(s) restored after pack operation`,
+      });
     }
     return { restored };
   }
@@ -417,7 +645,16 @@ export class ModsService {
     const map = new Map<string, ManifestEntry>();
     let data: unknown;
     try {
-      data = JSON.parse(fs.readFileSync(this.pathGuard.dataPath('servers', serverId, '.curseforge-manifest.json'), 'utf8'));
+      data = JSON.parse(
+        fs.readFileSync(
+          this.pathGuard.dataPath(
+            'servers',
+            serverId,
+            '.curseforge-manifest.json',
+          ),
+          'utf8',
+        ),
+      );
     } catch {
       return map;
     }
@@ -431,8 +668,21 @@ export class ModsService {
       const fname = obj.fileName || obj.filename;
       const slug = obj.slug || obj.projectSlug;
       const pid = obj.projectID ?? obj.projectId ?? obj.modId;
-      if (typeof fname === 'string' && /\.jar$/i.test(fname) && (slug || pid != null)) {
-        map.set(fname, { slug: (slug as string) || null, projectId: pid != null ? String(pid) : null });
+      if (
+        typeof fname === 'string' &&
+        /\.jar$/i.test(fname) &&
+        (slug || pid != null)
+      ) {
+        let projectId: string | null = null;
+        if (typeof pid === 'string' || typeof pid === 'number') {
+          projectId = String(pid);
+        } else if (pid != null) {
+          projectId = JSON.stringify(pid);
+        }
+        map.set(fname, {
+          slug: (slug as string) || null,
+          projectId,
+        });
       }
       for (const v of Object.values(obj)) visit(v);
     };
@@ -441,16 +691,25 @@ export class ModsService {
   }
 
   /** Parse MODS_NEED_DOWNLOAD.txt text → [{ name, versionName, filename, url, slug, fileId }]. */
-  private parseModsNeedDownload(text: string | null | undefined): PendingDownload[] {
+  private parseModsNeedDownload(
+    text: string | null | undefined,
+  ): PendingDownload[] {
     const out: PendingDownload[] = [];
     for (const line of String(text || '').split(/\r?\n/)) {
       const m = /(https?:\/\/\S*curseforge\.com\/\S+)/i.exec(line); // only data rows carry a URL
       if (!m) continue;
-      const cols = line.slice(0, m.index).split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
+      const cols = line
+        .slice(0, m.index)
+        .split(/\s{2,}/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       const filename = cols[cols.length - 1] || '';
       const versionName = cols.length > 1 ? cols[cols.length - 2]! : '';
-      const name = cols.length > 2 ? cols.slice(0, -2).join(' ') : cols[0] || filename;
-      const slug = (/curseforge\.com\/minecraft\/mc-mods\/([^/]+)/i.exec(m[1]!) || [])[1] || null;
+      const name =
+        cols.length > 2 ? cols.slice(0, -2).join(' ') : cols[0] || filename;
+      const slug =
+        (/curseforge\.com\/minecraft\/mc-mods\/([^/]+)/i.exec(m[1]!) ||
+          [])[1] || null;
       const fileId = (/\/download\/(\d+)/.exec(m[1]!) || [])[1] || null;
       out.push({ name, versionName, filename, url: m[1]!, slug, fileId });
     }
@@ -460,7 +719,16 @@ export class ModsService {
   /** Mods a CF pack needs supplied by hand, parsed from the server's MODS_NEED_DOWNLOAD.txt. */
   pendingDownloads(serverId: string): PendingDownload[] {
     try {
-      return this.parseModsNeedDownload(fs.readFileSync(this.pathGuard.dataPath('servers', serverId, 'MODS_NEED_DOWNLOAD.txt'), 'utf8'));
+      return this.parseModsNeedDownload(
+        fs.readFileSync(
+          this.pathGuard.dataPath(
+            'servers',
+            serverId,
+            'MODS_NEED_DOWNLOAD.txt',
+          ),
+          'utf8',
+        ),
+      );
     } catch {
       return [];
     }
@@ -468,22 +736,34 @@ export class ModsService {
 
   /** The exclusion token (slug preferred) for a pending mod identified by filename. */
   pendingExcludeToken(serverId: string, filename: string): string {
-    const entry = this.pendingDownloads(serverId).find((p) => p.filename === filename);
+    const entry = this.pendingDownloads(serverId).find(
+      (p) => p.filename === filename,
+    );
     return (entry && entry.slug) || filename.replace(/(-[\d.]+.*)?\.jar$/, '');
   }
 
   /** Drop a resolved mod's line from MODS_NEED_DOWNLOAD.txt (best-effort). */
-  clearPendingLine(serverId: string, filename: string | null | undefined): void {
-    const file = this.pathGuard.dataPath('servers', serverId, 'MODS_NEED_DOWNLOAD.txt');
+  clearPendingLine(
+    serverId: string,
+    filename: string | null | undefined,
+  ): void {
+    const file = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'MODS_NEED_DOWNLOAD.txt',
+    );
     let text: string;
     try {
       text = fs.readFileSync(file, 'utf8');
     } catch {
       return;
     }
-    const kept = text.split(/\r?\n/).filter((l) => !filename || !l.includes(filename));
+    const kept = text
+      .split(/\r?\n/)
+      .filter((l) => !filename || !l.includes(filename));
     try {
-      if (kept.some((l) => /curseforge\.com/i.test(l))) fs.writeFileSync(file, kept.join('\n'));
+      if (kept.some((l) => /curseforge\.com/i.test(l)))
+        fs.writeFileSync(file, kept.join('\n'));
       else fs.rmSync(file, { force: true });
     } catch {
       /* ownership not aligned yet — the banner clears on the next successful start */
@@ -491,19 +771,31 @@ export class ModsService {
   }
 
   /** Add a project slug/ID to the pack's exclusion env var (applies on recreate). */
-  async excludePackMod(serverId: string, token: string | null | undefined, { actor = 'system' }: { actor?: string } = {}): Promise<{ excluded: string }> {
+  async excludePackMod(
+    serverId: string,
+    token: string | null | undefined,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ excluded: string }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     if (!token) throw new BadRequestException('Nothing to exclude');
     const isCF = server.type === 'AUTO_CURSEFORGE';
     const varName = isCF ? 'CF_EXCLUDE_MODS' : 'MODRINTH_EXCLUDE_FILES';
     const env = { ...server.env };
-    const list = (env[varName] || '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+    const list = (env[varName] || '')
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (!list.includes(token)) list.push(token);
     env[varName] = list.join('\n');
     env[isCF ? 'CF_FORCE_SYNCHRONIZE' : 'MODRINTH_FORCE_SYNCHRONIZE'] = 'true';
     await this.lifecycle.updateServer(serverId, { env }, { actor });
-    this.events.recordEvent({ serverId, actor, type: 'mod-excluded', summary: `Excluded pack mod "${token}" via ${varName} — applies on recreate` });
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: 'mod-excluded',
+      summary: `Excluded pack mod "${token}" via ${varName} — applies on recreate`,
+    });
     return { excluded: token };
   }
 
@@ -512,22 +804,56 @@ export class ModsService {
     serverId: string,
     tmpPath: string,
     origName: string | null | undefined,
-    { excludeToken, actor = 'system' }: { excludeToken?: string | null; actor?: string } = {}
+    {
+      excludeToken,
+      actor = 'system',
+    }: { excludeToken?: string | null; actor?: string } = {},
   ): Promise<{ filename: string; excluded: string | null }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const filename = origName || 'mod.jar';
-    if (!/\.(jar|zip)$/i.test(filename)) throw new BadRequestException('Only .jar or .zip files can be uploaded');
-    const targetKind: ContentKind = PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod';
-    const lib = await this.library.importFile(tmpPath, { name: this.prettifyJarName(filename), filename, category: targetKind }, { actor });
+    if (!/\.(jar|zip)$/i.test(filename))
+      throw new BadRequestException('Only .jar or .zip files can be uploaded');
+    const targetKind: ContentKind = PLUGIN_TYPES.has(server.type)
+      ? 'plugin'
+      : 'mod';
+    const lib = await this.library.importFile(
+      tmpPath,
+      { name: this.prettifyJarName(filename), filename, category: targetKind },
+      { actor },
+    );
     await this.indexer.assertUnderQuota(server, lib.sizeBytes);
-    const { filename: installed } = await this.library.installToServer(lib.id, serverId, this.contentDir(server, targetKind));
+    const { filename: installed } = await this.library.installToServer(
+      lib.id,
+      serverId,
+      this.contentDir(server, targetKind),
+    );
     await this.db
       .insert(serverContent)
-      .values({ id: `sc_${nanoid(8)}`, serverId, libraryId: lib.id, kind: targetKind, managedBy: 'overlay', name: lib.name, filename: installed, version: lib.version, iconUrl: lib.iconUrl })
-      .onConflictDoUpdate({ target: [serverContent.serverId, serverContent.filename], set: { libraryId: lib.id } });
-    if (excludeToken) await this.excludePackMod(serverId, excludeToken, { actor });
-    this.events.recordEvent({ serverId, actor, type: 'mod-installed', summary: `Uploaded ${targetKind} installed: ${lib.name} (overlay)`, details: { filename: installed } });
+      .values({
+        id: `sc_${nanoid(8)}`,
+        serverId,
+        libraryId: lib.id,
+        kind: targetKind,
+        managedBy: 'overlay',
+        name: lib.name,
+        filename: installed,
+        version: lib.version,
+        iconUrl: lib.iconUrl,
+      })
+      .onConflictDoUpdate({
+        target: [serverContent.serverId, serverContent.filename],
+        set: { libraryId: lib.id },
+      });
+    if (excludeToken)
+      await this.excludePackMod(serverId, excludeToken, { actor });
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: 'mod-installed',
+      summary: `Uploaded ${targetKind} installed: ${lib.name} (overlay)`,
+      details: { filename: installed },
+    });
     this.indexer.scan().catch(() => {});
     return { filename: installed, excluded: excludeToken || null };
   }

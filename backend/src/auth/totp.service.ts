@@ -67,7 +67,13 @@ export class TotpService {
   }
 
   /** otpauth:// URI for QR/manual enrollment — issuer + account label, standard params. */
-  buildOtpauthUrl(secret: string, { issuer = 'Minecraft Server Manager', account }: { issuer?: string; account: string }): string {
+  buildOtpauthUrl(
+    secret: string,
+    {
+      issuer = 'Minecraft Server Manager',
+      account,
+    }: { issuer?: string; account: string },
+  ): string {
     const label = encodeURIComponent(`${issuer}:${account}`);
     // Build the query with encodeURIComponent, NOT URLSearchParams: the latter
     // form-encodes a space as '+', but per RFC 3986 a '+' in a URI query is a
@@ -81,7 +87,9 @@ export class TotpService {
       ['digits', String(DIGITS)],
       ['period', String(STEP_SECONDS)],
     ];
-    const query = params.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    const query = params
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
     return `otpauth://totp/${label}?${query}`;
   }
 
@@ -109,7 +117,11 @@ export class TotpService {
    * stays valid for the rest of its 30s window even after legitimate use.
    * Returns the matched step on success (persist as the new lastStep), or null.
    */
-  verify(secret: string, code: string | number | null | undefined, { lastStep = null, window = 1, atMs = Date.now() }: VerifyOptions = {}): number | null {
+  verify(
+    secret: string,
+    code: string | number | null | undefined,
+    { lastStep = null, window = 1, atMs = Date.now() }: VerifyOptions = {},
+  ): number | null {
     const cleanCode = String(code || '').replace(/\s+/g, '');
     if (!/^\d{6}$/.test(cleanCode)) return null;
     const secretBytes = this.base32Decode(secret);
@@ -121,12 +133,14 @@ export class TotpService {
     // `<= lastStep` and gets skipped as a replay, locking the user out until wall
     // time catches back up. It can only ever legitimately be within [step-window,
     // step+window]; anything past that is stale, not a real prior use.
-    const replayFloor = lastStep != null && lastStep <= step + window ? lastStep : null;
+    const replayFloor =
+      lastStep != null && lastStep <= step + window ? lastStep : null;
     for (let delta = -window; delta <= window; delta++) {
       const candidateStep = step + delta;
       if (replayFloor != null && candidateStep <= replayFloor) continue; // replay
       const expected = this.hotp(secretBytes, candidateStep);
-      if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(cleanCode))) return candidateStep;
+      if (crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(cleanCode)))
+        return candidateStep;
     }
     return null;
   }

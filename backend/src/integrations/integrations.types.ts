@@ -1,9 +1,15 @@
-import type { EventToggles, DiscordConfig, SetDiscordConfigInput, InviteInfo } from '../../../shared/types/integrations';
+import type {
+  EventToggles,
+  DiscordConfig,
+  SetDiscordConfigInput,
+  InviteInfo,
+} from '../../../shared/types/integrations';
 
 export type { EventToggles, DiscordConfig, InviteInfo };
 export type SetDiscordConfigOptions = SetDiscordConfigInput;
 
-export type NotificationKind = 'crash' | 'start' | 'stop' | 'backup' | 'update' | 'player';
+export type NotificationKind =
+  'crash' | 'start' | 'stop' | 'backup' | 'update' | 'player';
 
 export interface EmbedField {
   name: string;

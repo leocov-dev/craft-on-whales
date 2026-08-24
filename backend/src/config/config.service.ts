@@ -47,7 +47,11 @@ export class ConfigService {
   readonly mapProxyHost: string;
   readonly mcImageRepo: string;
   readonly mcRouterImage: string;
-  readonly ports: { gameStart: number; rconOffset: number; bedrockStart: number };
+  readonly ports: {
+    gameStart: number;
+    rconOffset: number;
+    bedrockStart: number;
+  };
   readonly defaults: ResourceDefaults;
   readonly dbDriver: DbDriver;
   readonly databaseUrl: string | undefined;
@@ -60,22 +64,40 @@ export class ConfigService {
     this.dataDir = path.resolve(this.root, process.env.DATA_DIR || './data');
     this.host = process.env.PANEL_HOST || '127.0.0.1';
     this.port = this.numFromEnv('PANEL_PORT', 3000, { min: 1, max: 65535 });
-    this.isExposedBind = this.host !== '127.0.0.1' && this.host !== 'localhost' && this.host !== '::1';
+    this.isExposedBind =
+      this.host !== '127.0.0.1' &&
+      this.host !== 'localhost' &&
+      this.host !== '::1';
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
     this.trustProxy = this.resolveTrustProxy();
     this.cookieSecure = this.resolveCookieSecure();
-    this.mcImageRepo = (process.env.MC_IMAGE_REPO || 'itzg/minecraft-server').trim();
-    this.mcRouterImage = (process.env.MC_ROUTER_IMAGE || 'itzg/mc-router:latest').trim();
+    this.mcImageRepo = (
+      process.env.MC_IMAGE_REPO || 'itzg/minecraft-server'
+    ).trim();
+    this.mcRouterImage = (
+      process.env.MC_ROUTER_IMAGE || 'itzg/mc-router:latest'
+    ).trim();
     this.ports = {
-      gameStart: this.numFromEnv('PORT_GAME_START', 25565, { min: 1, max: 65535 }),
-      rconOffset: this.numFromEnv('PORT_RCON_OFFSET', 1000, { min: 1, max: 64000 }),
-      bedrockStart: this.numFromEnv('PORT_BEDROCK_START', 19132, { min: 1, max: 65535 }),
+      gameStart: this.numFromEnv('PORT_GAME_START', 25565, {
+        min: 1,
+        max: 65535,
+      }),
+      rconOffset: this.numFromEnv('PORT_RCON_OFFSET', 1000, {
+        min: 1,
+        max: 64000,
+      }),
+      bedrockStart: this.numFromEnv('PORT_BEDROCK_START', 19132, {
+        min: 1,
+        max: 65535,
+      }),
     };
     this.defaults = this.resolveDefaults();
     this.dbDriver = this.resolveDbDriver();
     this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
     if (this.dbDriver === 'postgres' && !this.databaseUrl) {
-      throw new Error('DB_DRIVER=postgres requires DATABASE_URL to be set (e.g. postgres://user:pass@host:5432/panel).');
+      throw new Error(
+        'DB_DRIVER=postgres requires DATABASE_URL to be set (e.g. postgres://user:pass@host:5432/panel).',
+      );
     }
     this.dataDirHost = this.resolveDataDirHost();
     this.mapProxyHost = this.resolveMapProxyHost();
@@ -85,13 +107,17 @@ export class ConfigService {
     }
   }
 
-  private numFromEnv(name: string, fallback: number, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}): number {
+  private numFromEnv(
+    name: string,
+    fallback: number,
+    { min = 0, max = Number.MAX_SAFE_INTEGER } = {},
+  ): number {
     const raw = process.env[name];
     if (raw === undefined || raw.trim() === '') return fallback;
     const n = Number(raw);
     if (!Number.isFinite(n) || !Number.isInteger(n) || n < min || n > max) {
       throw new Error(
-        `${name} must be an integer between ${min} and ${max} — got "${raw}". Fix it in your .env (or leave it blank for the default ${fallback}).`
+        `${name} must be an integer between ${min} and ${max} — got "${raw}". Fix it in your .env (or leave it blank for the default ${fallback}).`,
       );
     }
     return n;
@@ -102,7 +128,7 @@ export class ConfigService {
     if (fromEnv && fromEnv.trim().length > 0) {
       if (fromEnv.trim().length < 16) {
         throw new Error(
-          'SESSION_SECRET is set but too short — use at least 16 characters (e.g. `openssl rand -base64 48`).'
+          'SESSION_SECRET is set but too short — use at least 16 characters (e.g. `openssl rand -base64 48`).',
         );
       }
       return fromEnv.trim();
@@ -118,22 +144,39 @@ export class ConfigService {
     try {
       fs.mkdirSync(this.dataDir, { recursive: true });
       fs.writeFileSync(secretFile, generated, { mode: 0o600 });
-      // eslint-disable-next-line no-console
-      console.log(`No SESSION_SECRET set — generated one and saved it to ${secretFile} (keep it private; delete it to rotate).`);
+
+      console.log(
+        `No SESSION_SECRET set — generated one and saved it to ${secretFile} (keep it private; delete it to rotate).`,
+      );
     } catch (err) {
-      throw new Error(`Could not persist a generated session secret to ${secretFile}: ${(err as Error).message}`);
+      throw new Error(
+        `Could not persist a generated session secret to ${secretFile}: ${(err as Error).message}`,
+      );
     }
     return generated;
   }
 
   private resolveDefaults(): ResourceDefaults {
-    const envHeap = this.numFromEnv('DEFAULT_HEAP_MB', 0, { min: 0, max: 1024 * 1024 });
-    const envContainer = this.numFromEnv('DEFAULT_CONTAINER_MEMORY_MB', 0, { min: 0, max: 1024 * 1024 });
-    const envQuota = this.numFromEnv('DEFAULT_DISK_QUOTA_GB', 0, { min: 0, max: 1024 * 1024 });
+    const envHeap = this.numFromEnv('DEFAULT_HEAP_MB', 0, {
+      min: 0,
+      max: 1024 * 1024,
+    });
+    const envContainer = this.numFromEnv('DEFAULT_CONTAINER_MEMORY_MB', 0, {
+      min: 0,
+      max: 1024 * 1024,
+    });
+    const envQuota = this.numFromEnv('DEFAULT_DISK_QUOTA_GB', 0, {
+      min: 0,
+      max: 1024 * 1024,
+    });
     const hostMb = os.totalmem() / MB;
-    const autoHeap = Math.min(8192, Math.max(1024, Math.round((hostMb * 0.25) / 512) * 512));
+    const autoHeap = Math.min(
+      8192,
+      Math.max(1024, Math.round((hostMb * 0.25) / 512) * 512),
+    );
     const heapMb = envHeap || autoHeap;
-    const containerMemoryMb = envContainer || Math.round((heapMb * 1.5) / 512) * 512;
+    const containerMemoryMb =
+      envContainer || Math.round((heapMb * 1.5) / 512) * 512;
     return {
       heapMb,
       containerMemoryMb,
@@ -172,7 +215,7 @@ export class ConfigService {
     const isAbsolute = raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw);
     if (!isAbsolute) {
       throw new Error(
-        `DATA_DIR_HOST must be an absolute host path (e.g. /opt/msm/data or C:\\msm\\data) — got "${raw}".`
+        `DATA_DIR_HOST must be an absolute host path (e.g. /opt/msm/data or C:\\msm\\data) — got "${raw}".`,
       );
     }
     const trimmed = raw.replace(/[\\/]+$/, '');
@@ -182,6 +225,8 @@ export class ConfigService {
   private resolveMapProxyHost(): string {
     const raw = (process.env.MAP_PROXY_HOST || '').trim();
     if (raw) return raw;
-    return this.resolveDataDirHost() === this.dataDir ? '127.0.0.1' : 'host.docker.internal';
+    return this.resolveDataDirHost() === this.dataDir
+      ? '127.0.0.1'
+      : 'host.docker.internal';
   }
 }

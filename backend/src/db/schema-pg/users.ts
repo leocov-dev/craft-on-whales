@@ -1,7 +1,13 @@
 // Postgres mirror of ../schema/users.ts — see ./PG_SCHEMA_NOTES.md.
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, integer, boolean, primaryKey } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  integer,
+  boolean,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
@@ -10,7 +16,9 @@ export const users = pgTable('users', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').notNull().default('admin'), // 'admin' | 'operator' | 'viewer'
-  createdAt: text('created_at').notNull().default(sql`now()::text`),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`now()::text`),
   totpSecret: text('totp_secret'),
   totpEnabled: boolean('totp_enabled').notNull().default(false),
   totpBackupCodesJson: text('totp_backup_codes_json'),
@@ -32,5 +40,5 @@ export const userServerPermissions = pgTable(
     serverId: text('server_id').notNull(),
     perms: text('perms').notNull().default('view'),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.serverId] })]
+  (t) => [primaryKey({ columns: [t.userId, t.serverId] })],
 );

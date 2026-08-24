@@ -1,6 +1,17 @@
-import { Injectable, NotFoundException, HttpException, BadGatewayException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  HttpException,
+  BadGatewayException,
+} from '@nestjs/common';
 import { ApiCacheService } from './api-cache.service';
-import type { ModrinthSearchHit, ModrinthResolved, ModrinthProject, ModrinthVersion, ModrinthFile } from './mods.types';
+import type {
+  ModrinthSearchHit,
+  ModrinthResolved,
+  ModrinthProject,
+  ModrinthVersion,
+  ModrinthFile,
+} from './mods.types';
 
 const BASE = 'https://api.modrinth.com/v2';
 const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
@@ -35,9 +46,13 @@ export interface ModrinthSearchParams {
 export class ModrinthApiService {
   constructor(private readonly cache: ApiCacheService) {}
 
-  private async mrFetch<T = unknown>(pathname: string, { ttlMs = 10 * 60 * 1000, search }: MrFetchOptions = {}): Promise<T> {
+  private async mrFetch<T = unknown>(
+    pathname: string,
+    { ttlMs = 10 * 60 * 1000, search }: MrFetchOptions = {},
+  ): Promise<T> {
     const url = new URL(BASE + pathname);
-    if (search) for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+    if (search)
+      for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
     const cacheKey = `modrinth:${url.pathname}${url.search}`;
     const cached = await this.cache.get(cacheKey);
     if (cached && cached.ageMs < ttlMs) return cached.value as T;
@@ -47,25 +62,53 @@ export class ModrinthApiService {
     });
     if (res.status === 429) {
       if (cached) return cached.value as T;
-      throw new HttpException('Modrinth rate limit hit — try again in a minute', 429);
+      throw new HttpException(
+        'Modrinth rate limit hit — try again in a minute',
+        429,
+      );
     }
-    if (res.status === 404) throw new NotFoundException('Not found on Modrinth');
-    if (!res.ok) throw new BadGatewayException(`Modrinth answered HTTP ${res.status}`);
+    if (res.status === 404)
+      throw new NotFoundException('Not found on Modrinth');
+    if (!res.ok)
+      throw new BadGatewayException(`Modrinth answered HTTP ${res.status}`);
     const data = (await res.json()) as T;
     this.cache.set(cacheKey, data);
     return data;
   }
 
-  async search({ query = '', kind = 'mod', loader, mcVersion, limit = 20, offset = 0 }: ModrinthSearchParams): Promise<ModrinthSearchHit[]> {
+  async search({
+    query = '',
+    kind = 'mod',
+    loader,
+    mcVersion,
+    limit = 20,
+    offset = 0,
+  }: ModrinthSearchParams): Promise<ModrinthSearchHit[]> {
     const facets: string[][] = [];
-    if (kind === 'plugin') facets.push(['categories:paper', 'categories:spigot', 'categories:bukkit', 'categories:purpur']);
+    if (kind === 'plugin')
+      facets.push([
+        'categories:paper',
+        'categories:spigot',
+        'categories:bukkit',
+        'categories:purpur',
+      ]);
     else if (kind) facets.push([`project_type:${kind}`]);
-    if (loader && kind !== 'plugin') facets.push([`categories:${loader.toLowerCase()}`]);
+    if (loader && kind !== 'plugin')
+      facets.push([`categories:${loader.toLowerCase()}`]);
     if (mcVersion) facets.push([`versions:${mcVersion}`]);
-    const data = await this.mrFetch<{ hits: ModrinthSearchHitRaw[] }>('/search', {
-      search: { query, limit: String(limit), offset: String(offset), index: 'relevance', facets: JSON.stringify(facets) },
-      ttlMs: 5 * 60 * 1000,
-    });
+    const data = await this.mrFetch<{ hits: ModrinthSearchHitRaw[] }>(
+      '/search',
+      {
+        search: {
+          query,
+          limit: String(limit),
+          offset: String(offset),
+          index: 'relevance',
+          facets: JSON.stringify(facets),
+        },
+        ttlMs: 5 * 60 * 1000,
+      },
+    );
     return data.hits.map((h) => ({
       projectId: h.project_id,
       slug: h.slug,
@@ -79,19 +122,31 @@ export class ModrinthApiService {
   }
 
   getProject(idOrSlug: string): Promise<ModrinthProject> {
-    return this.mrFetch<ModrinthProject>(`/project/${encodeURIComponent(idOrSlug)}`, { ttlMs: 30 * 60 * 1000 });
+    return this.mrFetch<ModrinthProject>(
+      `/project/${encodeURIComponent(idOrSlug)}`,
+      { ttlMs: 30 * 60 * 1000 },
+    );
   }
 
   /** Version list filtered to the server's loader + MC version. */
-  async getVersions(idOrSlug: string, { loader, mcVersion }: { loader?: string; mcVersion?: string } = {}): Promise<ModrinthVersion[]> {
+  async getVersions(
+    idOrSlug: string,
+    { loader, mcVersion }: { loader?: string; mcVersion?: string } = {},
+  ): Promise<ModrinthVersion[]> {
     const search: Record<string, string> = {};
     if (loader) search.loaders = JSON.stringify([loader.toLowerCase()]);
     if (mcVersion) search.game_versions = JSON.stringify([mcVersion]);
-    return this.mrFetch<ModrinthVersion[]>(`/project/${encodeURIComponent(idOrSlug)}/version`, { search, ttlMs: 10 * 60 * 1000 });
+    return this.mrFetch<ModrinthVersion[]>(
+      `/project/${encodeURIComponent(idOrSlug)}/version`,
+      { search, ttlMs: 10 * 60 * 1000 },
+    );
   }
 
   getVersion(versionId: string): Promise<ModrinthVersion> {
-    return this.mrFetch<ModrinthVersion>(`/version/${encodeURIComponent(versionId)}`, { ttlMs: 60 * 60 * 1000 });
+    return this.mrFetch<ModrinthVersion>(
+      `/version/${encodeURIComponent(versionId)}`,
+      { ttlMs: 60 * 60 * 1000 },
+    );
   }
 
   /**
@@ -101,7 +156,10 @@ export class ModrinthApiService {
   async resolveUrl(input: string): Promise<ModrinthResolved> {
     let slug = input.trim();
     let versionRef: string | null = null;
-    const m = /modrinth\.com\/(?:mod|plugin|datapack|resourcepack|modpack)\/([^/]+)(?:\/version\/([^/?#]+))?/.exec(input);
+    const m =
+      /modrinth\.com\/(?:mod|plugin|datapack|resourcepack|modpack)\/([^/]+)(?:\/version\/([^/?#]+))?/.exec(
+        input,
+      );
     if (m) {
       slug = m[1]!;
       versionRef = m[2] || null;
@@ -109,8 +167,15 @@ export class ModrinthApiService {
     const project = await this.getProject(slug);
     let versionId: string | null = null;
     if (versionRef) {
-      const versions = await this.mrFetch<ModrinthVersion[]>(`/project/${project.id}/version`, { ttlMs: 10 * 60 * 1000 });
-      const v = versions.find((x) => x.id === versionRef || x.version_number === decodeURIComponent(versionRef!));
+      const versions = await this.mrFetch<ModrinthVersion[]>(
+        `/project/${project.id}/version`,
+        { ttlMs: 10 * 60 * 1000 },
+      );
+      const v = versions.find(
+        (x) =>
+          x.id === versionRef ||
+          x.version_number === decodeURIComponent(versionRef),
+      );
       versionId = v ? v.id : null;
     }
     return {

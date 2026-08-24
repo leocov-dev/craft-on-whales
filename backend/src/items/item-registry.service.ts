@@ -19,7 +19,14 @@ import {
   blockNamesFrom,
   mcDataItemsToLangEntries,
 } from './item-zip-parser';
-import type { LangEntry, McDataBlock, McDataItem, Registry, RegistryModSummary, SearchParams } from './item-registry.types';
+import type {
+  LangEntry,
+  McDataBlock,
+  McDataItem,
+  Registry,
+  RegistryModSummary,
+  SearchParams,
+} from './item-registry.types';
 
 const CACHE_PREFIX = 'item-registry:';
 const JAR_CONCURRENCY = 8;
@@ -30,10 +37,12 @@ const JAR_CONCURRENCY = 8;
 // every minecraft:* item would be silently missing from the registry. This
 // offline-cached, MC-version-keyed fallback (PrismarineJS/minecraft-data,
 // MIT) fills that gap without needing the client jar.
-const MCDATA_BASE = 'https://cdn.jsdelivr.net/gh/PrismarineJS/minecraft-data@master/data/pc';
+const MCDATA_BASE =
+  'https://cdn.jsdelivr.net/gh/PrismarineJS/minecraft-data@master/data/pc';
 const MCDATA_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MCDATA_VERSIONS_TTL_MS = 24 * 60 * 60 * 1000;
-const MCDATA_VERSIONS_URL = 'https://api.github.com/repos/PrismarineJS/minecraft-data/contents/data/pc';
+const MCDATA_VERSIONS_URL =
+  'https://api.github.com/repos/PrismarineJS/minecraft-data/contents/data/pc';
 
 // Item/block icons: served locally from public/icons/mc-items/ instead of an
 // external CDN — a self-hosted panel commonly sits behind a reverse proxy or
@@ -56,12 +65,15 @@ const ICON_BASE = '/icons/mc-items';
  */
 @Injectable()
 export class ItemRegistryService {
-  private readonly memory = new Map<string, { fingerprint: string; registry: Registry }>();
+  private readonly memory = new Map<
+    string,
+    { fingerprint: string; registry: Registry }
+  >();
 
   constructor(
     private readonly dbService: DbService,
     private readonly pathGuard: PathGuardService,
-    private readonly serverQuery: ServerQueryService
+    private readonly serverQuery: ServerQueryService,
   ) {}
 
   private get db() {
@@ -75,9 +87,20 @@ export class ItemRegistryService {
   // -------------------------------------------------------------------------
   // api_cache-backed generic fetch cache
 
-  private async cachedJson(cacheKey: string, url: string, ttlMs: number): Promise<unknown> {
-    const [cached] = await this.db.select().from(apiCache).where(eq(apiCache.key, cacheKey)).limit(1);
-    if (cached && Date.now() - Date.parse(cached.fetchedAt.replace(' ', 'T') + 'Z') < ttlMs) {
+  private async cachedJson(
+    cacheKey: string,
+    url: string,
+    ttlMs: number,
+  ): Promise<unknown> {
+    const [cached] = await this.db
+      .select()
+      .from(apiCache)
+      .where(eq(apiCache.key, cacheKey))
+      .limit(1);
+    if (
+      cached &&
+      Date.now() - Date.parse(cached.fetchedAt.replace(' ', 'T') + 'Z') < ttlMs
+    ) {
       return JSON.parse(cached.valueJson);
     }
     try {
@@ -87,7 +110,13 @@ export class ItemRegistryService {
       await this.db
         .insert(apiCache)
         .values({ key: cacheKey, valueJson: JSON.stringify(data) })
-        .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(data), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
+        .onConflictDoUpdate({
+          target: apiCache.key,
+          set: {
+            valueJson: JSON.stringify(data),
+            fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+          },
+        });
       return data;
     } catch (err) {
       if (cached) return JSON.parse(cached.valueJson); // stale beats nothing
@@ -106,7 +135,8 @@ export class ItemRegistryService {
     // Top-level jars (vanilla / custom: server.jar, minecraft_server*.jar, …)
     try {
       for (const e of await fsp.readdir(base, { withFileTypes: true })) {
-        if (e.isFile() && e.name.toLowerCase().endsWith('.jar')) candidates.push(path.join(base, e.name));
+        if (e.isFile() && e.name.toLowerCase().endsWith('.jar'))
+          candidates.push(path.join(base, e.name));
       }
     } catch {
       /* server dir gone */
@@ -151,23 +181,27 @@ export class ItemRegistryService {
    * the top level) and Mojang bundler jars (real jar nested under
    * META-INF/versions).
    */
-  private async readVanillaLang(serverId: string): Promise<{ entries: LangEntry[]; jarPath: string } | null> {
+  private async readVanillaLang(
+    serverId: string,
+  ): Promise<{ entries: LangEntry[]; jarPath: string } | null> {
     for (const jarPath of await this.vanillaJarCandidates(serverId)) {
       try {
         const found = await pickZipEntries(
           jarPath,
           (n) => LANG_RE.test(n) || NESTED_SERVER_RE.test(n),
-          (f) => [...f.keys()].some((n) => LANG_RE.test(n))
+          (f) => [...f.keys()].some((n) => LANG_RE.test(n)),
         );
         const direct = [...found.entries()].find(([n]) => LANG_RE.test(n));
         if (direct) return { entries: parseLang(direct[1]), jarPath };
 
-        const nested = [...found.entries()].find(([n]) => NESTED_SERVER_RE.test(n));
+        const nested = [...found.entries()].find(([n]) =>
+          NESTED_SERVER_RE.test(n),
+        );
         if (nested) {
           const inner = await pickZipEntries(
             nested[1],
             (n) => LANG_RE.test(n),
-            (f) => f.size > 0
+            (f) => f.size > 0,
           );
           const lang = [...inner.values()][0];
           if (lang) return { entries: parseLang(lang), jarPath };
@@ -182,10 +216,20 @@ export class ItemRegistryService {
   // -------------------------------------------------------------------------
   // minecraft-data fallback (vanilla items when the server jar has no assets/)
 
-  private async fetchMcData(version: string): Promise<{ items: McDataItem[]; blocks: McDataBlock[] }> {
+  private async fetchMcData(
+    version: string,
+  ): Promise<{ items: McDataItem[]; blocks: McDataBlock[] }> {
     const [items, blocks] = await Promise.all([
-      this.cachedJson(`mcdata:items:${version}`, `${MCDATA_BASE}/${version}/items.json`, MCDATA_TTL_MS),
-      this.cachedJson(`mcdata:blocks:${version}`, `${MCDATA_BASE}/${version}/blocks.json`, MCDATA_TTL_MS),
+      this.cachedJson(
+        `mcdata:items:${version}`,
+        `${MCDATA_BASE}/${version}/items.json`,
+        MCDATA_TTL_MS,
+      ),
+      this.cachedJson(
+        `mcdata:blocks:${version}`,
+        `${MCDATA_BASE}/${version}/blocks.json`,
+        MCDATA_TTL_MS,
+      ),
     ]);
     return { items: items as McDataItem[], blocks: blocks as McDataBlock[] };
   }
@@ -193,11 +237,17 @@ export class ItemRegistryService {
   /** minecraft-data's version folders that actually carry real per-version
    *  data (`latest` is a red herring — it only holds protocol.yml). */
   private async listMcDataVersions(): Promise<string[]> {
-    const entries = (await this.cachedJson('mcdata:versions', MCDATA_VERSIONS_URL, MCDATA_VERSIONS_TTL_MS)) as {
+    const entries = (await this.cachedJson(
+      'mcdata:versions',
+      MCDATA_VERSIONS_URL,
+      MCDATA_VERSIONS_TTL_MS,
+    )) as {
       type: string;
       name: string;
     }[];
-    return entries.filter((e) => e.type === 'dir' && /^\d+\.\d+(\.\d+)?$/.test(e.name)).map((e) => e.name);
+    return entries
+      .filter((e) => e.type === 'dir' && /^\d+\.\d+(\.\d+)?$/.test(e.name))
+      .map((e) => e.name);
   }
 
   /**
@@ -205,7 +255,9 @@ export class ItemRegistryService {
    * minecraft-data instead of the (assets-less) server jar. Never throws —
    * an unreachable network just means vanilla items stay absent.
    */
-  private async fetchVanillaFallback(mcVersion: string | null | undefined): Promise<LangEntry[] | null> {
+  private async fetchVanillaFallback(
+    mcVersion: string | null | undefined,
+  ): Promise<LangEntry[] | null> {
     const raw = String(mcVersion || '').trim();
     let version = raw && raw.toUpperCase() !== 'LATEST' ? raw : '';
     try {
@@ -274,30 +326,51 @@ export class ItemRegistryService {
   /** Scan every mod jar + the vanilla server jar and build the registry. */
   async buildRegistry(
     serverId: string,
-    { onProgress = () => {} }: { onProgress?: (done: number, total: number, label?: string) => void } = {}
+    {
+      onProgress = () => {},
+    }: {
+      onProgress?: (done: number, total: number, label?: string) => void;
+    } = {},
   ): Promise<Registry> {
     const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
 
     const started = Date.now();
     const fingerprint = await this.computeFingerprint(serverId);
-    const byId = new Map<string, { id: string; name: string; mod: string; kind: 'item' | 'block' }>();
+    const byId = new Map<
+      string,
+      { id: string; name: string; mod: string; kind: 'item' | 'block' }
+    >();
     const modNames = new Map<string, string>(); // ns -> display name
 
     // Vanilla first so mod-shipped assets/minecraft overrides never shadow it.
     const vanilla = await this.readVanillaLang(serverId);
     if (vanilla) {
       for (const e of vanilla.entries) {
-        if (!byId.has(e.id)) byId.set(e.id, { id: e.id, name: e.name, mod: 'Minecraft', kind: e.kind });
+        if (!byId.has(e.id))
+          byId.set(e.id, {
+            id: e.id,
+            name: e.name,
+            mod: 'Minecraft',
+            kind: e.kind,
+          });
       }
       modNames.set('minecraft', 'Minecraft');
     } else {
       // Server jars (vanilla or otherwise) never ship a client's assets/ —
       // fall back to the offline-cached, version-keyed vanilla list.
-      const fallback = await this.fetchVanillaFallback(server.mc_version).catch(() => null);
+      const fallback = await this.fetchVanillaFallback(server.mc_version).catch(
+        () => null,
+      );
       if (fallback) {
         for (const e of fallback) {
-          if (!byId.has(e.id)) byId.set(e.id, { id: e.id, name: e.name, mod: 'Minecraft', kind: e.kind });
+          if (!byId.has(e.id))
+            byId.set(e.id, {
+              id: e.id,
+              name: e.name,
+              mod: 'Minecraft',
+              kind: e.kind,
+            });
         }
         modNames.set('minecraft', 'Minecraft');
       }
@@ -318,7 +391,10 @@ export class ItemRegistryService {
     const scanJar = async (name: string): Promise<void> => {
       let found: Map<string, Buffer>;
       try {
-        found = await pickZipEntries(path.join(modsDir, name), (n) => LANG_RE.test(n) || META_RE.test(n));
+        found = await pickZipEntries(
+          path.join(modsDir, name),
+          (n) => LANG_RE.test(n) || META_RE.test(n),
+        );
       } catch {
         return; // corrupt/unreadable jar — never fatal
       } finally {
@@ -331,7 +407,10 @@ export class ItemRegistryService {
       for (const [entryName, buf] of found) {
         if (entryName.endsWith('mods.toml')) {
           for (const [k, v] of parseModsToml(String(buf))) jarNames.set(k, v);
-        } else if (entryName === 'fabric.mod.json' || entryName === 'quilt.mod.json') {
+        } else if (
+          entryName === 'fabric.mod.json' ||
+          entryName === 'quilt.mod.json'
+        ) {
           for (const [k, v] of parseFabricModJson(buf)) jarNames.set(k, v);
         }
       }
@@ -342,12 +421,19 @@ export class ItemRegistryService {
         if (!langMatch) continue;
         const ns = langMatch[1]!.toLowerCase();
         const display = jarNames.get(ns) || fallbackName || ns;
-        if (!modNames.has(ns) || modNames.get(ns) === ns) modNames.set(ns, display);
+        if (!modNames.has(ns) || modNames.get(ns) === ns)
+          modNames.set(ns, display);
         for (const e of parseLang(buf)) {
           if (!byId.has(e.id)) {
-            byId.set(e.id, { id: e.id, name: e.name, mod: modNames.get(e.ns) || display, kind: e.kind });
+            byId.set(e.id, {
+              id: e.id,
+              name: e.name,
+              mod: modNames.get(e.ns) || display,
+              kind: e.kind,
+            });
           }
-          if (!modNames.has(e.ns)) modNames.set(e.ns, e.ns === ns ? display : e.ns);
+          if (!modNames.has(e.ns))
+            modNames.set(e.ns, e.ns === ns ? display : e.ns);
         }
       }
     };
@@ -360,7 +446,7 @@ export class ItemRegistryService {
           const name = queue.shift();
           if (name) await scanJar(name);
         }
-      })
+      }),
     );
 
     // Re-resolve mod display names (a lang file may have been scanned before
@@ -370,7 +456,9 @@ export class ItemRegistryService {
       const ns = item.id.split(':')[0]!;
       item.mod = modNames.get(ns) || ns;
     }
-    items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    items.sort(
+      (a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
+    );
 
     const modCounts = new Map<string, number>();
     for (const item of items) {
@@ -388,7 +476,12 @@ export class ItemRegistryService {
       buildMs: Date.now() - started,
       fingerprint,
       vanillaJar: vanilla
-        ? path.relative(this.pathGuard.dataPath('servers', serverId), vanilla.jarPath).replace(/\\/g, '/')
+        ? path
+            .relative(
+              this.pathGuard.dataPath('servers', serverId),
+              vanilla.jarPath,
+            )
+            .replace(/\\/g, '/')
         : null,
       jarCount: jars.length,
     };
@@ -398,7 +491,13 @@ export class ItemRegistryService {
     await this.db
       .insert(apiCache)
       .values({ key: cacheKey, valueJson })
-      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson, fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
+      .onConflictDoUpdate({
+        target: apiCache.key,
+        set: {
+          valueJson,
+          fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        },
+      });
     this.memory.set(serverId, { fingerprint, registry });
     return registry;
   }
@@ -417,14 +516,21 @@ export class ItemRegistryService {
     {
       force = false,
       onProgress,
-    }: { force?: boolean; onProgress?: (done: number, total: number, label?: string) => void } = {}
+    }: {
+      force?: boolean;
+      onProgress?: (done: number, total: number, label?: string) => void;
+    } = {},
   ): Promise<Registry> {
     const fingerprint = await this.computeFingerprint(serverId);
     if (!force) {
       const mem = this.memory.get(serverId);
       if (mem && mem.fingerprint === fingerprint) return mem.registry;
 
-      const [row] = await this.db.select().from(apiCache).where(eq(apiCache.key, CACHE_PREFIX + serverId)).limit(1);
+      const [row] = await this.db
+        .select()
+        .from(apiCache)
+        .where(eq(apiCache.key, CACHE_PREFIX + serverId))
+        .limit(1);
       if (row) {
         try {
           const registry = JSON.parse(row.valueJson) as Registry;
@@ -455,11 +561,15 @@ export class ItemRegistryService {
    */
   async search(
     serverId: string,
-    { q = '', mod = '', kind = '', limit = 100, offset = 0 }: SearchParams = {}
+    { q = '', mod = '', kind = '', limit = 100, offset = 0 }: SearchParams = {},
   ): Promise<{ items: Registry['items']; total: number }> {
     const registry = await this.getRegistry(serverId);
-    const needle = String(q || '').trim().toLowerCase();
-    const modNs = String(mod || '').trim().toLowerCase();
+    const needle = String(q || '')
+      .trim()
+      .toLowerCase();
+    const modNs = String(mod || '')
+      .trim()
+      .toLowerCase();
     const wantKind = kind === 'item' || kind === 'block' ? kind : null;
 
     const scored: [number, Registry['items'][number]][] = [];
@@ -480,11 +590,15 @@ export class ItemRegistryService {
       else continue;
       scored.push([rank, item]);
     }
-    if (needle) scored.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name));
+    if (needle)
+      scored.sort((a, b) => a[0] - b[0] || a[1].name.localeCompare(b[1].name));
 
     const total = scored.length;
     const start = Math.max(0, Math.trunc(offset) || 0);
     const n = Math.min(500, Math.max(1, Math.trunc(limit) || 100));
-    return { items: scored.slice(start, start + n).map(([, item]) => item), total };
+    return {
+      items: scored.slice(start, start + n).map(([, item]) => item),
+      total,
+    };
   }
 }

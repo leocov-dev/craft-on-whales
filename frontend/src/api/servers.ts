@@ -12,7 +12,15 @@ import type {
   ServerPatch,
 } from '../../../shared/types/servers';
 
-export type { ServerStatus, PackViewModel, ServerViewModel, LiveServerData, LifecycleAction, ServerDetail, ServerPatch };
+export type {
+  ServerStatus,
+  PackViewModel,
+  ServerViewModel,
+  LiveServerData,
+  LifecycleAction,
+  ServerDetail,
+  ServerPatch,
+};
 
 interface ServersListResponse {
   ok: true;

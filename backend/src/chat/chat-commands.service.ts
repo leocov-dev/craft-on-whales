@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { asc, eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DbService } from '../db/db.service';
@@ -31,6 +38,14 @@ const PREFIX_RE = /^[!.#+?$%&*~^=-]{1,2}$/;
 const PLAYER_RE = PLAYER_NAME_RE;
 // Chat args substituted into console commands: strict shape or dropped.
 const ARG_RE = /^[A-Za-z0-9_:\-.]{0,32}$/;
+
+/** Coerce an unknown (e.g. request-body) value to a display/comparison string. */
+function asString(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return '';
+}
 const ACTIONS = new Set(['rtp', 'structure', 'biome', 'console']);
 const PERMISSIONS = new Set(['everyone', 'whitelist', 'ops']);
 // Console commands that can wreck a server — ops-only triggers may use them.
@@ -41,7 +56,10 @@ const PERMISSIONS = new Set(['everyone', 'whitelist', 'ops']);
 // command-nesting keyword inside `execute`, so a plain `say we run stop now` is
 // arbitrary chat text, not a nested command, and must NOT be blocked.
 const DANGER = String.raw`stop\b|op\s|deop\b|ban\b|ban-ip\b|pardon\b|pardon-ip\b|whitelist\b`;
-export const DANGEROUS_RE = new RegExp(String.raw`^\s*\/?\s*(?:(?:${DANGER})|execute\b.*\srun\s+\/?\s*(?:${DANGER}))`, 'i');
+export const DANGEROUS_RE = new RegExp(
+  String.raw`^\s*\/?\s*(?:(?:${DANGER})|execute\b.*\srun\s+\/?\s*(?:${DANGER}))`,
+  'i',
+);
 const WHISPER_MAX = 120;
 const CACHE_MS = 60_000;
 
@@ -89,7 +107,7 @@ export class ChatCommandsService {
     private readonly events: EventsService,
     private readonly containers: ContainerService,
     private readonly roster: PlayerRosterService,
-    private readonly teleport: PlayerTeleportService
+    private readonly teleport: PlayerTeleportService,
   ) {}
 
   private get db() {
@@ -112,14 +130,15 @@ export class ChatCommandsService {
     msgSuccess,
     msgFailure,
   }: ValidateSpecInput): CommandSpec {
-    const trigger = String(rawTrigger || '')
-      .trim()
-      .toLowerCase();
+    const trigger = asString(rawTrigger).trim().toLowerCase();
     if (!TRIGGER_RE.test(trigger)) {
-      throw new BadRequestException('Triggers are 1-24 letters, digits, - or _ (no spaces, no prefix)');
+      throw new BadRequestException(
+        'Triggers are 1-24 letters, digits, - or _ (no spaces, no prefix)',
+      );
     }
     if (!ACTIONS.has(action)) throw new BadRequestException('Unknown action');
-    if (!PERMISSIONS.has(permission)) throw new BadRequestException('Unknown permission level');
+    if (!PERMISSIONS.has(permission))
+      throw new BadRequestException('Unknown permission level');
     const cooldown = Math.floor(Number(cooldownSec));
     if (!Number.isFinite(cooldown) || cooldown < 0 || cooldown > 86400) {
       throw new BadRequestException('Cooldown must be 0-86400 seconds');
@@ -128,17 +147,38 @@ export class ChatCommandsService {
     const p: ActionParams = params && typeof params === 'object' ? params : {};
     let clean: ActionParams;
     if (action === 'rtp') {
-      const minDistance = Math.max(0, Math.floor(Number(p.minDistance ?? 500) || 0));
-      const maxDistance = Math.max(16, Math.floor(Number(p.maxDistance ?? 5000) || 5000));
-      if (maxDistance <= minDistance) throw new BadRequestException('Max distance must be greater than min distance');
-      if (maxDistance > 1_000_000) throw new BadRequestException('Max distance is capped at 1,000,000');
-      clean = { minDistance, maxDistance, center: p.center === 'origin' ? 'origin' : 'player' };
+      const minDistance = Math.max(
+        0,
+        Math.floor(Number(p.minDistance ?? 500) || 0),
+      );
+      const maxDistance = Math.max(
+        16,
+        Math.floor(Number(p.maxDistance ?? 5000) || 5000),
+      );
+      if (maxDistance <= minDistance)
+        throw new BadRequestException(
+          'Max distance must be greater than min distance',
+        );
+      if (maxDistance > 1_000_000)
+        throw new BadRequestException('Max distance is capped at 1,000,000');
+      clean = {
+        minDistance,
+        maxDistance,
+        center: p.center === 'origin' ? 'origin' : 'player',
+      };
     } else if (action === 'structure') {
       if (!/^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/.test(String(p.structure || ''))) {
         throw new BadRequestException('Pick a valid structure');
       }
-      const maxDistance = Math.min(1_000_000, Math.max(16, Math.floor(Number(p.maxDistance ?? 5000) || 5000)));
-      clean = { structure: String(p.structure), random: p.random !== false, maxDistance };
+      const maxDistance = Math.min(
+        1_000_000,
+        Math.max(16, Math.floor(Number(p.maxDistance ?? 5000) || 5000)),
+      );
+      clean = {
+        structure: String(p.structure),
+        random: p.random !== false,
+        maxDistance,
+      };
     } else if (action === 'biome') {
       if (!/^[a-z0-9_.-]+:[a-z0-9_/.-]+$/.test(String(p.biome || ''))) {
         throw new BadRequestException('Pick a valid biome');
@@ -149,17 +189,25 @@ export class ChatCommandsService {
         ? p.commands
             .map((c) =>
               String(c)
+                // eslint-disable-next-line no-control-regex -- intentionally strips control chars
                 .replace(/[\r\x00-\x1f\x7f]/g, ' ')
-                .trim()
+                .trim(),
             )
             .filter(Boolean)
         : [];
-      if (!commands.length) throw new BadRequestException('Add at least one console command');
-      if (commands.length > 10) throw new BadRequestException('Max 10 console commands per trigger');
+      if (!commands.length)
+        throw new BadRequestException('Add at least one console command');
+      if (commands.length > 10)
+        throw new BadRequestException('Max 10 console commands per trigger');
       for (const cmd of commands) {
-        if (cmd.length > 200) throw new BadRequestException('Console commands are capped at 200 characters each');
+        if (cmd.length > 200)
+          throw new BadRequestException(
+            'Console commands are capped at 200 characters each',
+          );
         if (permission !== 'ops' && DANGEROUS_RE.test(cmd)) {
-          throw new BadRequestException(`"${cmd.split(/\s+/)[0]}" commands are only allowed when permission is set to Ops`);
+          throw new BadRequestException(
+            `"${cmd.split(/\s+/)[0]}" commands are only allowed when permission is set to Ops`,
+          );
         }
       }
       clean = { commands: commands.map((c) => c.replace(/^\//, '')) };
@@ -167,9 +215,7 @@ export class ChatCommandsService {
 
     return {
       trigger,
-      description: String(description || '')
-        .trim()
-        .slice(0, 200),
+      description: asString(description).trim().slice(0, 200),
       action,
       params: clean,
       permission,
@@ -182,7 +228,8 @@ export class ChatCommandsService {
 
   // Feedback templates: strip control chars, cap length, empty -> null (use default).
   private cleanMessage(v: unknown): string | null {
-    const s = String(v ?? '')
+    const s = asString(v)
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
       .trim()
       .slice(0, 200);
@@ -190,8 +237,13 @@ export class ChatCommandsService {
   }
 
   /** Fill {placeholder} tokens from a values map; unknown tokens are left as-is. */
-  private renderTemplate(template: unknown, vars: Record<string, unknown>): string {
-    return String(template).replace(/\{(\w+)\}/g, (m, key) => (key in vars && vars[key] != null ? String(vars[key]) : m));
+  private renderTemplate(
+    template: unknown,
+    vars: Record<string, unknown>,
+  ): string {
+    return asString(template).replace(/\{(\w+)\}/g, (m: string, key: string) =>
+      key in vars && vars[key] != null ? asString(vars[key]) : m,
+    );
   }
 
   private prettyDim(d: string | null | undefined): string {
@@ -199,9 +251,12 @@ export class ChatCommandsService {
   }
 
   /** Placeholder values available to a command's success message, from its result. */
-  private resultVars(result: ActionResult = {}): Record<string, string | number> {
+  private resultVars(
+    result: ActionResult = {},
+  ): Record<string, string | number> {
     const v: Record<string, string | number> = {};
-    for (const k of ['x', 'y', 'z', 'distance'] as const) if (result[k] != null) v[k] = result[k];
+    for (const k of ['x', 'y', 'z', 'distance'] as const)
+      if (result[k] != null) v[k] = result[k];
     if (result.dimension) v.dimension = this.prettyDim(result.dimension);
     if (result.structure) v.structure = this.pretty(result.structure);
     if (result.biome) v.biome = this.pretty(result.biome);
@@ -214,41 +269,69 @@ export class ChatCommandsService {
   private hydrate(row: ChatCommandRow): HydratedCommand {
     let params: ActionParams = {};
     try {
-      params = JSON.parse(row.params || '{}');
+      params = JSON.parse(row.params || '{}') as ActionParams;
     } catch {
       /* corrupt row — empty params */
     }
-    return { ...row, action: row.action as ChatAction, permission: row.permission as ChatPermission, params, enabled: Boolean(row.enabled) };
+    return {
+      ...row,
+      action: row.action as ChatAction,
+      permission: row.permission as ChatPermission,
+      params,
+      enabled: Boolean(row.enabled),
+    };
   }
 
   async listCommands(serverId: string): Promise<HydratedCommand[]> {
-    const rows = await this.db.select().from(chatCommands).where(eq(chatCommands.serverId, serverId)).orderBy(asc(chatCommands.trigger));
+    const rows = await this.db
+      .select()
+      .from(chatCommands)
+      .where(eq(chatCommands.serverId, serverId))
+      .orderBy(asc(chatCommands.trigger));
     return rows.map((row) => this.hydrate(row));
   }
 
-  async getCommand(serverId: string, cmdId: string): Promise<HydratedCommand | null> {
+  async getCommand(
+    serverId: string,
+    cmdId: string,
+  ): Promise<HydratedCommand | null> {
     const [row] = await this.db
       .select()
       .from(chatCommands)
-      .where(sql`${chatCommands.id} = ${cmdId} AND ${chatCommands.serverId} = ${serverId}`)
+      .where(
+        sql`${chatCommands.id} = ${cmdId} AND ${chatCommands.serverId} = ${serverId}`,
+      )
       .limit(1);
     return row ? this.hydrate(row) : null;
   }
 
   async getPrefix(serverId: string): Promise<string> {
-    const [row] = await this.db.select({ prefix: chatCommandSettings.prefix }).from(chatCommandSettings).where(eq(chatCommandSettings.serverId, serverId)).limit(1);
+    const [row] = await this.db
+      .select({ prefix: chatCommandSettings.prefix })
+      .from(chatCommandSettings)
+      .where(eq(chatCommandSettings.serverId, serverId))
+      .limit(1);
     return row ? row.prefix : '!';
   }
 
-  async setPrefix(serverId: string, prefixInput: unknown, { actor = 'system' }: { actor?: string } = {}): Promise<{ prefix: string }> {
-    const prefix = String(prefixInput || '').trim();
+  async setPrefix(
+    serverId: string,
+    prefixInput: unknown,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ prefix: string }> {
+    const prefix = asString(prefixInput).trim();
     if (!PREFIX_RE.test(prefix)) {
-      throw new BadRequestException('Prefix must be 1-2 characters from ! . # + ? $ % & * ~ ^ = - (never /)');
+      throw new BadRequestException(
+        'Prefix must be 1-2 characters from ! . # + ? $ % & * ~ ^ = - (never /)',
+      );
     }
     await this.db
       .insert(chatCommandSettings)
       .values({ serverId, prefix })
-      .onConflictDoUpdate({ target: chatCommandSettings.serverId, set: { prefix } });
+      .onConflictDoUpdate({
+        target: chatCommandSettings.serverId,
+        set: { prefix },
+      });
     this.cache.delete(serverId);
     this.events.recordEvent({
       serverId,
@@ -260,7 +343,11 @@ export class ChatCommandsService {
     return { prefix };
   }
 
-  async createCommand(serverId: string, input: ValidateSpecInput & { enabled?: boolean }, { actor = 'system' }: { actor?: string } = {}): Promise<HydratedCommand | null> {
+  async createCommand(
+    serverId: string,
+    input: ValidateSpecInput & { enabled?: boolean },
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<HydratedCommand | null> {
     const spec = this.validateSpec(input);
     const enabled = input.enabled !== false;
     const id = `ccmd_${nanoid(8)}`;
@@ -281,7 +368,9 @@ export class ChatCommandsService {
       });
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) {
-        throw new ConflictException(`A command named "${spec.trigger}" already exists on this server`);
+        throw new ConflictException(
+          `A command named "${spec.trigger}" already exists on this server`,
+        );
       }
       throw err;
     }
@@ -296,14 +385,24 @@ export class ChatCommandsService {
     return this.getCommand(serverId, id);
   }
 
-  async updateCommand(serverId: string, cmdId: string, changes: CommandChanges, { actor = 'system' }: { actor?: string } = {}): Promise<HydratedCommand | null> {
+  async updateCommand(
+    serverId: string,
+    cmdId: string,
+    changes: CommandChanges,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<HydratedCommand | null> {
     const existing = await this.getCommand(serverId, cmdId);
     if (!existing) throw new NotFoundException('Chat command not found');
 
     // Enabled-only toggles skip full re-validation (fast path for the UI toggle).
-    const keys = (Object.keys(changes) as (keyof CommandChanges)[]).filter((k) => changes[k] !== undefined);
+    const keys = (Object.keys(changes) as (keyof CommandChanges)[]).filter(
+      (k) => changes[k] !== undefined,
+    );
     if (keys.length === 1 && keys[0] === 'enabled') {
-      await this.db.update(chatCommands).set({ enabled: Boolean(changes.enabled) }).where(eq(chatCommands.id, cmdId));
+      await this.db
+        .update(chatCommands)
+        .set({ enabled: Boolean(changes.enabled) })
+        .where(eq(chatCommands.id, cmdId));
       this.cache.delete(serverId);
       this.events.recordEvent({
         serverId,
@@ -345,7 +444,9 @@ export class ChatCommandsService {
         .where(eq(chatCommands.id, cmdId));
     } catch (err) {
       if (/UNIQUE/i.test((err as Error).message)) {
-        throw new ConflictException(`A command named "${spec.trigger}" already exists on this server`);
+        throw new ConflictException(
+          `A command named "${spec.trigger}" already exists on this server`,
+        );
       }
       throw err;
     }
@@ -360,7 +461,11 @@ export class ChatCommandsService {
     return this.getCommand(serverId, cmdId);
   }
 
-  async deleteCommand(serverId: string, cmdId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ deleted: true }> {
+  async deleteCommand(
+    serverId: string,
+    cmdId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ deleted: true }> {
     const existing = await this.getCommand(serverId, cmdId);
     if (!existing) throw new NotFoundException('Chat command not found');
     await this.db.delete(chatCommands).where(eq(chatCommands.id, cmdId));
@@ -378,8 +483,10 @@ export class ChatCommandsService {
   /** "rtp 500-5000" / "structure #minecraft:village" / "console ×2" — for events + UI. */
   actionSummary(cmd: { action: ChatAction; params: ActionParams }): string {
     const p = cmd.params || {};
-    if (cmd.action === 'rtp') return `rtp ${p.minDistance ?? 500}-${p.maxDistance ?? 5000}${p.center === 'origin' ? ' around 0,0' : ''}`;
-    if (cmd.action === 'structure') return `structure ${String(p.structure || '').replace(/^#/, '')}${p.random === false ? ' (nearest)' : ''}`;
+    if (cmd.action === 'rtp')
+      return `rtp ${p.minDistance ?? 500}-${p.maxDistance ?? 5000}${p.center === 'origin' ? ' around 0,0' : ''}`;
+    if (cmd.action === 'structure')
+      return `structure ${String(p.structure || '').replace(/^#/, '')}${p.random === false ? ' (nearest)' : ''}`;
     if (cmd.action === 'biome') return `biome ${p.biome || ''}`;
     return `console ×${Array.isArray(p.commands) ? p.commands.length : 0}`;
   }
@@ -391,8 +498,13 @@ export class ChatCommandsService {
     const hit = this.cache.get(serverId);
     if (hit && Date.now() - hit.at < CACHE_MS) return hit;
     const byTrigger = new Map<string, HydratedCommand>();
-    for (const cmd of await this.listCommands(serverId)) byTrigger.set(cmd.trigger, cmd);
-    const entry: RuntimeEntry = { at: Date.now(), prefix: await this.getPrefix(serverId), byTrigger };
+    for (const cmd of await this.listCommands(serverId))
+      byTrigger.set(cmd.trigger, cmd);
+    const entry: RuntimeEntry = {
+      at: Date.now(),
+      prefix: await this.getPrefix(serverId),
+      byTrigger,
+    };
     this.cache.set(serverId, entry);
     return entry;
   }
@@ -400,23 +512,36 @@ export class ChatCommandsService {
   private pruneCooldowns(): void {
     if (this.cooldowns.size >= 2000) {
       const cutoff = Date.now() - 86_400_000;
-      for (const [k, ts] of this.cooldowns) if (ts < cutoff) this.cooldowns.delete(k);
+      for (const [k, ts] of this.cooldowns)
+        if (ts < cutoff) this.cooldowns.delete(k);
     }
     if (this.triggerThrottle.size >= 2000) {
       const cutoff = Date.now() - 60_000;
-      for (const [k, ts] of this.triggerThrottle) if (ts < cutoff) this.triggerThrottle.delete(k);
+      for (const [k, ts] of this.triggerThrottle)
+        if (ts < cutoff) this.triggerThrottle.delete(k);
     }
   }
 
   /** Whisper to a player via RCON `tell`; never throws (fire-and-forget feedback). */
-  private async whisper(serverId: string, player: string, message: unknown): Promise<void> {
-    const text = String(message || '')
+  private async whisper(
+    serverId: string,
+    player: string,
+    message: unknown,
+  ): Promise<void> {
+    const text = asString(message)
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
       .trim()
       .slice(0, WHISPER_MAX);
     if (!text || !PLAYER_RE.test(player)) return;
     try {
-      await this.containers.execCapture(serverId, ['rcon-cli', '--', 'tell', player, text]);
+      await this.containers.execCapture(serverId, [
+        'rcon-cli',
+        '--',
+        'tell',
+        player,
+        text,
+      ]);
     } catch {
       /* server just stopped / rcon busy — nothing to do */
     }
@@ -424,15 +549,23 @@ export class ChatCommandsService {
 
   private isOp(serverId: string, player: string): boolean {
     const lower = player.toLowerCase();
-    return this.roster.listPlayers(serverId).some((e) => e.op && e.name.toLowerCase() === lower);
+    return this.roster
+      .listPlayers(serverId)
+      .some((e) => e.op && e.name.toLowerCase() === lower);
   }
 
   private isWhitelisted(serverId: string, player: string): boolean {
     const lower = player.toLowerCase();
-    return this.roster.listPlayers(serverId).some((e) => (e.whitelisted || e.op) && e.name.toLowerCase() === lower);
+    return this.roster
+      .listPlayers(serverId)
+      .some((e) => (e.whitelisted || e.op) && e.name.toLowerCase() === lower);
   }
 
-  private hasPermission(serverId: string, player: string, permission: ChatPermission): boolean {
+  private hasPermission(
+    serverId: string,
+    player: string,
+    permission: ChatPermission,
+  ): boolean {
     if (permission === 'ops') return this.isOp(serverId, player);
     if (permission === 'whitelist') return this.isWhitelisted(serverId, player);
     return true;
@@ -446,24 +579,51 @@ export class ChatCommandsService {
    * Teleport actions run inside the server-wide teleport slot; console commands
    * run sequentially over rcon with sanitized placeholder substitution.
    */
-  private async executeAction(serverId: string, cmd: HydratedCommand, player: string, args: (string | undefined)[], ctx: RunOptions): Promise<ExecuteActionResult> {
+  private async executeAction(
+    serverId: string,
+    cmd: HydratedCommand,
+    player: string,
+    args: (string | undefined)[],
+    ctx: RunOptions,
+  ): Promise<ExecuteActionResult> {
     const p = cmd.params || {};
     if (cmd.action === 'rtp') {
-      const result = await this.teleport.withTeleportSlot(serverId, () => this.teleport.rtpPlayer(serverId, player, { minDistance: p.minDistance, maxDistance: p.maxDistance, center: p.center }, ctx));
+      const result = await this.teleport.withTeleportSlot(serverId, () =>
+        this.teleport.rtpPlayer(
+          serverId,
+          player,
+          {
+            minDistance: p.minDistance,
+            maxDistance: p.maxDistance,
+            center: p.center,
+          },
+          ctx,
+        ),
+      );
       return {
         message: `Whoosh! You landed ${result.distance} blocks away at ${result.x}, ${result.z} in ${this.prettyDim(result.dimension || '')}.`,
         result,
       };
     }
     if (cmd.action === 'structure') {
-      const result = await this.teleport.withTeleportSlot(serverId, () => this.teleport.tpToStructure(serverId, player, p.structure!, { random: p.random !== false, maxDistance: p.maxDistance }, ctx));
+      const result = await this.teleport.withTeleportSlot(serverId, () =>
+        this.teleport.tpToStructure(
+          serverId,
+          player,
+          p.structure!,
+          { random: p.random !== false, maxDistance: p.maxDistance },
+          ctx,
+        ),
+      );
       return {
         message: `Teleported to a ${this.pretty(result.structure)} in ${this.prettyDim(result.dimension)} at ${result.x}, ${result.z}.`,
         result,
       };
     }
     if (cmd.action === 'biome') {
-      const result = await this.teleport.withTeleportSlot(serverId, () => this.teleport.tpToBiome(serverId, player, p.biome!, ctx));
+      const result = await this.teleport.withTeleportSlot(serverId, () =>
+        this.teleport.tpToBiome(serverId, player, p.biome!, ctx),
+      );
       return {
         message: `Teleported to ${this.pretty(result.biome)} in ${this.prettyDim(result.dimension)} at ${result.x}, ${result.z}.`,
         result,
@@ -479,22 +639,36 @@ export class ChatCommandsService {
     };
     let lastOut = '';
     for (const template of p.commands || []) {
-      const line = template.replace(/\{(player|arg1|arg2|arg3)\}/g, (_, key: string) => values[key] ?? '').trim();
+      const line = template
+        .replace(
+          /\{(player|arg1|arg2|arg3)\}/g,
+          (_, key: string) => values[key] ?? '',
+        )
+        .trim();
       if (!line) continue;
-      const out = cleanText(await this.containers.execCapture(serverId, ['rcon-cli', '--', ...line.split(/\s+/)]));
+      const out = cleanText(
+        await this.containers.execCapture(serverId, [
+          'rcon-cli',
+          '--',
+          ...line.split(/\s+/),
+        ]),
+      );
       if (out.trim()) lastOut = out.trim();
     }
-    return { message: lastOut || 'Done!', result: { commands: (p.commands || []).length, output: lastOut } };
+    return {
+      message: lastOut || 'Done!',
+      result: { commands: (p.commands || []).length, output: lastOut },
+    };
   }
 
   private sanitizeArg(value: unknown): string {
-    const v = String(value ?? '').trim();
+    const v = asString(value).trim();
     return ARG_RE.test(v) ? v : '';
   }
 
   private pretty(id: unknown): string {
     const base =
-      String(id || '')
+      asString(id)
         .replace(/^#/, '')
         .split(':')
         .pop()
@@ -504,10 +678,16 @@ export class ChatCommandsService {
     return base.charAt(0).toUpperCase() + base.slice(1);
   }
 
-  private async bumpUsage(serverId: string, cmd: HydratedCommand): Promise<void> {
+  private async bumpUsage(
+    serverId: string,
+    cmd: HydratedCommand,
+  ): Promise<void> {
     await this.db
       .update(chatCommands)
-      .set({ uses: sql`${chatCommands.uses} + 1`, lastUsedAt: sql`(datetime('now'))` })
+      .set({
+        uses: sql`${chatCommands.uses} + 1`,
+        lastUsedAt: sql`(datetime('now'))`,
+      })
       .where(eq(chatCommands.id, cmd.id));
     this.cache.delete(serverId);
   }
@@ -516,8 +696,12 @@ export class ChatCommandsService {
    * Entry point for the log ingester. Fire-and-forget: every failure is handled
    * here (whisper + event) — nothing propagates back into log ingestion.
    */
-  async handleChat(serverId: string, player: string, message: unknown): Promise<void> {
-    const text = String(message || '').trim();
+  async handleChat(
+    serverId: string,
+    player: string,
+    message: unknown,
+  ): Promise<void> {
+    const text = asString(message).trim();
     if (!text || !PLAYER_RE.test(String(player))) return;
 
     const runtime = await this.getRuntime(serverId);
@@ -542,13 +726,23 @@ export class ChatCommandsService {
 
     // Permission
     if (!this.hasPermission(serverId, player, cmd.permission)) {
-      void this.whisper(serverId, player, "You don't have permission to use that.");
+      void this.whisper(
+        serverId,
+        player,
+        "You don't have permission to use that.",
+      );
       this.events.recordEvent({
         serverId,
         actor: `chat:${player}`,
         type: 'chat-command',
         summary: `${player} tried ${label} — denied (needs ${cmd.permission})`,
-        details: { trigger, action: cmd.action, player, success: false, reason: 'permission' },
+        details: {
+          trigger,
+          action: cmd.action,
+          player,
+          success: false,
+          reason: 'permission',
+        },
       });
       return;
     }
@@ -559,7 +753,11 @@ export class ChatCommandsService {
       const last = this.cooldowns.get(cdKey) || 0;
       const remainingMs = cmd.cooldownSec * 1000 - (Date.now() - last);
       if (remainingMs > 0) {
-        void this.whisper(serverId, player, `Wait ${Math.ceil(remainingMs / 1000)}s before using ${label} again.`);
+        void this.whisper(
+          serverId,
+          player,
+          `Wait ${Math.ceil(remainingMs / 1000)}s before using ${label} again.`,
+        );
         return;
       }
     }
@@ -567,7 +765,11 @@ export class ChatCommandsService {
     // One execution per player at a time (locate searches take seconds).
     const flightKey = `${serverId}:${player.toLowerCase()}`;
     if (this.inflight.has(flightKey)) {
-      void this.whisper(serverId, player, 'Your previous command is still running — give it a second.');
+      void this.whisper(
+        serverId,
+        player,
+        'Your previous command is still running — give it a second.',
+      );
       return;
     }
     this.inflight.add(flightKey);
@@ -585,32 +787,70 @@ export class ChatCommandsService {
       arg3: this.sanitizeArg(args[2]),
     };
     // State 1 — pending: acknowledge immediately, before the (possibly slow) action.
-    if (cmd.msgPending) void this.whisper(serverId, player, this.renderTemplate(cmd.msgPending, baseVars));
+    if (cmd.msgPending)
+      void this.whisper(
+        serverId,
+        player,
+        this.renderTemplate(cmd.msgPending, baseVars),
+      );
     try {
-      const { message: defaultMsg, result } = await this.executeAction(serverId, cmd, player, args, ctx);
+      const { message: defaultMsg, result } = await this.executeAction(
+        serverId,
+        cmd,
+        player,
+        args,
+        ctx,
+      );
       await this.bumpUsage(serverId, cmd);
       // State 2 — success: custom template (with result placeholders) or the built-in message.
-      const successMsg = cmd.msgSuccess ? this.renderTemplate(cmd.msgSuccess, { ...baseVars, ...this.resultVars(result) }) : defaultMsg;
+      const successMsg = cmd.msgSuccess
+        ? this.renderTemplate(cmd.msgSuccess, {
+            ...baseVars,
+            ...this.resultVars(result),
+          })
+        : defaultMsg;
       void this.whisper(serverId, player, successMsg);
       this.events.recordEvent({
         serverId,
         actor: `chat:${player}`,
         type: 'chat-command',
         summary: `${player} ran ${label} (${this.actionSummary(cmd)})`,
-        details: { trigger, action: cmd.action, params: cmd.params, player, args, success: true },
+        details: {
+          trigger,
+          action: cmd.action,
+          params: cmd.params,
+          player,
+          args,
+          success: true,
+        },
       });
     } catch (err) {
       const e = err as Error & { status?: number };
-      const friendly = e.status === 429 ? 'The server is busy with another teleport — try again in a few seconds.' : e.message || 'That command failed — tell the server owner.';
+      const friendly =
+        e.status === 429
+          ? 'The server is busy with another teleport — try again in a few seconds.'
+          : e.message || 'That command failed — tell the server owner.';
       // State 3 — failure: custom template (with {error}) or the built-in message.
-      const failMsg = cmd.msgFailure ? this.renderTemplate(cmd.msgFailure, { ...baseVars, error: e.message || 'error' }) : friendly;
+      const failMsg = cmd.msgFailure
+        ? this.renderTemplate(cmd.msgFailure, {
+            ...baseVars,
+            error: e.message || 'error',
+          })
+        : friendly;
       void this.whisper(serverId, player, failMsg);
       this.events.recordEvent({
         serverId,
         actor: `chat:${player}`,
         type: 'chat-command',
         summary: `${player} ran ${label} — failed: ${String(e.message || e).slice(0, 140)}`,
-        details: { trigger, action: cmd.action, player, args, success: false, reason: e.message },
+        details: {
+          trigger,
+          action: cmd.action,
+          player,
+          args,
+          success: false,
+          reason: e.message,
+        },
       });
     } finally {
       this.inflight.delete(flightKey);
@@ -622,39 +862,93 @@ export class ChatCommandsService {
    * path minus permission and cooldown checks. Throws on failure (the caller
    * turns it into a friendly JSON error); records an event either way.
    */
-  async testCommand(serverId: string, cmdId: string, player: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ message: string; result: ActionResult }> {
+  async testCommand(
+    serverId: string,
+    cmdId: string,
+    player: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ message: string; result: ActionResult }> {
     const cmd = await this.getCommand(serverId, cmdId);
     if (!cmd) throw new NotFoundException('Chat command not found');
-    if (!PLAYER_RE.test(String(player))) throw new BadRequestException('Invalid player name');
+    if (!PLAYER_RE.test(String(player)))
+      throw new BadRequestException('Invalid player name');
 
     const flightKey = `${serverId}:${String(player).toLowerCase()}`;
-    if (this.inflight.has(flightKey)) throw new HttpException('That player already has a command running — wait a moment.', HttpStatus.TOO_MANY_REQUESTS);
+    if (this.inflight.has(flightKey))
+      throw new HttpException(
+        'That player already has a command running — wait a moment.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     this.inflight.add(flightKey);
     const ctx: RunOptions = { running: true, actor };
-    const baseVars = { player, trigger: cmd.trigger, arg1: '', arg2: '', arg3: '' };
-    if (cmd.msgPending) void this.whisper(serverId, player, this.renderTemplate(cmd.msgPending, baseVars));
+    const baseVars = {
+      player,
+      trigger: cmd.trigger,
+      arg1: '',
+      arg2: '',
+      arg3: '',
+    };
+    if (cmd.msgPending)
+      void this.whisper(
+        serverId,
+        player,
+        this.renderTemplate(cmd.msgPending, baseVars),
+      );
     try {
-      const { message: defaultMsg, result } = await this.executeAction(serverId, cmd, player, [], ctx);
+      const { message: defaultMsg, result } = await this.executeAction(
+        serverId,
+        cmd,
+        player,
+        [],
+        ctx,
+      );
       await this.bumpUsage(serverId, cmd);
-      const message = cmd.msgSuccess ? this.renderTemplate(cmd.msgSuccess, { ...baseVars, ...this.resultVars(result) }) : defaultMsg;
+      const message = cmd.msgSuccess
+        ? this.renderTemplate(cmd.msgSuccess, {
+            ...baseVars,
+            ...this.resultVars(result),
+          })
+        : defaultMsg;
       void this.whisper(serverId, player, message);
       this.events.recordEvent({
         serverId,
         actor,
         type: 'chat-command',
         summary: `${player} ran ${await this.getPrefix(serverId)}${cmd.trigger} (${this.actionSummary(cmd)}) — panel test`,
-        details: { trigger: cmd.trigger, action: cmd.action, params: cmd.params, player, success: true, via: 'test' },
+        details: {
+          trigger: cmd.trigger,
+          action: cmd.action,
+          params: cmd.params,
+          player,
+          success: true,
+          via: 'test',
+        },
       });
       return { message, result };
     } catch (err) {
       const e = err as Error;
-      if (cmd.msgFailure) void this.whisper(serverId, player, this.renderTemplate(cmd.msgFailure, { ...baseVars, error: e.message || 'error' }));
+      if (cmd.msgFailure)
+        void this.whisper(
+          serverId,
+          player,
+          this.renderTemplate(cmd.msgFailure, {
+            ...baseVars,
+            error: e.message || 'error',
+          }),
+        );
       this.events.recordEvent({
         serverId,
         actor,
         type: 'chat-command',
         summary: `Panel test of ${await this.getPrefix(serverId)}${cmd.trigger} as ${player} failed: ${String(e.message || e).slice(0, 140)}`,
-        details: { trigger: cmd.trigger, action: cmd.action, player, success: false, reason: e.message, via: 'test' },
+        details: {
+          trigger: cmd.trigger,
+          action: cmd.action,
+          player,
+          success: false,
+          reason: e.message,
+          via: 'test',
+        },
       });
       throw err;
     } finally {

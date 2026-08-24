@@ -54,7 +54,10 @@ export class LoaderVersionsService {
     const cached = await this.cache.get(cacheKey);
     if (cached && cached.ageMs < TTL_MS) return cached.value;
     try {
-      const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
       this.cache.set(cacheKey, data);
@@ -67,17 +70,36 @@ export class LoaderVersionsService {
 
   // Fabric & Quilt loader versions are independent of the Minecraft version.
   private async fabricBuilds(): Promise<LoaderBuild[]> {
-    const list = (await this.cachedJson('loader:fabric', 'https://meta.fabricmc.net/v2/versions/loader')) as FabricLoaderVersion[] | null | undefined;
+    const list = (await this.cachedJson(
+      'loader:fabric',
+      'https://meta.fabricmc.net/v2/versions/loader',
+    )) as FabricLoaderVersion[] | null | undefined;
     return (list || [])
-      .filter((v): v is Required<Pick<FabricLoaderVersion, 'version'>> & FabricLoaderVersion => Boolean(v && v.version))
+      .filter(
+        (
+          v,
+        ): v is Required<Pick<FabricLoaderVersion, 'version'>> &
+          FabricLoaderVersion => Boolean(v && v.version),
+      )
       .slice(0, MAX_BUILDS)
-      .map((v) => ({ version: v.version, label: v.stable ? `${v.version} (stable)` : v.version }));
+      .map((v) => ({
+        version: v.version,
+        label: v.stable ? `${v.version} (stable)` : v.version,
+      }));
   }
 
   private async quiltBuilds(): Promise<LoaderBuild[]> {
-    const list = (await this.cachedJson('loader:quilt', 'https://meta.quiltmc.org/v3/versions/loader')) as FabricLoaderVersion[] | null | undefined;
+    const list = (await this.cachedJson(
+      'loader:quilt',
+      'https://meta.quiltmc.org/v3/versions/loader',
+    )) as FabricLoaderVersion[] | null | undefined;
     return (list || [])
-      .filter((v): v is Required<Pick<FabricLoaderVersion, 'version'>> & FabricLoaderVersion => Boolean(v && v.version))
+      .filter(
+        (
+          v,
+        ): v is Required<Pick<FabricLoaderVersion, 'version'>> &
+          FabricLoaderVersion => Boolean(v && v.version),
+      )
       .slice(0, MAX_BUILDS)
       .map((v) => ({ version: v.version, label: v.version }));
   }
@@ -88,25 +110,43 @@ export class LoaderVersionsService {
     return m ? `${m[1]}.${m[2] || '0'}.` : null;
   }
 
-  private async neoforgeBuilds(mc: string | null | undefined): Promise<LoaderBuild[]> {
-    const data = (await this.cachedJson('loader:neoforge', 'https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge')) as { versions?: string[] };
+  private async neoforgeBuilds(
+    mc: string | null | undefined,
+  ): Promise<LoaderBuild[]> {
+    const data = (await this.cachedJson(
+      'loader:neoforge',
+      'https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge',
+    )) as { versions?: string[] };
     const all = (data.versions || []).slice().reverse(); // maven returns ascending; newest first
     const prefix = this.neoforgePrefix(mc);
     const matched = prefix ? all.filter((v) => v.startsWith(prefix)) : all;
-    return matched.slice(0, MAX_BUILDS).map((v) => ({ version: v, label: /-beta$/i.test(v) ? `${v} (beta)` : v }));
+    return matched.slice(0, MAX_BUILDS).map((v) => ({
+      version: v,
+      label: /-beta$/i.test(v) ? `${v} (beta)` : v,
+    }));
   }
 
   // Forge's promotions feed only surfaces the recommended + latest build per MC —
   // that covers what almost everyone pins; the advanced FORGE_VERSION field remains
   // for arbitrary builds.
-  private async forgeBuilds(mc: string | null | undefined): Promise<LoaderBuild[]> {
-    const data = (await this.cachedJson('loader:forge', 'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json')) as { promos?: Record<string, string> };
+  private async forgeBuilds(
+    mc: string | null | undefined,
+  ): Promise<LoaderBuild[]> {
+    const data = (await this.cachedJson(
+      'loader:forge',
+      'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json',
+    )) as { promos?: Record<string, string> };
     const promos = data.promos || {};
     const recommended = promos[`${mc}-recommended`];
     const latest = promos[`${mc}-latest`];
     const builds: LoaderBuild[] = [];
-    if (recommended) builds.push({ version: recommended, label: `${recommended} (recommended)` });
-    if (latest && latest !== recommended) builds.push({ version: latest, label: `${latest} (latest)` });
+    if (recommended)
+      builds.push({
+        version: recommended,
+        label: `${recommended} (recommended)`,
+      });
+    if (latest && latest !== recommended)
+      builds.push({ version: latest, label: `${latest} (latest)` });
     return builds;
   }
 
@@ -115,7 +155,10 @@ export class LoaderVersionsService {
    * with the "Latest" no-pin option, then specific builds newest-first when the
    * registry is reachable. Never throws — a failed fetch yields the Latest option.
    */
-  async getBuilds(loader: string, mc: string | null | undefined): Promise<LoaderBuildsResult> {
+  async getBuilds(
+    loader: string,
+    mc: string | null | undefined,
+  ): Promise<LoaderBuildsResult> {
     const key = String(loader).toLowerCase();
     let builds: LoaderBuild[] = [];
     try {
@@ -126,6 +169,11 @@ export class LoaderVersionsService {
     } catch {
       builds = []; // best-effort — fall through to Latest-only
     }
-    return { loader: key, envKey: this.envKeyFor(key), builds: [LATEST, ...builds], default: '' };
+    return {
+      loader: key,
+      envKey: this.envKeyFor(key),
+      builds: [LATEST, ...builds],
+      default: '',
+    };
   }
 }

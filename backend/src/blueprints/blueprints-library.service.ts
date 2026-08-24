@@ -10,7 +10,11 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { ConfigService } from '../config/config.service';
 import { blueprints, settings } from '../db/schema';
 import { archiver, slugify } from './zip.util';
-import { PANEL_VERSION, type BlueprintManifest, type OverlayEntry } from './blueprints.types';
+import {
+  PANEL_VERSION,
+  type BlueprintManifest,
+  type OverlayEntry,
+} from './blueprints.types';
 
 type BlueprintRow = typeof blueprints.$inferSelect;
 
@@ -32,7 +36,7 @@ export class BlueprintsLibraryService {
     private readonly dbService: DbService,
     private readonly events: EventsService,
     private readonly pathGuard: PathGuardService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
   ) {}
 
   private get db() {
@@ -48,18 +52,33 @@ export class BlueprintsLibraryService {
   }
 
   async getBlueprint(id: string): Promise<DecoratedBlueprint | null> {
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     return row ? this.decorate(row) : null;
   }
 
   async getBlueprintPath(id: string): Promise<string> {
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     return this.pathGuard.dataPath(row.relPath);
   }
 
-  async deleteBlueprint(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+  async deleteBlueprint(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ freedBytes: number }> {
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     await fsp.rm(this.pathGuard.dataPath(row.relPath), { force: true });
     await this.db.delete(blueprints).where(eq(blueprints.id, id));
@@ -76,16 +95,23 @@ export class BlueprintsLibraryService {
   private decorate(row: BlueprintRow): DecoratedBlueprint {
     let manifest: Partial<BlueprintManifest> = {};
     try {
-      manifest = JSON.parse(row.manifestJson);
+      manifest = JSON.parse(row.manifestJson) as Partial<BlueprintManifest>;
     } catch {
       /* corrupt cache — show bare row */
     }
     return {
       ...row,
       manifest,
-      notes: manifest.notes || (manifest.identity && manifest.identity.description) || '',
-      pack: manifest.pack ? `${manifest.pack.projectName || manifest.pack.projectRef} @ ${manifest.pack.versionName || manifest.pack.versionId}` : null,
-      overlayCount: Array.isArray(manifest.overlay) ? manifest.overlay.length : 0,
+      notes:
+        manifest.notes ||
+        (manifest.identity && manifest.identity.description) ||
+        '',
+      pack: manifest.pack
+        ? `${manifest.pack.projectName || manifest.pack.projectRef} @ ${manifest.pack.versionName || manifest.pack.versionId}`
+        : null,
+      overlayCount: Array.isArray(manifest.overlay)
+        ? manifest.overlay.length
+        : 0,
       type: manifest.config ? manifest.config.type : '',
       mcVersion: manifest.config ? manifest.config.mcVersion : '',
       world: Boolean(manifest.world),
@@ -97,16 +123,31 @@ export class BlueprintsLibraryService {
 
   /** Ship two preset blueprints once. A settings flag prevents re-seeding after the user deletes them. */
   async seedStarters(): Promise<{ seeded: number; blueprints?: unknown[] }> {
-    const [seededFlag] = await this.db.select().from(settings).where(eq(settings.key, 'blueprints_seeded')).limit(1);
+    const [seededFlag] = await this.db
+      .select()
+      .from(settings)
+      .where(eq(settings.key, 'blueprints_seeded'))
+      .limit(1);
     if (seededFlag) return { seeded: 0 };
-    const [builtinExisting] = await this.db.select().from(blueprints).where(eq(blueprints.builtin, true)).limit(1);
+    const [builtinExisting] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.builtin, true))
+      .limit(1);
     if (builtinExisting) return { seeded: 0 };
 
     const created = [];
-    for (const manifest of [this.paperStarterManifest(), this.fabricStarterManifest()]) {
-      created.push(await this.writeManifestOnlyBlueprint(manifest, { builtin: true }));
+    for (const manifest of [
+      this.paperStarterManifest(),
+      this.fabricStarterManifest(),
+    ]) {
+      created.push(
+        await this.writeManifestOnlyBlueprint(manifest, { builtin: true }),
+      );
     }
-    await this.db.insert(settings).values({ key: 'blueprints_seeded', valueJson: 'true' });
+    await this.db
+      .insert(settings)
+      .values({ key: 'blueprints_seeded', valueJson: 'true' });
     this.events.recordEvent({
       actor: 'system',
       type: 'blueprints-seeded',
@@ -121,10 +162,12 @@ export class BlueprintsLibraryService {
       name: 'Optimized Paper Survival',
       createdAt: new Date().toISOString(),
       panelVersion: PANEL_VERSION,
-      notes: 'Paper with Aikar JVM flags and sane survival defaults — a fast vanilla-plus base.',
+      notes:
+        'Paper with Aikar JVM flags and sane survival defaults — a fast vanilla-plus base.',
       identity: {
         name: 'Optimized Paper Survival',
-        description: 'Paper with Aikar JVM flags and sane survival defaults — a fast vanilla-plus base.',
+        description:
+          'Paper with Aikar JVM flags and sane survival defaults — a fast vanilla-plus base.',
         icon: 'grass',
         accent: '#3fa62b',
         tags: ['paper', 'survival', 'optimized'],
@@ -163,10 +206,12 @@ export class BlueprintsLibraryService {
       name: 'Fabric Performance Base',
       createdAt: new Date().toISOString(),
       panelVersion: PANEL_VERSION,
-      notes: 'Fabric with Lithium, FerriteCore, Krypton and Spark — a lean modded starting point.',
+      notes:
+        'Fabric with Lithium, FerriteCore, Krypton and Spark — a lean modded starting point.',
       identity: {
         name: 'Fabric Performance Base',
-        description: 'Fabric with Lithium, FerriteCore, Krypton and Spark — a lean modded starting point.',
+        description:
+          'Fabric with Lithium, FerriteCore, Krypton and Spark — a lean modded starting point.',
         icon: 'diamond',
         accent: '#21a7ab',
         tags: ['fabric', 'performance'],
@@ -174,7 +219,12 @@ export class BlueprintsLibraryService {
       config: { type: 'FABRIC', mcVersion: 'LATEST', javaTag: '', env: {} },
       resources: this.starterResources(),
       pack: null,
-      overlay: [mod('Lithium', 'lithium'), mod('FerriteCore', 'ferrite-core'), mod('Krypton', 'krypton'), mod('Spark', 'spark')],
+      overlay: [
+        mod('Lithium', 'lithium'),
+        mod('FerriteCore', 'ferrite-core'),
+        mod('Krypton', 'krypton'),
+        mod('Spark', 'spark'),
+      ],
       configFiles: [],
       embedFiles: false,
       world: false,
@@ -195,7 +245,10 @@ export class BlueprintsLibraryService {
     };
   }
 
-  private async writeManifestOnlyBlueprint(manifest: BlueprintManifest, { builtin = false }: { builtin?: boolean } = {}): Promise<BlueprintRow> {
+  private async writeManifestOnlyBlueprint(
+    manifest: BlueprintManifest,
+    { builtin = false }: { builtin?: boolean } = {},
+  ): Promise<BlueprintRow> {
     const filename = `${slugify(manifest.name)}.mcserver.zip`;
     const relPath = `blueprints/${filename}`;
     const absPath = this.pathGuard.dataPath(relPath);
@@ -206,15 +259,27 @@ export class BlueprintsLibraryService {
       output.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(output);
-      archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+      archive.append(JSON.stringify(manifest, null, 2), {
+        name: 'manifest.json',
+      });
       archive.finalize();
     });
     const size = (await fsp.stat(absPath)).size;
     const id = `bp_${nanoid(8)}`;
-    await this.db
-      .insert(blueprints)
-      .values({ id, name: manifest.name, filename, relPath, sizeBytes: size, builtin, manifestJson: JSON.stringify(manifest) });
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    await this.db.insert(blueprints).values({
+      id,
+      name: manifest.name,
+      filename,
+      relPath,
+      sizeBytes: size,
+      builtin,
+      manifestJson: JSON.stringify(manifest),
+    });
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     return row!;
   }
 }

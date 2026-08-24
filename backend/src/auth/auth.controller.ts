@@ -1,12 +1,20 @@
-import { BadRequestException, Controller, Get, HttpException, HttpStatus, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// qrcode ships no types of its own and none exist for it — matching the
-// legacy code's own untyped require() for this package (same reasoning as
-// archiver elsewhere in this backend).
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const QRCode = require('qrcode');
+// qrcode ships no types of its own — see backend/src/types/qrcode.d.ts for
+// the minimal hand-rolled declaration covering the surface area used here.
+import QRCode from 'qrcode';
 import { z, ZodError } from 'zod';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
@@ -56,11 +64,13 @@ export class AuthController {
     private readonly events: EventsService,
     private readonly config: ConfigService,
     private readonly rateLimit: LoginRateLimitService,
-    private readonly docker: DockerConnectionService
+    private readonly docker: DockerConnectionService,
   ) {}
 
   private throttleSetup(userId: string, nowMs: number): boolean {
-    const recent = (this.setupHits.get(userId) || []).filter((t) => nowMs - t < SETUP_WINDOW_MS);
+    const recent = (this.setupHits.get(userId) || []).filter(
+      (t) => nowMs - t < SETUP_WINDOW_MS,
+    );
     recent.push(nowMs);
     this.setupHits.set(userId, recent);
     return recent.length <= SETUP_MAX;
@@ -74,7 +84,8 @@ export class AuthController {
   @Public()
   @Get('setup/checks')
   async setupChecks(): Promise<{ ok: true; checks: SetupChecks }> {
-    if (!(await this.authService.firstRunNeeded())) throw new BadRequestException('Setup already complete');
+    if (!(await this.authService.firstRunNeeded()))
+      throw new BadRequestException('Setup already complete');
     const docker = await this.docker.checkDocker();
 
     const maj = Number(process.versions.node.split('.')[0]);
@@ -91,7 +102,10 @@ export class AuthController {
     }
 
     const secretSet = Boolean(this.config.sessionSecret);
-    const secretStrong = secretSet && this.config.sessionSecret.length >= 16 && !/^change-me/i.test(this.config.sessionSecret);
+    const secretStrong =
+      secretSet &&
+      this.config.sessionSecret.length >= 16 &&
+      !/^change-me/i.test(this.config.sessionSecret);
 
     return {
       ok: true,
@@ -107,9 +121,20 @@ export class AuthController {
           isDockerDesktop: docker.isDockerDesktop,
           error: docker.error,
         },
-        node: { level: nodeOk ? 'pass' : 'warn', version: process.versions.node, required: '24.0.0' },
-        dataDir: { level: dataWritable ? 'pass' : 'fail', path: this.config.dataDir },
-        sessionSecret: { level: secretStrong ? 'pass' : 'warn', set: secretSet, weak: secretSet && !secretStrong },
+        node: {
+          level: nodeOk ? 'pass' : 'warn',
+          version: process.versions.node,
+          required: '24.0.0',
+        },
+        dataDir: {
+          level: dataWritable ? 'pass' : 'fail',
+          path: this.config.dataDir,
+        },
+        sessionSecret: {
+          level: secretStrong ? 'pass' : 'warn',
+          set: secretSet,
+          weak: secretSet && !secretStrong,
+        },
       },
     };
   }
@@ -117,16 +142,27 @@ export class AuthController {
   @Public()
   @Post('setup')
   async setup(@Req() req: Request, @Res() res: Response) {
-    if (!(await this.authService.firstRunNeeded())) throw new BadRequestException('Setup already complete');
+    if (!(await this.authService.firstRunNeeded()))
+      throw new BadRequestException('Setup already complete');
     const { username, password } = parseBody(setupSchema, req.body);
     // createUser only returns null when role/username conflicts are pre-checked
     // elsewhere; firstRunNeeded() above guarantees a fresh admin account here.
-    const user = (await this.authService.createUser({ username, password, role: 'admin' }, { actor: 'setup' }))!;
+    const user = (await this.authService.createUser(
+      { username, password, role: 'admin' },
+      { actor: 'setup' },
+    ))!;
     // Rotate the session id on privilege establishment (anti-fixation), matching login.
     req.session.regenerate((err) => {
-      if (err) return res.status(500).json({ ok: false, error: 'Session error — try again.' });
+      if (err)
+        return res
+          .status(500)
+          .json({ ok: false, error: 'Session error — try again.' });
       req.session.userId = user.id;
-      this.events.recordEvent({ actor: username, type: 'login', summary: `First admin account created and signed in: ${username}` });
+      this.events.recordEvent({
+        actor: username,
+        type: 'login',
+        summary: `First admin account created and signed in: ${username}`,
+      });
       res.json({ ok: true, user: { username: user.username } });
     });
   }
@@ -134,7 +170,8 @@ export class AuthController {
   @Public()
   @Post('login')
   async login(@Req() req: Request, @Res() res: Response) {
-    if (await this.authService.firstRunNeeded()) throw new BadRequestException('Panel setup incomplete');
+    if (await this.authService.firstRunNeeded())
+      throw new BadRequestException('Panel setup incomplete');
     if (req.session?.userId) return res.json({ ok: true, totpRequired: false });
 
     const { username, password, next } = parseBody(loginSchema, req.body);
@@ -157,9 +194,16 @@ export class AuthController {
     }
     this.rateLimit.clearLoginFailures(username, req.ip);
     req.session.regenerate((err) => {
-      if (err) return res.status(500).json({ ok: false, error: 'Session error — try again.' });
+      if (err)
+        return res
+          .status(500)
+          .json({ ok: false, error: 'Session error — try again.' });
       req.session.userId = user.id;
-      this.events.recordEvent({ actor: user.username, type: 'login', summary: `${user.username} signed in` });
+      this.events.recordEvent({
+        actor: user.username,
+        type: 'login',
+        summary: `${user.username} signed in`,
+      });
       res.json({ ok: true, totpRequired: false });
     });
   }
@@ -183,9 +227,16 @@ export class AuthController {
     delete req.session.pendingTotpUsername;
     delete req.session.pendingTotpNext;
     req.session.regenerate((err) => {
-      if (err) return res.status(500).json({ ok: false, error: 'Session error — try again.' });
+      if (err)
+        return res
+          .status(500)
+          .json({ ok: false, error: 'Session error — try again.' });
       req.session.userId = pendingId;
-      this.events.recordEvent({ actor: pendingUsername, type: 'login', summary: `${pendingUsername} signed in (2FA)` });
+      this.events.recordEvent({
+        actor: pendingUsername,
+        type: 'login',
+        summary: `${pendingUsername} signed in (2FA)`,
+      });
       res.json({ ok: true });
     });
   }
@@ -195,7 +246,11 @@ export class AuthController {
   logout(@Req() req: Request, @Res() res: Response) {
     const name = req.user ? req.user.username : 'unknown';
     req.session.destroy(() => {
-      this.events.recordEvent({ actor: name, type: 'logout', summary: `${name} signed out` });
+      this.events.recordEvent({
+        actor: name,
+        type: 'logout',
+        summary: `${name} signed out`,
+      });
       res.json({ ok: true });
     });
   }
@@ -205,7 +260,15 @@ export class AuthController {
   @Get('api/session')
   session(@Req() req: Request): { ok: true; user: SessionUser } {
     const user = req.user!;
-    return { ok: true, user: { id: user.id, username: user.username, role: user.role, totpEnabled: user.totpEnabled } };
+    return {
+      ok: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        totpEnabled: user.totpEnabled,
+      },
+    };
   }
 
   // -------------------------------------------------------------------
@@ -218,10 +281,18 @@ export class AuthController {
   @Post('api/account/totp/setup')
   async totpSetup(@Req() req: Request) {
     if (!this.throttleSetup(req.user!.id, Date.now())) {
-      throw new HttpException('Too many 2FA setup attempts — wait a minute and try again.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        'Too many 2FA setup attempts — wait a minute and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
-    const { secret, otpauthUrl } = await this.authService.beginTotpEnrollment(req.user!.id);
-    const qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 220 });
+    const { secret, otpauthUrl } = await this.authService.beginTotpEnrollment(
+      req.user!.id,
+    );
+    const qrDataUrl = await QRCode.toDataURL(otpauthUrl, {
+      margin: 1,
+      width: 220,
+    });
     return { ok: true, secret, otpauthUrl, qrDataUrl };
   }
 
@@ -234,9 +305,16 @@ export class AuthController {
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     let result: { backupCodes: string[] };
     try {
-      result = await this.authService.confirmTotp(req.user!.id, secret, code, password, { actor: req.user!.username });
+      result = await this.authService.confirmTotp(
+        req.user!.id,
+        secret,
+        code,
+        password,
+        { actor: req.user!.username },
+      );
     } catch (err) {
-      if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+      if (err instanceof UnauthorizedException)
+        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
     this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
@@ -249,9 +327,12 @@ export class AuthController {
     const { password } = parseBody(passwordSchema, req.body);
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     try {
-      await this.authService.disableTotp(req.user!.id, password, { actor: req.user!.username });
+      await this.authService.disableTotp(req.user!.id, password, {
+        actor: req.user!.username,
+      });
     } catch (err) {
-      if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+      if (err instanceof UnauthorizedException)
+        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
     this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
@@ -265,9 +346,14 @@ export class AuthController {
     this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
     let result: { backupCodes: string[] };
     try {
-      result = await this.authService.regenerateBackupCodes(req.user!.id, password, { actor: req.user!.username });
+      result = await this.authService.regenerateBackupCodes(
+        req.user!.id,
+        password,
+        { actor: req.user!.username },
+      );
     } catch (err) {
-      if (err instanceof UnauthorizedException) this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+      if (err instanceof UnauthorizedException)
+        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
       throw err;
     }
     this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
@@ -280,7 +366,10 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -289,6 +378,7 @@ function safeNext(next: unknown): string {
   if (typeof next !== 'string' || !next.startsWith('/')) return '';
   // Reject protocol-relative ("//host"), backslash tricks ("/\\host" — browsers
   // normalize \ to / making it "//host"), and any whitespace/control chars.
+  // eslint-disable-next-line no-control-regex -- intentionally rejects control chars
   if (next.startsWith('//') || /[\\\s\x00-\x1f]/.test(next)) return '';
   return next;
 }

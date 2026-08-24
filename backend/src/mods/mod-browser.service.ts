@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ModrinthApiService } from './modrinth-api.service';
 import { CurseforgeApiService } from './curseforge-api.service';
-import type { ModPlatform, ModrinthVersion, CurseforgeFile } from './mods.types';
+import type {
+  ModPlatform,
+  ModrinthVersion,
+  CurseforgeFile,
+} from './mods.types';
 
 // Backend for the "From mods" wizard browser. Three concerns, both platforms:
 //   search()   — find mods for a loader + MC version (Modrinth or CurseForge)
@@ -93,16 +97,28 @@ interface QueueNode {
 export class ModBrowserService {
   constructor(
     private readonly modrinth: ModrinthApiService,
-    private readonly curseforge: CurseforgeApiService
+    private readonly curseforge: CurseforgeApiService,
   ) {}
 
   /** Unified mod search. Returns [{platform, ref, projectId, name, description, iconUrl, downloads}]. */
-  async search({ query, platform, loader, mc, limit = 20 }: ModBrowserSearchParams): Promise<ModSearchHit[]> {
+  async search({
+    query,
+    platform,
+    loader,
+    mc,
+    limit = 20,
+  }: ModBrowserSearchParams): Promise<ModSearchHit[]> {
     const q = String(query || '').trim();
     if (!q) return [];
     const mcVersion = normMc(mc);
     if (platform === 'curseforge') {
-      const hits = await this.curseforge.search({ query: q, kind: 'mod', loader, mcVersion, limit });
+      const hits = await this.curseforge.search({
+        query: q,
+        kind: 'mod',
+        loader,
+        mcVersion,
+        limit,
+      });
       return hits.map((m) => ({
         platform: 'curseforge' as const,
         ref: m.slug,
@@ -113,7 +129,13 @@ export class ModBrowserService {
         downloads: m.downloads || 0,
       }));
     }
-    const hits = await this.modrinth.search({ query: q, kind: 'mod', loader, mcVersion, limit });
+    const hits = await this.modrinth.search({
+      query: q,
+      kind: 'mod',
+      loader,
+      mcVersion,
+      limit,
+    });
     return hits.map((h) => ({
       platform: 'modrinth' as const,
       ref: h.slug,
@@ -128,11 +150,23 @@ export class ModBrowserService {
   /** {ref, projectId, name, iconUrl} for a mod given a slug or platform id. */
   async metaFor(platform: ModPlatform, refOrId: string): Promise<ModMeta> {
     if (platform === 'curseforge') {
-      const mod = /^\d+$/.test(String(refOrId)) ? await this.curseforge.getMod(Number(refOrId)) : await this.curseforge.resolveUrl(String(refOrId));
-      return { ref: mod.slug, projectId: String(mod.modId), name: mod.name, iconUrl: mod.iconUrl || null };
+      const mod = /^\d+$/.test(String(refOrId))
+        ? await this.curseforge.getMod(Number(refOrId))
+        : await this.curseforge.resolveUrl(String(refOrId));
+      return {
+        ref: mod.slug,
+        projectId: String(mod.modId),
+        name: mod.name,
+        iconUrl: mod.iconUrl || null,
+      };
     }
     const p = await this.modrinth.getProject(refOrId);
-    return { ref: p.slug, projectId: p.id, name: p.title, iconUrl: p.icon_url || null };
+    return {
+      ref: p.slug,
+      projectId: p.id,
+      name: p.title,
+      iconUrl: p.icon_url || null,
+    };
   }
 
   /** Normalize one Modrinth version to the shared shape (+ required-dep project ids). */
@@ -144,7 +178,9 @@ export class ModBrowserService {
       datePublished: v.date_published || null,
       versionType: v.version_type || 'release',
       gameVersions: v.game_versions || [],
-      requiredDeps: (v.dependencies || []).filter((d) => d.dependency_type === 'required' && d.project_id).map((d) => String(d.project_id)),
+      requiredDeps: (v.dependencies || [])
+        .filter((d) => d.dependency_type === 'required' && d.project_id)
+        .map((d) => String(d.project_id)),
     };
   }
 
@@ -157,17 +193,28 @@ export class ModBrowserService {
       datePublished: f.fileDate || null,
       versionType: f.releaseType || 'release',
       gameVersions: f.gameVersions || [],
-      requiredDeps: (f.dependencies || []).filter((d) => d.relation === 3).map((d) => String(d.modId)),
+      requiredDeps: (f.dependencies || [])
+        .filter((d) => d.relation === 3)
+        .map((d) => String(d.modId)),
       downloadable: Boolean(f.downloadUrl), // CF authors can forbid API download
     };
   }
 
   /** A mod's builds for a loader + MC version, newest first. */
-  async versions({ platform, ref, loader, mc, limit = 30 }: ModBrowserVersionsParams): Promise<ModVersion[]> {
+  async versions({
+    platform,
+    ref,
+    loader,
+    mc,
+    limit = 30,
+  }: ModBrowserVersionsParams): Promise<ModVersion[]> {
     const mcVersion = normMc(mc);
     if (platform === 'curseforge') {
       const meta = await this.metaFor('curseforge', ref);
-      const files = await this.curseforge.getFiles(Number(meta.projectId), { mcVersion, loader });
+      const files = await this.curseforge.getFiles(Number(meta.projectId), {
+        mcVersion,
+        loader,
+      });
       return files.slice(0, limit).map((f) => this.normCurseforgeFile(f));
     }
     const list = await this.modrinth.getVersions(ref, { loader, mcVersion });
@@ -179,10 +226,17 @@ export class ModBrowserService {
   }
 
   /** Required-dependency project ids of ONE build (same platform as its parent). */
-  private async requiredDepsOfVersion(platform: ModPlatform, projectId: string, versionId: string): Promise<string[]> {
+  private async requiredDepsOfVersion(
+    platform: ModPlatform,
+    projectId: string,
+    versionId: string,
+  ): Promise<string[]> {
     try {
       if (platform === 'curseforge') {
-        const file = await this.curseforge.getFile(Number(projectId), Number(versionId));
+        const file = await this.curseforge.getFile(
+          Number(projectId),
+          Number(versionId),
+        );
         return this.normCurseforgeFile(file).requiredDeps;
       }
       const v = await this.modrinth.getVersion(versionId);
@@ -221,8 +275,15 @@ export class ModBrowserService {
         continue;
       }
       have.add(this.depKey(item.platform, meta.projectId));
-      const reqs = item.versionId ? await this.requiredDepsOfVersion(item.platform, meta.projectId, item.versionId) : [];
-      for (const pid of reqs) queue.push({ platform: item.platform, projectId: pid });
+      const reqs = item.versionId
+        ? await this.requiredDepsOfVersion(
+            item.platform,
+            meta.projectId,
+            item.versionId,
+          )
+        : [];
+      for (const pid of reqs)
+        queue.push({ platform: item.platform, projectId: pid });
     }
 
     let iter = 0;
@@ -241,12 +302,19 @@ export class ModBrowserService {
       }
       let vers: ModVersion[] = [];
       try {
-        vers = await this.versions({ platform: node.platform, ref: meta.ref, loader, mc });
+        vers = await this.versions({
+          platform: node.platform,
+          ref: meta.ref,
+          loader,
+          mc,
+        });
       } catch {
         vers = [];
       }
       if (!vers.length) {
-        warnings.push(`${meta.name} has no ${loader}${mc ? ` ${mc}` : ''} build — skipped`);
+        warnings.push(
+          `${meta.name} has no ${loader}${mc ? ` ${mc}` : ''} build — skipped`,
+        );
         continue;
       }
       const chosen = vers[0]!; // newest compatible build
@@ -260,7 +328,8 @@ export class ModBrowserService {
         versionId: chosen.versionId,
       });
       // Recurse into this dependency's own required deps.
-      for (const pid of chosen.requiredDeps) queue.push({ platform: node.platform, projectId: pid });
+      for (const pid of chosen.requiredDeps)
+        queue.push({ platform: node.platform, projectId: pid });
     }
 
     return { deps, warnings };

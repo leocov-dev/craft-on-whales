@@ -1,4 +1,10 @@
-import { ConflictException, HttpException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ConflictException,
+  HttpException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { EventsService } from '../events/events.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
@@ -65,7 +71,7 @@ export class UpdateUpgradeService {
     private readonly packs: PacksService,
     private readonly backups: BackupsService,
     private readonly dockerLogs: DockerLogsService,
-    private readonly containers: ContainerService
+    private readonly containers: ContainerService,
   ) {}
 
   upgradeStatus(serverId: string): UpgradeState | null {
@@ -80,16 +86,30 @@ export class UpdateUpgradeService {
    */
   async upgradePack(
     serverId: string,
-    { versionId = null, skipBackup = false, allowVersionChange = false, actor = 'system', onStep = () => {}, task = null }: UpgradePackOptions = {}
+    {
+      versionId = null,
+      skipBackup = false,
+      allowVersionChange = false,
+      actor = 'system',
+      onStep = () => {},
+      task = null,
+    }: UpgradePackOptions = {},
   ): Promise<UpgradePackResult> {
-    if (this.activeUpgrades.has(serverId)) throw new ConflictException('An upgrade is already running for this server');
+    if (this.activeUpgrades.has(serverId))
+      throw new ConflictException(
+        'An upgrade is already running for this server',
+      );
     const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const pack = await this.packs.getPack(serverId);
-    if (!pack) throw new BadRequestException('This server has no managed modpack');
+    if (!pack)
+      throw new BadRequestException('This server has no managed modpack');
 
     const step = (s: string) => {
-      this.activeUpgrades.set(serverId, { step: s, startedAt: this.activeUpgrades.get(serverId)?.startedAt || Date.now() });
+      this.activeUpgrades.set(serverId, {
+        step: s,
+        startedAt: this.activeUpgrades.get(serverId)?.startedAt || Date.now(),
+      });
       if (task) task.step(STEP_LABELS[s] || s);
       onStep(s);
     };
@@ -102,12 +122,18 @@ export class UpdateUpgradeService {
       // (latestFor) showed the newest BETA — a downgrade the user never
       // confirmed. includeBeta is a no-op for every other platform/branch,
       // which doesn't key off a stored channel.
-      const resolved = await this.packs.resolvePack(pack.platform as 'curseforge' | 'modrinth' | 'ftb' | 'gtnh', pack.projectRef, {
-        versionId,
-        includeBeta: pack.channel === 'beta',
-      });
+      const resolved = await this.packs.resolvePack(
+        pack.platform as 'curseforge' | 'modrinth' | 'ftb' | 'gtnh',
+        pack.projectRef,
+        {
+          versionId,
+          includeBeta: pack.channel === 'beta',
+        },
+      );
       if (resolved.versionId === pack.pinnedVersionId) {
-        throw new BadRequestException(`Already on ${pack.pinnedVersionName} — nothing to upgrade`);
+        throw new BadRequestException(
+          `Already on ${pack.pinnedVersionName} — nothing to upgrade`,
+        );
       }
 
       // Cross-MC-version upgrades permanently convert the world — demand
@@ -128,7 +154,7 @@ export class UpdateUpgradeService {
             fromMcVersion: server.mc_version,
             toMcVersion: resolved.mcVersion,
           },
-          409
+          409,
         );
       }
 
@@ -145,14 +171,19 @@ export class UpdateUpgradeService {
       }
 
       step('stopping');
-      const wasRunning = ['running', 'starting', 'unhealthy'].includes(server.status);
+      const wasRunning = ['running', 'starting', 'unhealthy'].includes(
+        server.status,
+      );
       if (wasRunning) await this.lifecycle.stopServer(serverId, { actor });
 
       step('applying');
       // The pre-update backup above is the safety net; still require the
       // caller to have confirmed cross-MC-version upgrades (checked before
       // backup by the route via resolvePack diff) — here we proceed.
-      const { previous } = await this.packs.applyPack(serverId, resolved, { actor, force: true });
+      const { previous } = await this.packs.applyPack(serverId, resolved, {
+        actor,
+        force: true,
+      });
 
       step('recreating');
       await this.lifecycle.recreateServer(serverId, { actor, quiet: true });
@@ -170,7 +201,9 @@ export class UpdateUpgradeService {
       };
       const timeoutMs = INSTALL_TIMEOUTS_MS[pack.platform] || 10 * 60 * 1000;
       const healthy = await this.waitForHealthy(serverId, { timeoutMs });
-      const excerpt = await this.dockerLogs.fetchLogs(serverId, { tail: 200 }).catch(() => '');
+      const excerpt = await this.dockerLogs
+        .fetchLogs(serverId, { tail: 200 })
+        .catch(() => '');
 
       if (!healthy) {
         this.events.recordEvent({
@@ -178,7 +211,10 @@ export class UpdateUpgradeService {
           actor,
           type: 'update-failed',
           summary: `Pack upgrade to ${resolved.versionName} failed to start — rollback available`,
-          details: { backupId, previousVersion: previous ? previous.pinnedVersionId : null },
+          details: {
+            backupId,
+            previousVersion: previous ? previous.pinnedVersionId : null,
+          },
           logExcerpt: excerpt || null,
         });
         throw new HttpException(
@@ -186,7 +222,7 @@ export class UpdateUpgradeService {
             message: `The server did not come up healthy after the upgrade. Use rollback to restore ${pack.pinnedVersionName}.`,
             rollbackAvailable: Boolean(backupId),
           },
-          502
+          502,
         );
       }
 
@@ -198,26 +234,50 @@ export class UpdateUpgradeService {
         actor,
         type: 'update-applied',
         summary: `Pack upgraded: ${pack.projectName} ${pack.pinnedVersionName} → ${resolved.versionName}`,
-        details: { backupId, from: pack.pinnedVersionId, to: resolved.versionId },
+        details: {
+          backupId,
+          from: pack.pinnedVersionId,
+          to: resolved.versionId,
+        },
         logExcerpt: excerpt || null,
       });
-      return { ok: true, from: pack.pinnedVersionName, to: resolved.versionName, backupId };
+      return {
+        ok: true,
+        from: pack.pinnedVersionName,
+        to: resolved.versionName,
+        backupId,
+      };
     } finally {
       this.activeUpgrades.delete(serverId);
     }
   }
 
   /** Roll back: restore the pre-update backup + re-pin the previous version. */
-  async rollbackPack(serverId: string, { backupId, actor = 'system' }: { backupId?: string | null; actor?: string } = {}): Promise<RollbackResult> {
+  async rollbackPack(
+    serverId: string,
+    {
+      backupId,
+      actor = 'system',
+    }: { backupId?: string | null; actor?: string } = {},
+  ): Promise<RollbackResult> {
     const pack = await this.packs.getPack(serverId);
-    if (!pack || !pack.previousVersionId) throw new BadRequestException('No previous pack version recorded');
+    if (!pack || !pack.previousVersionId)
+      throw new BadRequestException('No previous pack version recorded');
 
     await this.lifecycle.stopServer(serverId, { actor }).catch(() => {});
-    if (backupId) await this.backups.restoreBackup(serverId, backupId, { actor, skipSafety: true });
+    if (backupId)
+      await this.backups.restoreBackup(serverId, backupId, {
+        actor,
+        skipSafety: true,
+      });
 
-    const resolved = await this.packs.resolvePack(pack.platform as 'curseforge' | 'modrinth' | 'ftb' | 'gtnh', pack.projectRef, {
-      versionId: pack.previousVersionId,
-    });
+    const resolved = await this.packs.resolvePack(
+      pack.platform as 'curseforge' | 'modrinth' | 'ftb' | 'gtnh',
+      pack.projectRef,
+      {
+        versionId: pack.previousVersionId,
+      },
+    );
     await this.packs.applyPack(serverId, resolved, { actor, force: true }); // backup restore precedes this
     await this.lifecycle.recreateServer(serverId, { actor, quiet: true });
     await this.lifecycle.startServer(serverId, { actor });
@@ -239,12 +299,17 @@ export class UpdateUpgradeService {
    * recent logs, or slow-booting packs get a false OK (and false failures on
    * rollback).
    */
-  private async waitForHealthy(serverId: string, { timeoutMs = 10 * 60 * 1000 }: { timeoutMs?: number } = {}): Promise<boolean> {
+  private async waitForHealthy(
+    serverId: string,
+    { timeoutMs = 10 * 60 * 1000 }: { timeoutMs?: number } = {},
+  ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     let stableChecks = 0;
     while (Date.now() < deadline) {
       await this.sleep(5000);
-      const info = await this.containers.inspectStatus(serverId).catch(() => null);
+      const info = await this.containers
+        .inspectStatus(serverId)
+        .catch(() => null);
       if (!info || !info.exists) return false;
       if (info.status === 'crashed') return false;
       if (info.status === 'running') {
@@ -252,7 +317,9 @@ export class UpdateUpgradeService {
         const hasHealthcheck = info.health != null;
         if (hasHealthcheck && stableChecks >= 3) return true; // ~15s stable + healthy
         if (!hasHealthcheck && stableChecks >= 6) {
-          const tail = await this.dockerLogs.fetchLogs(serverId, { tail: 100 }).catch(() => '');
+          const tail = await this.dockerLogs
+            .fetchLogs(serverId, { tail: 100 })
+            .catch(() => '');
           if (/Done \(/.test(tail)) return true;
           // keep polling: the process is alive but the MC server isn't done booting
         }

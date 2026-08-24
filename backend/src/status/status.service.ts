@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { integrations } from '../db/schema';
@@ -9,6 +13,15 @@ export type { StatusPageConfig };
 
 const KIND = 'status-page';
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
+
+interface StoredStatusPageConfig {
+  slug?: string;
+}
+
+function parseConfig(json: string | null | undefined): StoredStatusPageConfig {
+  const parsed: unknown = JSON.parse(json || '{}');
+  return typeof parsed === 'object' && parsed !== null ? parsed : {};
+}
 
 export interface PublicStatusPage {
   name: string;
@@ -36,7 +49,7 @@ export interface PublicStatusPage {
 export class StatusService {
   constructor(
     private readonly dbService: DbService,
-    private readonly serverQuery: ServerQueryService
+    private readonly serverQuery: ServerQueryService,
   ) {}
 
   private get db() {
@@ -47,9 +60,11 @@ export class StatusService {
     const [row] = await this.db
       .select()
       .from(integrations)
-      .where(and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND)))
+      .where(
+        and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND)),
+      )
       .limit(1);
-    const cfg = row ? JSON.parse(row.configJson || '{}') : {};
+    const cfg = row ? parseConfig(row.configJson) : {};
     return {
       enabled: Boolean(row?.enabled),
       slug: cfg.slug || null,
@@ -57,7 +72,10 @@ export class StatusService {
     };
   }
 
-  async setStatusPage(serverId: string, { enabled, slug }: { enabled?: boolean; slug?: string }): Promise<StatusPageConfig> {
+  async setStatusPage(
+    serverId: string,
+    { enabled, slug }: { enabled?: boolean; slug?: string },
+  ): Promise<StatusPageConfig> {
     // Disabling never needs a slug — keep the stored one so re-enabling
     // restores the same address.
     if (!enabled && !slug) {
@@ -66,26 +84,49 @@ export class StatusService {
       return this.getStatusPage(serverId);
     }
     if (!slug || !SLUG_RE.test(slug)) {
-      throw new BadRequestException('Slug must be 3–40 chars of lowercase letters, digits, or dashes');
+      throw new BadRequestException(
+        'Slug must be 3–40 chars of lowercase letters, digits, or dashes',
+      );
     }
     const rows = await this.db
-      .select({ serverId: integrations.serverId, configJson: integrations.configJson })
+      .select({
+        serverId: integrations.serverId,
+        configJson: integrations.configJson,
+      })
       .from(integrations)
       .where(eq(integrations.kind, KIND));
-    const clash = rows.find((r) => r.serverId !== serverId && JSON.parse(r.configJson || '{}').slug === slug);
-    if (clash) throw new ConflictException(`The slug "${slug}" is already used by another server`);
+    const clash = rows.find(
+      (r) => r.serverId !== serverId && parseConfig(r.configJson).slug === slug,
+    );
+    if (clash)
+      throw new ConflictException(
+        `The slug "${slug}" is already used by another server`,
+      );
 
     await this.upsert(serverId, Boolean(enabled), { slug });
     return this.getStatusPage(serverId);
   }
 
-  private async upsert(serverId: string, enabled: boolean, config: Record<string, unknown>): Promise<void> {
+  private async upsert(
+    serverId: string,
+    enabled: boolean,
+    config: Record<string, unknown>,
+  ): Promise<void> {
     await this.db
       .insert(integrations)
-      .values({ serverId, kind: KIND, enabled, configJson: JSON.stringify(config) })
+      .values({
+        serverId,
+        kind: KIND,
+        enabled,
+        configJson: JSON.stringify(config),
+      })
       .onConflictDoUpdate({
         target: [integrations.serverId, integrations.kind],
-        set: { enabled, configJson: JSON.stringify(config), updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') },
+        set: {
+          enabled,
+          configJson: JSON.stringify(config),
+          updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        },
       });
   }
 
@@ -93,10 +134,13 @@ export class StatusService {
   async findBySlug(slug: string): Promise<string | null> {
     if (!SLUG_RE.test(slug)) return null;
     const rows = await this.db
-      .select({ serverId: integrations.serverId, configJson: integrations.configJson })
+      .select({
+        serverId: integrations.serverId,
+        configJson: integrations.configJson,
+      })
       .from(integrations)
       .where(and(eq(integrations.kind, KIND), eq(integrations.enabled, true)));
-    const row = rows.find((r) => JSON.parse(r.configJson || '{}').slug === slug);
+    const row = rows.find((r) => parseConfig(r.configJson).slug === slug);
     return row ? row.serverId : null;
   }
 

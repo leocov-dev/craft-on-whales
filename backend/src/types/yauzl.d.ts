@@ -13,7 +13,10 @@ declare module 'yauzl' {
 
   export interface ZipFile extends NodeJS.EventEmitter {
     readEntry(): void;
-    openReadStream(entry: Entry, callback: (err: Error | null, stream: Readable) => void): void;
+    openReadStream(
+      entry: Entry,
+      callback: (err: Error | null, stream: Readable) => void,
+    ): void;
     close(): void;
     /** Not part of yauzl's real API — some call sites defensively call this in a
      *  try/catch expecting it to no-op or throw; kept optional so both compile. */
@@ -29,10 +32,14 @@ declare module 'yauzl' {
     autoClose?: boolean;
   }
 
-  export function open(path: string, options: Options, callback: (err: Error | null, zipFile: ZipFile) => void): void;
+  export function open(
+    path: string,
+    options: Options,
+    callback: (err: Error | null, zipFile: ZipFile) => void,
+  ): void;
   export function fromBuffer(
     buffer: Buffer,
     options: Options,
-    callback: (err: Error | null, zipFile: ZipFile) => void
+    callback: (err: Error | null, zipFile: ZipFile) => void,
   ): void;
 }

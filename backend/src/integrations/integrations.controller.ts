@@ -1,4 +1,14 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Post, Query, Req, Res } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import { z, ZodError } from 'zod';
@@ -12,7 +22,10 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -25,7 +38,10 @@ const discordSchema = z.object({
     .string()
     .trim()
     .max(400)
-    .regex(/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//, 'Webhook URL must start with https://discord.com/api/webhooks/')
+    .regex(
+      /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//,
+      'Webhook URL must start with https://discord.com/api/webhooks/',
+    )
     .or(z.literal(''))
     .optional(),
   events: z
@@ -45,10 +61,15 @@ const statusPageSchema = z
     slug: z
       .string()
       .trim()
-      .regex(/^[a-z0-9-]{3,40}$/, 'Slug must be 3–40 chars of lowercase letters, digits, or dashes')
+      .regex(
+        /^[a-z0-9-]{3,40}$/,
+        'Slug must be 3–40 chars of lowercase letters, digits, or dashes',
+      )
       .optional(),
   })
-  .refine((v) => !v.enabled || v.slug, { message: 'A slug is required to enable the status page' });
+  .refine((v) => !v.enabled || v.slug, {
+    message: 'A slug is required to enable the status page',
+  });
 
 /** Integrations API. Ports `src/web/routes/integrations.ts` (mounted at /api/servers/:id/integrations). */
 @Controller('api/servers/:id/integrations')
@@ -58,7 +79,7 @@ export class IntegrationsController {
     private readonly events: EventsService,
     private readonly discord: DiscordService,
     private readonly invites: InvitesService,
-    private readonly statusPage: StatusService
+    private readonly statusPage: StatusService,
   ) {}
 
   private async mustGet(id: string) {
@@ -106,9 +127,15 @@ export class IntegrationsController {
   }
 
   @Get('invite/modpack.mrpack')
-  async mrpack(@Param('id') id: string, @Query('host') hostQuery: string | undefined, @Res() res: Response) {
+  async mrpack(
+    @Param('id') id: string,
+    @Query('host') hostQuery: string | undefined,
+    @Res() res: Response,
+  ) {
     const server = await this.mustGet(id);
-    const host = hostQuery ? parse(z.string().trim().max(260), hostQuery) : undefined;
+    const host = hostQuery
+      ? parse(z.string().trim().max(260), hostQuery)
+      : undefined;
     const pack = await this.invites.generateMrpack(server.id, { host });
     res.download(pack.absPath, pack.filename, () => {
       fs.unlink(pack.absPath, () => {});
@@ -119,7 +146,10 @@ export class IntegrationsController {
   async setStatusPage(@Param('id') id: string, @Req() req: Request) {
     const server = await this.mustGet(id);
     const { enabled, slug } = parse(statusPageSchema, req.body);
-    const config = await this.statusPage.setStatusPage(server.id, { enabled, slug: slug || undefined });
+    const config = await this.statusPage.setStatusPage(server.id, {
+      enabled,
+      slug: slug || undefined,
+    });
     this.events.recordEvent({
       serverId: server.id,
       actor: req.user ? req.user.username : 'admin',

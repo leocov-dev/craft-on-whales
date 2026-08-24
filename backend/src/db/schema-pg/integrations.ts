@@ -11,7 +11,9 @@ export const integrations = pgTable(
     enabled: boolean('enabled').notNull().default(false),
     configCipher: text('config_cipher'),
     configJson: text('config_json').notNull().default('{}'),
-    updatedAt: text('updated_at').notNull().default(sql`now()::text`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`now()::text`),
   },
-  (t) => [primaryKey({ columns: [t.serverId, t.kind] })]
+  (t) => [primaryKey({ columns: [t.serverId, t.kind] })],
 );

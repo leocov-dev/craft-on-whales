@@ -1,4 +1,16 @@
-import { BadRequestException, Body, Controller, Delete, Get, Post, Query, Req, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import * as fsp from 'node:fs/promises';
@@ -18,7 +30,10 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -41,7 +56,10 @@ export class GlobalFilesController {
   }
 
   @Get('download')
-  async download(@Query('path') path: string | undefined, @Res() res: Response) {
+  async download(
+    @Query('path') path: string | undefined,
+    @Res() res: Response,
+  ) {
     const rel = parse(pathSchema, path ?? '');
     const file = await this.files.statFile(null, rel);
     res.download(file.abs, file.name);
@@ -50,56 +68,104 @@ export class GlobalFilesController {
   @Post('write')
   async write(@Body() body: unknown) {
     const { path: rel, content } = parse(
-      z.object({ path: pathSchema, content: z.string().max(2 * 1024 * 1024, 'Content exceeds the 2 MB editor limit') }),
-      body
+      z.object({
+        path: pathSchema,
+        content: z
+          .string()
+          .max(2 * 1024 * 1024, 'Content exceeds the 2 MB editor limit'),
+      }),
+      body,
     );
-    return { ok: true, ...(await this.files.writeText(null, rel, content, { actor: 'system' })) };
+    return {
+      ok: true,
+      ...(await this.files.writeText(null, rel, content, { actor: 'system' })),
+    };
   }
 
   @Post('mkdir')
   async mkdir(@Body() body: unknown, @Req() req: Request) {
     const { path: rel } = parse(z.object({ path: pathSchema }), body);
-    return { ok: true, ...(await this.files.mkdir(null, rel, { actor: req.user!.username })) };
+    return {
+      ok: true,
+      ...(await this.files.mkdir(null, rel, { actor: req.user!.username })),
+    };
   }
 
   @Post('rename')
   async rename(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, newName } = parse(z.object({ path: pathSchema, newName: nameSchema }), body);
-    return { ok: true, ...(await this.files.rename(null, rel, newName, { actor: req.user!.username })) };
+    const { path: rel, newName } = parse(
+      z.object({ path: pathSchema, newName: nameSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.rename(null, rel, newName, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Post('move')
   async move(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, dest } = parse(z.object({ path: pathSchema, dest: pathSchema }), body);
-    return { ok: true, ...(await this.files.move(null, rel, dest, { actor: req.user!.username })) };
+    const { path: rel, dest } = parse(
+      z.object({ path: pathSchema, dest: pathSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.move(null, rel, dest, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Post('copy')
   async copy(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, dest } = parse(z.object({ path: pathSchema, dest: pathSchema }), body);
-    return { ok: true, ...(await this.files.copy(null, rel, dest, { actor: req.user!.username })) };
+    const { path: rel, dest } = parse(
+      z.object({ path: pathSchema, dest: pathSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.copy(null, rel, dest, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Delete()
   async remove(@Query('path') path: string | undefined, @Req() req: Request) {
     const rel = parse(pathSchema, path ?? '');
-    return { ok: true, ...(await this.files.remove(null, rel, { actor: req.user!.username })) };
+    return {
+      ok: true,
+      ...(await this.files.remove(null, rel, { actor: req.user!.username })),
+    };
   }
 
   @Post('upload')
   @UseInterceptors(UploadPreflightInterceptor, FilesInterceptor('files', 20))
-  async upload(@Query('path') path: string | undefined, @UploadedFiles() uploadedFiles: Express.Multer.File[] | undefined, @Req() req: Request) {
+  async upload(
+    @Query('path') path: string | undefined,
+    @UploadedFiles() uploadedFiles: Express.Multer.File[] | undefined,
+    @Req() req: Request,
+  ) {
     try {
       const rel = parse(pathSchema, path ?? '');
-      if (!uploadedFiles || !uploadedFiles.length) throw new BadRequestException('No files attached');
+      if (!uploadedFiles || !uploadedFiles.length)
+        throw new BadRequestException('No files attached');
       const uploaded = [];
       for (const f of uploadedFiles) {
-        uploaded.push(await this.files.acceptUpload(null, rel, f.path, f.originalname, { actor: req.user!.username }));
+        uploaded.push(
+          await this.files.acceptUpload(null, rel, f.path, f.originalname, {
+            actor: req.user!.username,
+          }),
+        );
       }
       return { ok: true, uploaded };
     } catch (err) {
       if (uploadedFiles) {
-        for (const f of uploadedFiles) await fsp.rm(f.path, { force: true }).catch(() => {});
+        for (const f of uploadedFiles)
+          await fsp.rm(f.path, { force: true }).catch(() => {});
       }
       throw err;
     }

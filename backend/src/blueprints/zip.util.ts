@@ -2,13 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the established untyped-require pattern from
-// backend/src/worlds/world-archive.service.ts rather than fighting the
-// types for a call the package genuinely supports at runtime.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-export const archiver = require('archiver');
-import yauzl = require('yauzl');
+import archiver from 'archiver';
+import * as yauzl from 'yauzl';
+
+export { archiver };
 
 // ---- Zip helpers (all zip-slip-guarded) ----
 
@@ -24,10 +21,13 @@ export interface ZipEntry {
 }
 
 /** List entries and stream out manifest.json without extracting anything. */
-export function readZipIndex(zipPath: string): Promise<{ entries: ZipEntry[]; manifestText: string | null }> {
+export function readZipIndex(
+  zipPath: string,
+): Promise<{ entries: ZipEntry[]; manifestText: string | null }> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
-      if (err) return reject(new BadRequestException('Not a valid zip archive'));
+      if (err)
+        return reject(new BadRequestException('Not a valid zip archive'));
       const entries: ZipEntry[] = [];
       let manifestText: string | null = null;
       zip.on('error', reject);
@@ -35,7 +35,11 @@ export function readZipIndex(zipPath: string): Promise<{ entries: ZipEntry[]; ma
       zip.on('entry', (entry) => {
         if (!safeEntryName(entry.fileName)) {
           zip.close();
-          return reject(new BadRequestException(`Archive entry escapes its destination: ${entry.fileName}`));
+          return reject(
+            new BadRequestException(
+              `Archive entry escapes its destination: ${entry.fileName}`,
+            ),
+          );
         }
         entries.push({ name: entry.fileName, size: entry.uncompressedSize });
         if (entry.fileName === 'manifest.json') {
@@ -59,7 +63,10 @@ export function readZipIndex(zipPath: string): Promise<{ entries: ZipEntry[]; ma
 }
 
 /** Extract a whole zip under destDir; every entry path is containment-checked. */
-export function extractZipSafe(zipFile: string, destDir: string): Promise<void> {
+export function extractZipSafe(
+  zipFile: string,
+  destDir: string,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
       if (err) return reject(err);
@@ -68,12 +75,19 @@ export function extractZipSafe(zipFile: string, destDir: string): Promise<void> 
       zip.on('entry', (entry) => {
         if (!safeEntryName(entry.fileName)) {
           zip.close();
-          return reject(new Error(`Archive entry escapes destination: ${entry.fileName}`));
+          return reject(
+            new Error(`Archive entry escapes destination: ${entry.fileName}`),
+          );
         }
         const target = path.resolve(destDir, entry.fileName);
-        if (target !== path.resolve(destDir) && !target.startsWith(path.resolve(destDir) + path.sep)) {
+        if (
+          target !== path.resolve(destDir) &&
+          !target.startsWith(path.resolve(destDir) + path.sep)
+        ) {
           zip.close();
-          return reject(new Error(`Archive entry escapes destination: ${entry.fileName}`));
+          return reject(
+            new Error(`Archive entry escapes destination: ${entry.fileName}`),
+          );
         }
         if (/\/$/.test(entry.fileName)) {
           fs.mkdirSync(target, { recursive: true });

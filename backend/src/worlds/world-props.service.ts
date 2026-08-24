@@ -18,24 +18,33 @@ export class WorldPropsService {
   constructor(
     private readonly pathGuard: PathGuardService,
     private readonly lifecycle: ServerLifecycleService,
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
     @Inject(forwardRef(() => require('../map/map.service').MapService))
-    private readonly map: MapService
+    private readonly map: MapService,
   ) {}
 
   /** Active level name: LEVEL env wins, then server.properties, then 'world'. */
   activeLevelName(server: Server): string {
-    return (server.env && server.env.LEVEL) || this.readProps(server.id).get('level-name') || 'world';
+    return (
+      (server.env && server.env.LEVEL) ||
+      this.readProps(server.id).get('level-name') ||
+      'world'
+    );
   }
 
   /** Parse server.properties into a Map (empty when missing). */
   readProps(serverId: string): Map<string, string> {
     const map = new Map<string, string>();
     try {
-      const text: string = fs.readFileSync(this.pathGuard.dataPath('servers', serverId, 'server.properties'), 'utf8');
+      const text: string = fs.readFileSync(
+        this.pathGuard.dataPath('servers', serverId, 'server.properties'),
+        'utf8',
+      );
       for (const line of text.split(/\r?\n/)) {
         if (!line || line.startsWith('#')) continue;
         const eq = line.indexOf('=');
-        if (eq > 0) map.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim());
+        if (eq > 0)
+          map.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim());
       }
     } catch {
       /* fresh server */
@@ -45,27 +54,48 @@ export class WorldPropsService {
 
   /** Set one server.properties key atomically (create the file when missing). */
   setProp(serverId: string, key: string, value: string): void {
-    const file = this.pathGuard.dataPath('servers', serverId, 'server.properties');
+    const file = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'server.properties',
+    );
     let text = '';
     try {
       text = fs.readFileSync(file, 'utf8');
     } catch {
       /* create fresh */
     }
-    const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=.*$`, 'm');
+    const re = new RegExp(
+      `^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=.*$`,
+      'm',
+    );
     if (re.test(text)) text = text.replace(re, `${key}=${value}`);
     else text += `${text && !text.endsWith('\n') ? '\n' : ''}${key}=${value}\n`;
-    const tmp = this.pathGuard.dataPath('servers', serverId, 'server.properties.tmp');
-    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), { recursive: true });
+    const tmp = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'server.properties.tmp',
+    );
+    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), {
+      recursive: true,
+    });
     fs.writeFileSync(tmp, text);
     fs.renameSync(tmp, file);
   }
 
   /** Point the server at a new level: property always, LEVEL env when present. */
-  async setActiveLevel(server: Server, levelName: string, { actor }: { actor?: string }): Promise<void> {
+  async setActiveLevel(
+    server: Server,
+    levelName: string,
+    { actor }: { actor?: string },
+  ): Promise<void> {
     this.setProp(server.id, 'level-name', levelName);
     if (server.env && server.env.LEVEL !== undefined) {
-      await this.lifecycle.updateServer(server.id, { env: { ...server.env, LEVEL: levelName } }, { actor });
+      await this.lifecycle.updateServer(
+        server.id,
+        { env: { ...server.env, LEVEL: levelName } },
+        { actor },
+      );
     }
     await this.map.writeMapConfigs(server.id);
   }
@@ -75,7 +105,11 @@ export class WorldPropsService {
     const main = this.pathGuard.dataPath('servers', serverId, worldName);
     const dims = [main];
     for (const suffix of DIM_SUFFIXES) {
-      const sibling = this.pathGuard.dataPath('servers', serverId, worldName + suffix);
+      const sibling = this.pathGuard.dataPath(
+        'servers',
+        serverId,
+        worldName + suffix,
+      );
       if (fs.existsSync(sibling)) dims.push(sibling);
     }
     return dims;

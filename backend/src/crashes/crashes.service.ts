@@ -34,7 +34,7 @@ export class CrashesService implements OnModuleDestroy {
     private readonly pathGuard: PathGuardService,
     private readonly events: EventsService,
     private readonly serverQuery: ServerQueryService,
-    private readonly parser: CrashParserService
+    private readonly parser: CrashParserService,
   ) {}
 
   private get db() {
@@ -50,7 +50,11 @@ export class CrashesService implements OnModuleDestroy {
 
   private async listCandidateFiles(serverId: string): Promise<string[]> {
     const out: string[] = [];
-    const crashDir = this.pathGuard.dataPath('servers', serverId, 'crash-reports');
+    const crashDir = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'crash-reports',
+    );
     const rootDir = this.pathGuard.dataPath('servers', serverId);
     try {
       for (const name of await fsp.readdir(crashDir)) {
@@ -76,7 +80,12 @@ export class CrashesService implements OnModuleDestroy {
       const [existing] = await this.db
         .select({ id: crashReports.id })
         .from(crashReports)
-        .where(and(eq(crashReports.serverId, serverId), eq(crashReports.filename, filename)))
+        .where(
+          and(
+            eq(crashReports.serverId, serverId),
+            eq(crashReports.filename, filename),
+          ),
+        )
         .limit(1);
       if (existing) continue;
 
@@ -89,7 +98,9 @@ export class CrashesService implements OnModuleDestroy {
         continue; // deleted between readdir and read
       }
 
-      const parsed = filename.startsWith('hs_err') ? this.parser.parseHsErr(text) : this.parser.parseCrashReport(text);
+      const parsed = filename.startsWith('hs_err')
+        ? this.parser.parseHsErr(text)
+        : this.parser.parseCrashReport(text);
       const id = `cr_${nanoid(8)}`;
       await this.db.insert(crashReports).values({
         id,
@@ -108,7 +119,10 @@ export class CrashesService implements OnModuleDestroy {
         summary: `New crash report: ${filename} — ${parsed.exception || parsed.summary}`,
         details: { crashId: id },
       });
-      await this.db.update(crashReports).set({ eventId }).where(eq(crashReports.id, id));
+      await this.db
+        .update(crashReports)
+        .set({ eventId })
+        .where(eq(crashReports.id, id));
       inserted.push(id);
     }
     return inserted;
@@ -120,17 +134,32 @@ export class CrashesService implements OnModuleDestroy {
       try {
         await this.scanServer(server.id);
       } catch (err) {
-        console.error(`[crashes] scan failed for ${server.id}:`, err instanceof Error ? err.message : err);
+        console.error(
+          `[crashes] scan failed for ${server.id}:`,
+          err instanceof Error ? err.message : err,
+        );
       }
     }
   }
 
   /** Start the background watcher (immediate scan + interval). */
-  startCrashWatcher({ intervalMs = 30000 }: { intervalMs?: number } = {}): void {
+  startCrashWatcher({
+    intervalMs = 30000,
+  }: { intervalMs?: number } = {}): void {
     this.stopCrashWatcher();
-    this.scanAll().catch((err) => console.error('[crashes] initial scan failed:', err instanceof Error ? err.message : err));
+    this.scanAll().catch((err) =>
+      console.error(
+        '[crashes] initial scan failed:',
+        err instanceof Error ? err.message : err,
+      ),
+    );
     this.watcherTimer = setInterval(() => {
-      this.scanAll().catch((err) => console.error('[crashes] scan failed:', err instanceof Error ? err.message : err));
+      this.scanAll().catch((err) =>
+        console.error(
+          '[crashes] scan failed:',
+          err instanceof Error ? err.message : err,
+        ),
+      );
     }, intervalMs);
     this.watcherTimer.unref();
   }
@@ -147,16 +176,27 @@ export class CrashesService implements OnModuleDestroy {
   }
 
   private decorate(row: CrashRow): DecoratedCrash {
-    return { ...row, suspected: JSON.parse(row.suspectedJson || '[]') };
+    return {
+      ...row,
+      suspected: JSON.parse(row.suspectedJson || '[]') as string[],
+    };
   }
 
   async listCrashes(serverId: string): Promise<DecoratedCrash[]> {
-    const rows = await this.db.select().from(crashReports).where(eq(crashReports.serverId, serverId)).orderBy(desc(crashReports.fileMtime));
+    const rows = await this.db
+      .select()
+      .from(crashReports)
+      .where(eq(crashReports.serverId, serverId))
+      .orderBy(desc(crashReports.fileMtime));
     return rows.map((row) => this.decorate(row));
   }
 
   async getCrash(crashId: string): Promise<DecoratedCrash | null> {
-    const [row] = await this.db.select().from(crashReports).where(eq(crashReports.id, crashId)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(crashReports)
+      .where(eq(crashReports.id, crashId))
+      .limit(1);
     return row ? this.decorate(row) : null;
   }
 
@@ -165,18 +205,29 @@ export class CrashesService implements OnModuleDestroy {
     const [row] = await this.db
       .select({ id: crashReports.id })
       .from(crashReports)
-      .where(and(eq(crashReports.serverId, serverId), eq(crashReports.filename, filename)))
+      .where(
+        and(
+          eq(crashReports.serverId, serverId),
+          eq(crashReports.filename, filename),
+        ),
+      )
       .limit(1);
     if (!row) throw new NotFoundException('Crash report not found');
     return fs.readFileSync(this.absPathFor(serverId, filename), 'utf8');
   }
 
   async markViewed(crashId: string): Promise<void> {
-    await this.db.update(crashReports).set({ viewed: true }).where(eq(crashReports.id, crashId));
+    await this.db
+      .update(crashReports)
+      .set({ viewed: true })
+      .where(eq(crashReports.id, crashId));
   }
 
   /** Delete a report: unlink the file + remove the row + record the event. */
-  async deleteCrash(crashId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
+  async deleteCrash(
+    crashId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ freedBytes: number }> {
     const row = await this.getCrash(crashId);
     if (!row) throw new NotFoundException('Crash report not found');
     try {
@@ -196,12 +247,23 @@ export class CrashesService implements OnModuleDestroy {
   }
 
   /** Bulk cleanup: delete this server's reports older than `days`. */
-  async deleteOlderThan(serverId: string, days: number, { actor = 'system' }: { actor?: string } = {}): Promise<{ deleted: number; freedBytes: number }> {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  async deleteOlderThan(
+    serverId: string,
+    days: number,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ deleted: number; freedBytes: number }> {
+    const cutoff = new Date(
+      Date.now() - days * 24 * 60 * 60 * 1000,
+    ).toISOString();
     const rows = await this.db
       .select({ id: crashReports.id })
       .from(crashReports)
-      .where(and(eq(crashReports.serverId, serverId), lt(crashReports.fileMtime, cutoff)));
+      .where(
+        and(
+          eq(crashReports.serverId, serverId),
+          lt(crashReports.fileMtime, cutoff),
+        ),
+      );
     let freedBytes = 0;
     for (const { id } of rows) {
       freedBytes += (await this.deleteCrash(id, { actor })).freedBytes;

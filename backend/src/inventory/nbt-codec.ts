@@ -2,12 +2,24 @@
 // item-stack normalization across the pre-1.20.5 'tag' and 1.20.5+ 'components'
 // formats, and generic nested-inventory (backpack/shulker) detection. Ported
 // verbatim from src/services/inventory/nbt.ts. No DI — plain functions.
+//
+// Raw NBT compounds here are genuinely dynamic (arbitrary modded item data),
+// so they're handled as `any` rather than forced through a rigid tag union —
+// same reasoning as inventory-slots.util.ts. That intentionally trades away
+// the type-checked-member-access lint rules for this file.
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
 
 import { BadRequestException } from '@nestjs/common';
 import { PLAYER_NAME_RE } from '../utils/player-name';
-import type { NormalizedItem, NormalizedEnchant, NestedInventory, NestedInventoryEntry } from './types';
+import type {
+  NormalizedItem,
+  NormalizedEnchant,
+  NestedInventory,
+  NestedInventoryEntry,
+} from './types';
 
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const NAME_RE: RegExp = PLAYER_NAME_RE;
 // Item ids travel through RCON — restrict to registry-shaped ids so nothing
 // can smuggle command fragments.
@@ -21,7 +33,9 @@ export function assertUuid(uuid: string | null | undefined): string {
 
 export function assertName(name: string | null | undefined): string {
   if (!NAME_RE.test(String(name)))
-    throw new BadRequestException('Invalid player name (letters, digits and _ only, max 16 chars)');
+    throw new BadRequestException(
+      'Invalid player name (letters, digits and _ only, max 16 chars)',
+    );
   return String(name);
 }
 
@@ -29,7 +43,10 @@ export function assertItemId(item: string | null | undefined): string {
   const id = String(item || '')
     .toLowerCase()
     .trim();
-  if (!ITEM_RE.test(id)) throw new BadRequestException('Invalid item id (e.g. minecraft:diamond_sword)');
+  if (!ITEM_RE.test(id))
+    throw new BadRequestException(
+      'Invalid item id (e.g. minecraft:diamond_sword)',
+    );
   return id;
 }
 
@@ -79,13 +96,16 @@ function normalizeEnchants(value: any): NormalizedEnchant[] | null {
   if (Array.isArray(value)) {
     // Pre-1.20.5: tag.Enchantments = [{id: 'minecraft:sharpness', lvl: 5}]
     for (const e of value) {
-      if (e && e.id !== undefined) out.push({ id: String(e.id), lvl: Number(e.lvl ?? e.level ?? 1) });
+      if (e && e.id !== undefined)
+        out.push({ id: String(e.id), lvl: Number(e.lvl ?? e.level ?? 1) });
     }
   } else if (typeof value === 'object') {
     // 1.20.5–1.21.4: {levels: {'minecraft:sharpness': 5}}; 1.21.5+: {'minecraft:sharpness': 5}
-    const levels = value.levels && typeof value.levels === 'object' ? value.levels : value;
+    const levels =
+      value.levels && typeof value.levels === 'object' ? value.levels : value;
     for (const [id, lvl] of Object.entries(levels)) {
-      if (typeof lvl === 'number' || typeof lvl === 'bigint') out.push({ id, lvl: Number(lvl) });
+      if (typeof lvl === 'number' || typeof lvl === 'bigint')
+        out.push({ id, lvl: Number(lvl) });
     }
   }
   return out.length ? out : null;
@@ -109,14 +129,19 @@ export function normalizeItem(raw: any): NormalizedItem | null {
       const c = raw.components;
       displayName = textComponentToString(c['minecraft:custom_name']);
       enchants =
-        normalizeEnchants(c['minecraft:enchantments']) || normalizeEnchants(c['minecraft:stored_enchantments']);
-      if (typeof c['minecraft:damage'] === 'number') damage = c['minecraft:damage'];
+        normalizeEnchants(c['minecraft:enchantments']) ||
+        normalizeEnchants(c['minecraft:stored_enchantments']);
+      if (typeof c['minecraft:damage'] === 'number')
+        damage = c['minecraft:damage'];
     } else if (raw.tag && typeof raw.tag === 'object') {
       // Pre-1.20.5 'tag' compound
       const t = raw.tag;
-      if (t.display && t.display.Name !== undefined) displayName = textComponentToString(t.display.Name);
+      if (t.display && t.display.Name !== undefined)
+        displayName = textComponentToString(t.display.Name);
       enchants =
-        normalizeEnchants(t.Enchantments) || normalizeEnchants(t.StoredEnchantments) || normalizeEnchants(t.ench); // <1.13 numeric-id list — ids kept as-is
+        normalizeEnchants(t.Enchantments) ||
+        normalizeEnchants(t.StoredEnchantments) ||
+        normalizeEnchants(t.ench); // <1.13 numeric-id list — ids kept as-is
       if (typeof t.Damage === 'number') damage = t.Damage;
     }
 
@@ -144,7 +169,8 @@ export const NESTED_KEY_RE = /^[A-Za-z0-9_:./ -]{1,80}$/;
 function nestedElementItem(el: any): any | null {
   if (!el || typeof el !== 'object' || Array.isArray(el)) return null;
   if (typeof el.id === 'string') return el;
-  if (el.item && typeof el.item === 'object' && typeof el.item.id === 'string') return el.item;
+  if (el.item && typeof el.item === 'object' && typeof el.item.id === 'string')
+    return el.item;
   return null;
 }
 
@@ -155,7 +181,12 @@ function isItemList(arr: any): boolean {
   for (const el of arr) {
     if (!el || typeof el !== 'object' || Array.isArray(el)) return false;
     const item = nestedElementItem(el);
-    if (item && item.id.includes(':') && (item.count !== undefined || item.Count !== undefined)) stacks += 1;
+    if (
+      item &&
+      item.id.includes(':') &&
+      (item.count !== undefined || item.Count !== undefined)
+    )
+      stacks += 1;
     else if (Object.keys(el).length) return false; // a non-item compound — not an inventory
   }
   return stacks > 0;
@@ -165,7 +196,12 @@ function isItemList(arr: any): boolean {
 function nestedLabel(pathSegs: (string | number)[]): string {
   for (let i = pathSegs.length - 1; i >= 0; i--) {
     const seg = pathSegs[i];
-    if (typeof seg === 'string' && seg !== 'tag' && seg !== 'components' && seg !== 'item') {
+    if (
+      typeof seg === 'string' &&
+      seg !== 'tag' &&
+      seg !== 'components' &&
+      seg !== 'item'
+    ) {
       const base = seg.split(':').pop()!.replace(/[_.]/g, ' ').trim();
       if (base) return base.charAt(0).toUpperCase() + base.slice(1);
     }
@@ -179,8 +215,18 @@ function nestedLabel(pathSegs: (string | number)[]): string {
  */
 export function detectNestedInventories(raw: any): NestedInventory[] {
   const found: NestedInventory[] = [];
-  const visit = (node: any, pathSegs: (string | number)[], depth: number): void => {
-    if (!node || typeof node !== 'object' || pathSegs.length > NESTED_MAX_PATH || found.length >= 20) return;
+  const visit = (
+    node: any,
+    pathSegs: (string | number)[],
+    depth: number,
+  ): void => {
+    if (
+      !node ||
+      typeof node !== 'object' ||
+      pathSegs.length > NESTED_MAX_PATH ||
+      found.length >= 20
+    )
+      return;
     if (Array.isArray(node)) {
       if (isItemList(node)) {
         if (depth >= NESTED_MAX_DEPTH) return;
@@ -192,8 +238,17 @@ export function detectNestedInventories(raw: any): NestedInventory[] {
             const it = inner ? normalizeItem(inner) : null;
             const slot = el.slot ?? el.Slot ?? (inner ? inner.Slot : undefined);
             return it
-              ? { index, ...it, slot: slot !== undefined ? Number(slot) : it.slot, wrapped: inner !== el }
-              : { index, id: null, slot: slot !== undefined ? Number(slot) : null };
+              ? {
+                  index,
+                  ...it,
+                  slot: slot !== undefined ? Number(slot) : it.slot,
+                  wrapped: inner !== el,
+                }
+              : {
+                  index,
+                  id: null,
+                  slot: slot !== undefined ? Number(slot) : null,
+                };
           }),
         });
         // Descend into the stacks themselves — backpack in a backpack.
@@ -203,11 +258,13 @@ export function detectNestedInventories(raw: any): NestedInventory[] {
       node.forEach((el, i) => visit(el, [...pathSegs, i], depth));
       return;
     }
-    for (const [key, value] of Object.entries(node)) visit(value, [...pathSegs, key], depth);
+    for (const [key, value] of Object.entries(node))
+      visit(value, [...pathSegs, key], depth);
   };
   try {
     for (const rootKey of ['components', 'tag']) {
-      if (raw && raw[rootKey] && typeof raw[rootKey] === 'object') visit(raw[rootKey], [rootKey], 0);
+      if (raw && raw[rootKey] && typeof raw[rootKey] === 'object')
+        visit(raw[rootKey], [rootKey], 0);
     }
   } catch {
     /* never let odd modded NBT break a read */

@@ -1,7 +1,12 @@
 // Wraps /api/servers/:id/chat-commands (src/web/routes/chatCommands.ts).
 
 import { http } from './http';
-import type { CommandAction, CommandPermission, ChatCommand, ChatCommandInput } from '../../../shared/types/chat-commands';
+import type {
+  CommandAction,
+  CommandPermission,
+  ChatCommand,
+  ChatCommandInput,
+} from '../../../shared/types/chat-commands';
 
 export type { CommandAction, CommandPermission, ChatCommand, ChatCommandInput };
 

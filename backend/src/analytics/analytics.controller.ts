@@ -1,4 +1,12 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { z, ZodError } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
 import { StatsService } from './stats.service';
@@ -8,7 +16,10 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -61,11 +72,12 @@ export class AnalyticsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly stats: StatsService,
-    private readonly ingest: LogIngestService
+    private readonly ingest: LogIngestService,
   ) {}
 
   private async mustServer(id: string): Promise<void> {
-    if (!(await this.serverQuery.getServer(id))) throw new NotFoundException('Server not found');
+    if (!(await this.serverQuery.getServer(id)))
+      throw new NotFoundException('Server not found');
   }
 
   @Get('timeline')
@@ -86,7 +98,12 @@ export class AnalyticsController {
   async scoreboard(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
     const { metric, window } = parse(scoreboardSchema, query);
-    return { ok: true, metric, window, rows: await this.stats.scoreboard(id, { metric, window }) };
+    return {
+      ok: true,
+      metric,
+      window,
+      rows: await this.stats.scoreboard(id, { metric, window }),
+    };
   }
 
   @Get('profile/:uuid')
@@ -97,10 +114,11 @@ export class AnalyticsController {
         .string()
         .trim()
         .regex(/^[0-9a-fA-F-]{32,36}$/),
-      uuidParam
+      uuidParam,
     );
     const data = await this.stats.profile(id, uuid);
-    if (!data) throw new NotFoundException('No stats recorded for this player yet');
+    if (!data)
+      throw new NotFoundException('No stats recorded for this player yet');
     return { ok: true, profile: data };
   }
 
@@ -119,7 +137,9 @@ export class AnalyticsController {
   @Post('ingest-now')
   async ingestNow(@Param('id') id: string) {
     await this.mustServer(id);
-    const backfill = await this.ingest.backfillFromLogs(id).catch(() => ({ inserted: 0 }));
+    const backfill = await this.ingest
+      .backfillFromLogs(id)
+      .catch(() => ({ inserted: 0 }));
     const statResult = await this.stats.ingestStats(id);
     return { ok: true, events: backfill.inserted, ...statResult };
   }

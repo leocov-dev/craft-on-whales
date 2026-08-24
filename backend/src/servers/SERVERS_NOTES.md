@@ -10,7 +10,7 @@ per SOLID into:
 - `ServerEnvironmentService` — `assembleEnv`, `resolveImage`, `mergeExtraPorts`,
   `panelUidGid`, `ensureOwnership`, `setConsoleLabel`. Judgment call:
   `ensureOwnership`/`setConsoleLabel` live here (not `ServerLifecycleService`)
-  since both are about a server's *configured state* (files, label), not a
+  since both are about a server's _configured state_ (files, label), not a
   lifecycle transition or a preview.
 - `ServerPreviewService` — `previewCreateSpec`/`previewServerSpec`. Kept
   separate from `ServerEnvironmentService` despite being thin: it's a

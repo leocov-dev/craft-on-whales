@@ -6,16 +6,29 @@ import { DockerStatsService } from '../docker/docker-stats.service';
 import { MojangService } from '../players/mojang.service';
 import { ModsService } from '../mods/mods.service';
 import { PlayerRosterService } from '../players/player-roster.service';
-import { crashReports, serverPacks, storageIndex, updateChecks } from '../db/schema';
+import {
+  crashReports,
+  serverPacks,
+  storageIndex,
+  updateChecks,
+} from '../db/schema';
 import { displayVersion, flavorLabel } from '../integrations/view-labels.util';
 import type { Server } from '../servers/types';
-import type { PackViewModel, ServerViewModel, ServerStatus } from '../../../shared/types/servers';
+import type {
+  PackViewModel,
+  ServerViewModel,
+  ServerStatus,
+} from '../../../shared/types/servers';
 
 export type { PackViewModel, ServerViewModel };
 
 const GB = 1024 ** 3;
 
-const PLATFORM_NAMES: Record<string, string> = { curseforge: 'CurseForge', modrinth: 'Modrinth', ftb: 'FTB' };
+const PLATFORM_NAMES: Record<string, string> = {
+  curseforge: 'CurseForge',
+  modrinth: 'Modrinth',
+  ftb: 'FTB',
+};
 
 /**
  * Ports `src/web/viewModels.ts`'s `serverVM`/`packVM` — the exact JSON shape
@@ -41,14 +54,17 @@ export class ServerViewModelService {
     private readonly mods: ModsService,
     private readonly containers: ContainerService,
     private readonly stats: DockerStatsService,
-    private readonly playerRoster: PlayerRosterService
+    private readonly playerRoster: PlayerRosterService,
   ) {}
 
   private get db() {
     return this.dbService.db;
   }
 
-  async serverVM(s: Server, { withLive = true }: { withLive?: boolean } = {}): Promise<ServerViewModel> {
+  async serverVM(
+    s: Server,
+    { withLive = true }: { withLive?: boolean } = {},
+  ): Promise<ServerViewModel> {
     const vm: ServerViewModel = {
       id: s.id,
       name: s.display_name,
@@ -66,10 +82,17 @@ export class ServerViewModelService {
       // trusts that only ServerStatus's known values are ever written there.
       status: s.status as ServerStatus,
       ports: { game: s.port_game, rcon: s.port_rcon, bedrock: s.port_bedrock },
-      resources: { heapMb: s.heap_mb, containerMemoryMb: s.container_memory_mb, cpus: s.cpus },
+      resources: {
+        heapMb: s.heap_mb,
+        containerMemoryMb: s.container_memory_mb,
+        cpus: s.cpus,
+      },
       stats: { cpuPct: 0, memUsedMb: 0, uptime: null },
       players: { online: 0, max: Number(s.env.MAX_PLAYERS) || 20, names: [] },
-      disk: { used: await this.diskUsed(s.id), quota: s.disk_quota_bytes || 25 * GB },
+      disk: {
+        used: await this.diskUsed(s.id),
+        quota: s.disk_quota_bytes || 25 * GB,
+      },
       pack: await this.packVM(s.id),
       updateAvailable: await this.hasPackUpdate(s.id),
       crashesUnread: await this.crashesUnread(s.id),
@@ -83,7 +106,12 @@ export class ServerViewModelService {
       consoleLabel: s.console_label || '',
     };
 
-    if (withLive && (s.status === 'running' || s.status === 'starting' || s.status === 'unhealthy')) {
+    if (
+      withLive &&
+      (s.status === 'running' ||
+        s.status === 'starting' ||
+        s.status === 'unhealthy')
+    ) {
       const [sample, onlineNames] = await Promise.all([
         this.stats.statsOnce(s.id).catch(() => null),
         this.playerRoster.listOnlineNames(s.id).catch(() => [] as string[]),
@@ -93,23 +121,41 @@ export class ServerViewModelService {
         vm.stats.memUsedMb = Math.round(sample.memUsedBytes / 1024 / 1024);
       }
       const info = await this.containers.inspectStatus(s.id).catch(() => null);
-      if (info?.startedAt) vm.stats.uptime = formatUptime(Date.now() - Date.parse(info.startedAt));
-      if (onlineNames.length) vm.players = { ...vm.players, online: onlineNames.length, names: onlineNames };
+      if (info?.startedAt)
+        vm.stats.uptime = formatUptime(Date.now() - Date.parse(info.startedAt));
+      if (onlineNames.length)
+        vm.players = {
+          ...vm.players,
+          online: onlineNames.length,
+          names: onlineNames,
+        };
     }
     return vm;
   }
 
   private async getPackUpdateCheck(serverId: string) {
     const [row] = await this.db
-      .select({ latestVersion: updateChecks.latestVersion, latestName: updateChecks.latestName })
+      .select({
+        latestVersion: updateChecks.latestVersion,
+        latestName: updateChecks.latestName,
+      })
       .from(updateChecks)
-      .where(and(eq(updateChecks.subjectType, 'pack'), eq(updateChecks.subjectId, serverId)))
+      .where(
+        and(
+          eq(updateChecks.subjectType, 'pack'),
+          eq(updateChecks.subjectId, serverId),
+        ),
+      )
       .limit(1);
     return row;
   }
 
   async packVM(serverId: string): Promise<PackViewModel | null> {
-    const [pack] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
+    const [pack] = await this.db
+      .select()
+      .from(serverPacks)
+      .where(eq(serverPacks.serverId, serverId))
+      .limit(1);
     if (!pack) return null;
     const check = await this.getPackUpdateCheck(serverId);
     const platformName = PLATFORM_NAMES[pack.platform];
@@ -131,7 +177,9 @@ export class ServerViewModelService {
       .limit(1);
     if (!pack) return false;
     const check = await this.getPackUpdateCheck(serverId);
-    return Boolean(check?.latestVersion && check.latestVersion !== pack.pinnedVersionId);
+    return Boolean(
+      check?.latestVersion && check.latestVersion !== pack.pinnedVersionId,
+    );
   }
 
   private async diskUsed(serverId: string): Promise<number> {

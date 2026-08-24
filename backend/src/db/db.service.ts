@@ -41,7 +41,9 @@ export class DbService implements OnModuleDestroy {
     this.driver = config.dbDriver;
     if (this.driver === 'postgres') {
       this.pool = new Pool({ connectionString: config.databaseUrl });
-      this.db = drizzlePg({ client: this.pool }) as unknown as ReturnType<typeof drizzleSqlite>;
+      this.db = drizzlePg({ client: this.pool }) as unknown as ReturnType<
+        typeof drizzleSqlite
+      >;
       return;
     }
 

@@ -1,0 +1,54 @@
+# Example: run the panel against Postgres instead of the default SQLite file.
+#
+# Pulls the published image (like the repo root's docker-compose.yml) and
+# adds a `db` service. Moving an EXISTING SQLite install over needs a
+# one-time data copy — see ../../tools/sqlite-to-postgres/README.md.
+#
+# Usage (from this directory):
+#   docker compose up
+#   open http://localhost:3000
+services:
+  panel:
+    image: ghcr.io/leocov-dev/craft-on-whales:latest
+    container_name: craft-on-whales
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      # Web UI. Change the left side to move it; the panel itself listens on
+      # 3000 in-container.
+      - '3000:3000'
+    extra_hosts:
+      # Lets the panel container reach sibling containers' HOST-published
+      # ports (e.g. BlueMap's live map) via host.docker.internal — its own
+      # 127.0.0.1 is not the host's. Docker Desktop resolves this for free;
+      # plain Linux Engine needs it mapped explicitly (Docker Engine 20.10+).
+      - 'host.docker.internal:host-gateway'
+    environment:
+      DATA_DIR_HOST: ${DATA_DIR_HOST:?Set DATA_DIR_HOST to the absolute host path for panel data, e.g. /opt/msm/data}
+      DB_DRIVER: postgres
+      DATABASE_URL: postgres://panel:panel@db:5432/panel
+      # Behind a TLS-terminating reverse proxy? See the README env table:
+      # TRUST_PROXY: '1'
+      # COOKIE_SECURE: auto
+      # Pin the session/crypto secret instead of the auto-generated one:
+      # SESSION_SECRET: change-me-to-a-long-random-string
+    volumes:
+      - ${DATA_DIR_HOST}:/data
+      # World data, mods, and backups still live under /data — only the
+      # panel's own database moves to Postgres.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  db:
+    image: postgres:16-alpine
+    container_name: craft-on-whales-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: panel
+      POSTGRES_DB: panel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

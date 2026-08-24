@@ -49,4 +49,3 @@ export interface TaskHandle {
   done(result?: unknown): void;
   fail(error: unknown): void;
 }
-

@@ -11,7 +11,10 @@ import type { Socket } from 'socket.io';
 import { SessionService } from '../auth/session.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
-import { DockerLogsService, type FollowLogsResult } from '../docker/docker-logs.service';
+import {
+  DockerLogsService,
+  type FollowLogsResult,
+} from '../docker/docker-logs.service';
 import { EventsService } from '../events/events.service';
 import { stripAnsi } from '../utils/ansi';
 import type { PublicUser } from '../auth/auth.service';
@@ -30,7 +33,9 @@ interface ConsoleSocketState {
  * console-label announcement, event redaction — is a 1:1 port.
  */
 @WebSocketGateway({ namespace: '/ws/console' })
-export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ConsoleGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   private readonly logger = new Logger(ConsoleGateway.name);
   private readonly state = new WeakMap<Socket, ConsoleSocketState>();
 
@@ -39,7 +44,7 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly serverQuery: ServerQueryService,
     private readonly containers: ContainerService,
     private readonly logs: DockerLogsService,
-    private readonly events: EventsService
+    private readonly events: EventsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -51,7 +56,9 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
       this.cleanup(client);
     });
 
-    const user = await this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
+    const user = await this.sessions.authenticateFromCookieHeader(
+      client.handshake.headers.cookie,
+    );
     if (!user) {
       client.disconnect(true);
       return;
@@ -62,7 +69,12 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
       return;
     }
 
-    const state: ConsoleSocketState = { follower: null, closed: false, user, serverId };
+    const state: ConsoleSocketState = {
+      follower: null,
+      closed: false,
+      user,
+      serverId,
+    };
     this.state.set(client, state);
 
     try {
@@ -77,14 +89,22 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
         this.maybeApplyBackpressure(client, active);
       });
       active.stream.on('end', () => this.send(client, { kind: 'log-end' }));
-      active.stream.on('error', (err: Error) => this.send(client, { kind: 'error', message: `Log stream error: ${err.message}` }));
+      active.stream.on('error', (err: Error) =>
+        this.send(client, {
+          kind: 'error',
+          message: `Log stream error: ${err.message}`,
+        }),
+      );
     } catch (err: unknown) {
       // A missing container (404) just means the server has never been
       // started — expected, not an error; end the stream quietly.
       if ((err as { statusCode?: number }).statusCode === 404) {
         this.send(client, { kind: 'log-end' });
       } else {
-        this.send(client, { kind: 'error', message: `Log stream unavailable: ${err instanceof Error ? err.message : String(err)}` });
+        this.send(client, {
+          kind: 'error',
+          message: `Log stream unavailable: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
     }
   }
@@ -94,14 +114,22 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   @SubscribeMessage('cmd')
-  async handleCmd(@ConnectedSocket() client: Socket, @MessageBody() body: { command?: string }): Promise<void> {
+  async handleCmd(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { command?: string },
+  ): Promise<void> {
     const state = this.state.get(client);
     if (!state || typeof body?.command !== 'string') return;
     const { user, serverId } = state;
 
     // Viewers may watch logs but never execute commands.
     if (!['admin', 'operator'].includes(user.role)) {
-      this.send(client, { kind: 'cmd-result', command: body.command, output: '', error: 'Your role (viewer) cannot run commands.' });
+      this.send(client, {
+        kind: 'cmd-result',
+        command: body.command,
+        output: '',
+        error: 'Your role (viewer) cannot run commands.',
+      });
       return;
     }
     const command = body.command.trim().replace(/^\//, '').slice(0, 500);
@@ -109,11 +137,23 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
     try {
       const info = await this.containers.inspectStatus(serverId);
-      if (!info.exists || !['running', 'starting', 'unhealthy'].includes(info.status)) {
-        this.send(client, { kind: 'cmd-result', command, output: '', error: 'Server is not running.' });
+      if (
+        !info.exists ||
+        !['running', 'starting', 'unhealthy'].includes(info.status)
+      ) {
+        this.send(client, {
+          kind: 'cmd-result',
+          command,
+          output: '',
+          error: 'Server is not running.',
+        });
         return;
       }
-      const raw = await this.containers.execCapture(serverId, ['rcon-cli', '--', ...command.split(/\s+/)]);
+      const raw = await this.containers.execCapture(serverId, [
+        'rcon-cli',
+        '--',
+        ...command.split(/\s+/),
+      ]);
       const output = stripAnsi(raw);
       this.send(client, { kind: 'cmd-result', command, output: output.trim() });
       this.announceConsoleAction(serverId, command).catch(() => {});
@@ -125,7 +165,12 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
         details: { output: output.trim().slice(0, 2000) },
       });
     } catch (err) {
-      this.send(client, { kind: 'cmd-result', command, output: '', error: err instanceof Error ? err.message : String(err) });
+      this.send(client, {
+        kind: 'cmd-result',
+        command,
+        output: '',
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -154,8 +199,12 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * backpressure is skipped for those (matches legacy's behavior, which
    * only ever ran over a raw websocket in the first place).
    */
-  private maybeApplyBackpressure(client: Socket, active: FollowLogsResult): void {
-    const transport = client.conn?.transport as { name?: string; socket?: { bufferedAmount?: number } } | undefined;
+  private maybeApplyBackpressure(
+    client: Socket,
+    active: FollowLogsResult,
+  ): void {
+    const transport = client.conn?.transport as
+      { name?: string; socket?: { bufferedAmount?: number } } | undefined;
     if (transport?.name !== 'websocket') return;
     const bufferedAmount = transport.socket?.bufferedAmount ?? 0;
     if (bufferedAmount > 1_000_000 && !active.stream.isPaused()) {
@@ -166,7 +215,11 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
           clearInterval(tick);
           return;
         }
-        const current = (client.conn?.transport as { socket?: { bufferedAmount?: number } } | undefined)?.socket?.bufferedAmount ?? 0;
+        const current =
+          (
+            client.conn?.transport as
+              { socket?: { bufferedAmount?: number } } | undefined
+          )?.socket?.bufferedAmount ?? 0;
         if (current < 200_000) {
           clearInterval(tick);
           active.stream.resume();
@@ -186,7 +239,10 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * command in game chat via tellraw. Fire-and-forget — never blocks the
    * command result.
    */
-  private async announceConsoleAction(serverId: string, command: string): Promise<void> {
+  private async announceConsoleAction(
+    serverId: string,
+    command: string,
+  ): Promise<void> {
     const label = (await this.serverQuery.getServer(serverId))?.console_label;
     if (!label) return;
     const payload = {
@@ -196,6 +252,14 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect 
         { text: command, color: 'gray' },
       ],
     };
-    this.containers.execCapture(serverId, ['rcon-cli', '--', 'tellraw', '@a', JSON.stringify(payload)]).catch(() => {});
+    this.containers
+      .execCapture(serverId, [
+        'rcon-cli',
+        '--',
+        'tellraw',
+        '@a',
+        JSON.stringify(payload),
+      ])
+      .catch(() => {});
   }
 }

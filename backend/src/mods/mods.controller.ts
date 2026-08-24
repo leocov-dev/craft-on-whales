@@ -1,4 +1,18 @@
-import { BadRequestException, Controller, Get, Post, Delete, Req, Param, Body, ConflictException, NotFoundException, ForbiddenException, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Req,
+  Param,
+  Body,
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import * as fs from 'node:fs/promises';
@@ -12,14 +26,20 @@ import { ModsService } from './mods.service';
 import { ModrinthApiService } from './modrinth-api.service';
 import { ModBrowserService } from './mod-browser.service';
 import { LoaderVersionsService } from './loader-versions.service';
-import { ServerLifecycleService, type CreateServerInput } from '../servers/server-lifecycle.service';
+import {
+  ServerLifecycleService,
+  type CreateServerInput,
+} from '../servers/server-lifecycle.service';
 import { TasksService } from '../tasks/tasks.service';
 
 function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -28,7 +48,16 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
 // (duplicated inline per the established convention in
 // `blueprints.controller.ts`: small, single-use, not worth a shared file).
 const dockerOverridesSchema = {
-  containerName: z.union([z.literal(''), z.string().trim().max(63).regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/)]).optional(),
+  containerName: z
+    .union([
+      z.literal(''),
+      z
+        .string()
+        .trim()
+        .max(63)
+        .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/),
+    ])
+    .optional(),
   networkName: z.string().trim().max(128).optional(),
   extraPorts: z
     .array(
@@ -37,12 +66,18 @@ const dockerOverridesSchema = {
         containerPort: z.coerce.number().int().min(1).max(65535),
         protocol: z.enum(['tcp', 'udp']),
         label: z.string().trim().max(40).optional(),
-      })
+      }),
     )
     .max(20)
     .optional(),
   extraBinds: z
-    .array(z.object({ hostPath: z.string().trim().min(1).max(500), containerPath: z.string().trim().min(1).max(300), mode: z.enum(['rw', 'ro']).optional() }))
+    .array(
+      z.object({
+        hostPath: z.string().trim().min(1).max(500),
+        containerPath: z.string().trim().min(1).max(300),
+        mode: z.enum(['rw', 'ro']).optional(),
+      }),
+    )
     .max(20)
     .optional(),
 };
@@ -54,11 +89,18 @@ interface OverridesInput {
   extraBinds?: unknown;
 }
 function overridesPresent(input: OverridesInput): boolean {
-  return input.containerName !== undefined || input.networkName !== undefined || input.extraPorts !== undefined || input.extraBinds !== undefined;
+  return (
+    input.containerName !== undefined ||
+    input.networkName !== undefined ||
+    input.extraPorts !== undefined ||
+    input.extraBinds !== undefined
+  );
 }
 function requireAdminForOverrides(req: Request, input: OverridesInput): void {
   if (overridesPresent(input) && req.user?.role !== 'admin') {
-    throw new ForbiddenException('Advanced Docker settings (container name, network, extra ports/binds) require the admin role.');
+    throw new ForbiddenException(
+      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
+    );
   }
 }
 
@@ -73,7 +115,7 @@ export class ModsController {
   constructor(
     private readonly mods: ModsService,
     private readonly serverQuery: ServerQueryService,
-    private readonly dbService: DbService
+    private readonly dbService: DbService,
   ) {}
 
   private get db() {
@@ -86,70 +128,173 @@ export class ModsController {
   }
 
   @Post('mods')
-  async install(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async install(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
     const { url, kind } = parseBody(
       z.object({
         url: z.string().trim().min(3).max(500),
         kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
       }),
-      body
+      body,
     );
-    const result = await this.mods.installFromUrl(id, url, { actor: req.user!.username, kind });
-    return { ok: true, installed: { name: result.library.name, filename: result.filename, version: result.library.version } };
+    const result = await this.mods.installFromUrl(id, url, {
+      actor: req.user!.username,
+      kind,
+    });
+    return {
+      ok: true,
+      installed: {
+        name: result.library.name,
+        filename: result.filename,
+        version: result.library.version,
+      },
+    };
   }
 
   // Update one overlay mod to its latest checked version. Accepts the
   // installed filename ({file}) or the server_content row id ({contentId}).
   @Post('mods/update')
-  async update(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async update(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
     const { file, contentId } = parseBody(
       z
         .object({
           file: z.string().min(1).max(200).optional(),
           contentId: z.string().trim().max(40).optional(),
         })
-        .refine((v) => Boolean(v.file) || Boolean(v.contentId), { message: 'Provide file or contentId' }),
-      body
+        .refine((v) => Boolean(v.file) || Boolean(v.contentId), {
+          message: 'Provide file or contentId',
+        }),
+      body,
     );
     const server = await this.serverQuery.mustGet(id);
     const actor = req.user!.username;
 
     const [row] = contentId
-      ? await this.db.select().from(serverContent).where(and(eq(serverContent.id, contentId), eq(serverContent.serverId, server.id))).limit(1)
-      : await this.db.select().from(serverContent).where(and(eq(serverContent.serverId, server.id), eq(serverContent.filename, file!))).limit(1);
-    if (!row) throw new NotFoundException('This file is not panel-managed — reinstall it from a URL instead');
-    if (row.managedBy === 'pack') throw new ConflictException('Pack-managed content updates with the pack — upgrade the modpack instead');
+      ? await this.db
+          .select()
+          .from(serverContent)
+          .where(
+            and(
+              eq(serverContent.id, contentId),
+              eq(serverContent.serverId, server.id),
+            ),
+          )
+          .limit(1)
+      : await this.db
+          .select()
+          .from(serverContent)
+          .where(
+            and(
+              eq(serverContent.serverId, server.id),
+              eq(serverContent.filename, file!),
+            ),
+          )
+          .limit(1);
+    if (!row)
+      throw new NotFoundException(
+        'This file is not panel-managed — reinstall it from a URL instead',
+      );
+    if (row.managedBy === 'pack')
+      throw new ConflictException(
+        'Pack-managed content updates with the pack — upgrade the modpack instead',
+      );
 
-    const lib = row.libraryId ? (await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, row.libraryId)).limit(1))[0] : null;
-    if (!lib || !lib.projectId) throw new ConflictException('No update source is known for this mod (installed from a direct URL or upload)');
+    const lib = row.libraryId
+      ? (
+          await this.db
+            .select()
+            .from(libraryFiles)
+            .where(eq(libraryFiles.id, row.libraryId))
+            .limit(1)
+        )[0]
+      : null;
+    if (!lib || !lib.projectId)
+      throw new ConflictException(
+        'No update source is known for this mod (installed from a direct URL or upload)',
+      );
 
-    const [check] = await this.db.select().from(updateChecks).where(and(eq(updateChecks.subjectType, 'content'), eq(updateChecks.subjectId, row.id))).limit(1);
-    if (!check || !check.latestVersion) throw new ConflictException('No newer version is known — run an update check first');
+    const [check] = await this.db
+      .select()
+      .from(updateChecks)
+      .where(
+        and(
+          eq(updateChecks.subjectType, 'content'),
+          eq(updateChecks.subjectId, row.id),
+        ),
+      )
+      .limit(1);
+    if (!check || !check.latestVersion)
+      throw new ConflictException(
+        'No newer version is known — run an update check first',
+      );
 
     let ref: string;
-    if (lib.platform === 'modrinth') ref = `https://modrinth.com/mod/${lib.projectId}/version/${check.latestVersion}`;
-    else if (lib.platform === 'curseforge') ref = `https://www.curseforge.com/minecraft/mc-mods/${lib.projectId}/files/${check.latestVersion}`;
-    else throw new ConflictException(`Cannot auto-update content from platform "${lib.platform}"`);
+    if (lib.platform === 'modrinth')
+      ref = `https://modrinth.com/mod/${lib.projectId}/version/${check.latestVersion}`;
+    else if (lib.platform === 'curseforge')
+      ref = `https://www.curseforge.com/minecraft/mc-mods/${lib.projectId}/files/${check.latestVersion}`;
+    else
+      throw new ConflictException(
+        `Cannot auto-update content from platform "${lib.platform}"`,
+      );
 
     const wasEnabled = Boolean(row.enabled);
     await this.mods.removeContent(server.id, row.filename, { actor });
     const result = await this.mods.installFromUrl(server.id, ref, {
       actor,
-      kind: row.kind as 'mod' | 'plugin' | 'datapack' | 'resourcepack' | undefined,
+      kind: row.kind as
+        'mod' | 'plugin' | 'datapack' | 'resourcepack' | undefined,
     });
-    if (!wasEnabled) await this.mods.setEnabled(server.id, result.filename, false, { actor });
-    return { ok: true, installed: { name: result.library.name, filename: result.filename, version: result.library.version, enabled: wasEnabled } };
+    if (!wasEnabled)
+      await this.mods.setEnabled(server.id, result.filename, false, { actor });
+    return {
+      ok: true,
+      installed: {
+        name: result.library.name,
+        filename: result.filename,
+        version: result.library.version,
+        enabled: wasEnabled,
+      },
+    };
   }
 
   @Post('mods/toggle')
-  async toggle(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
-    const { file, enabled } = parseBody(z.object({ file: z.string().min(1).max(200), enabled: z.boolean() }), body);
-    return { ok: true, ...(await this.mods.setEnabled(id, file, enabled, { actor: req.user!.username })) };
+  async toggle(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const { file, enabled } = parseBody(
+      z.object({ file: z.string().min(1).max(200), enabled: z.boolean() }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.mods.setEnabled(id, file, enabled, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Delete('mods/:file')
-  async remove(@Req() req: Request, @Param('id') id: string, @Param('file') file: string) {
-    return { ok: true, ...(await this.mods.removeContent(id, file, { actor: req.user!.username })) };
+  async remove(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('file') file: string,
+  ) {
+    return {
+      ok: true,
+      ...(await this.mods.removeContent(id, file, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Get('pending-downloads')
@@ -159,9 +304,16 @@ export class ModsController {
   }
 
   @Post('pending-downloads/exclude')
-  async exclude(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async exclude(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
     await this.serverQuery.mustGet(id);
-    const { filename } = parseBody(z.object({ filename: z.string().min(1).max(300) }), body);
+    const { filename } = parseBody(
+      z.object({ filename: z.string().min(1).max(300) }),
+      body,
+    );
     const token = this.mods.pendingExcludeToken(id, filename);
     await this.mods.excludePackMod(id, token, { actor: req.user!.username });
     this.mods.clearPendingLine(id, filename);
@@ -169,14 +321,31 @@ export class ModsController {
   }
 
   @Post('mods/upload')
-  @UseInterceptors(FileInterceptor('file', { dest: os.tmpdir(), limits: { fileSize: 250 * 1024 * 1024, files: 1 } }))
-  async upload(@Req() req: Request, @Param('id') id: string, @UploadedFile() file: Express.Multer.File, @Body() body: { excludeFilename?: string }) {
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: os.tmpdir(),
+      limits: { fileSize: 250 * 1024 * 1024, files: 1 },
+    }),
+  )
+  async upload(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { excludeFilename?: string },
+  ) {
     await this.serverQuery.mustGet(id);
     if (!file) throw new BadRequestException('No file uploaded');
     const excludeFilename = body?.excludeFilename || null;
-    const excludeToken = excludeFilename ? this.mods.pendingExcludeToken(id, excludeFilename) : null;
+    const excludeToken = excludeFilename
+      ? this.mods.pendingExcludeToken(id, excludeFilename)
+      : null;
     try {
-      const result = await this.mods.importUploadedMod(id, file.path, file.originalname, { excludeToken, actor: req.user!.username });
+      const result = await this.mods.importUploadedMod(
+        id,
+        file.path,
+        file.originalname,
+        { excludeToken, actor: req.user!.username },
+      );
       if (excludeFilename) this.mods.clearPendingLine(id, excludeFilename);
       return { ok: true, ...result, mods: this.mods.pendingDownloads(id) };
     } finally {
@@ -199,27 +368,35 @@ export class ModBrowserController {
     private readonly loaderVersions: LoaderVersionsService,
     private readonly lifecycle: ServerLifecycleService,
     private readonly mods: ModsService,
-    private readonly tasks: TasksService
+    private readonly tasks: TasksService,
   ) {}
 
   @Get('modrinth/search')
   async modrinthSearch(@Req() req: Request) {
     const q = req.query;
+    const qStr = (v: unknown): string => (typeof v === 'string' ? v : '');
     const results = await this.modrinth.search({
-      query: String(q.q || ''),
-      kind: String(q.kind || 'mod') as 'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack',
-      loader: q.loader ? String(q.loader) : undefined,
-      mcVersion: q.mc ? String(q.mc) : undefined,
+      query: qStr(q.q),
+      kind: (qStr(q.kind) || 'mod') as
+        'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack',
+      loader: q.loader ? qStr(q.loader) : undefined,
+      mcVersion: q.mc ? qStr(q.mc) : undefined,
     });
     return { ok: true, results };
   }
 
   @Get('loaders/versions')
   async loaderBuilds(@Req() req: Request) {
-    const { loader, mc } = parseBody(z.object({ loader: z.enum(MOD_LOADERS), mc: z.string().trim().max(32).optional() }), {
-      loader: req.query.loader,
-      mc: req.query.mc || undefined,
-    });
+    const { loader, mc } = parseBody(
+      z.object({
+        loader: z.enum(MOD_LOADERS),
+        mc: z.string().trim().max(32).optional(),
+      }),
+      {
+        loader: req.query.loader,
+        mc: req.query.mc || undefined,
+      },
+    );
     return { ok: true, ...(await this.loaderVersions.getBuilds(loader, mc)) };
   }
 
@@ -232,9 +409,17 @@ export class ModBrowserController {
         loader: z.enum(MOD_LOADERS).optional(),
         mc: z.string().trim().max(32).optional(),
       }),
-      { q: req.query.q || '', platform: req.query.platform || undefined, loader: req.query.loader || undefined, mc: req.query.mc || undefined }
+      {
+        q: req.query.q || '',
+        platform: req.query.platform || undefined,
+        loader: req.query.loader || undefined,
+        mc: req.query.mc || undefined,
+      },
     );
-    return { ok: true, results: await this.modBrowser.search({ query: q, platform, loader, mc }) };
+    return {
+      ok: true,
+      results: await this.modBrowser.search({ query: q, platform, loader, mc }),
+    };
   }
 
   @Get('mods/versions')
@@ -246,9 +431,17 @@ export class ModBrowserController {
         loader: z.enum(MOD_LOADERS).optional(),
         mc: z.string().trim().max(32).optional(),
       }),
-      { platform: req.query.platform, ref: req.query.ref, loader: req.query.loader || undefined, mc: req.query.mc || undefined }
+      {
+        platform: req.query.platform,
+        ref: req.query.ref,
+        loader: req.query.loader || undefined,
+        mc: req.query.mc || undefined,
+      },
     );
-    return { ok: true, versions: await this.modBrowser.versions({ platform, ref, loader, mc }) };
+    return {
+      ok: true,
+      versions: await this.modBrowser.versions({ platform, ref, loader, mc }),
+    };
   }
 
   @Post('mods/deps')
@@ -258,12 +451,21 @@ export class ModBrowserController {
         loader: z.enum(MOD_LOADERS),
         mc: z.string().trim().max(32).optional(),
         selection: z
-          .array(z.object({ platform: z.enum(['modrinth', 'curseforge']), ref: z.string().trim().min(1).max(200), versionId: z.string().trim().min(1).max(60) }))
+          .array(
+            z.object({
+              platform: z.enum(['modrinth', 'curseforge']),
+              ref: z.string().trim().min(1).max(200),
+              versionId: z.string().trim().min(1).max(60),
+            }),
+          )
           .max(50),
       }),
-      body
+      body,
     );
-    return { ok: true, ...(await this.modBrowser.resolveDependencies({ loader, mc, selection })) };
+    return {
+      ok: true,
+      ...(await this.modBrowser.resolveDependencies({ loader, mc, selection })),
+    };
   }
 
   @Post('servers/from-mods')
@@ -273,72 +475,112 @@ export class ModBrowserController {
         name: z.string().trim().min(1).max(80),
         description: z.string().max(4000).optional(),
         icon: z.string().max(64).optional(),
-        accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        accent: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/)
+          .optional(),
         // 'paper' is accepted for the Auto-detect (solver) path, which can pick
         // a plugin loader; the browse UI only offers the four mod loaders.
         loader: z.enum([...MOD_LOADERS, 'paper']),
         mcVersion: z.string().trim().min(1).max(32),
         loaderVersion: z.string().trim().max(40).optional(),
         mods: z
-          .array(z.object({ platform: z.enum(['modrinth', 'curseforge']), ref: z.string().trim().min(1).max(200), versionId: z.string().trim().min(1).max(60).optional() }))
+          .array(
+            z.object({
+              platform: z.enum(['modrinth', 'curseforge']),
+              ref: z.string().trim().min(1).max(200),
+              versionId: z.string().trim().min(1).max(60).optional(),
+            }),
+          )
           .max(100)
           .default([]),
         heapMb: z.coerce.number().int().min(512).max(262144).optional(),
-        containerMemoryMb: z.coerce.number().int().min(1024).max(524288).optional(),
+        containerMemoryMb: z.coerce
+          .number()
+          .int()
+          .min(1024)
+          .max(524288)
+          .optional(),
         diskQuotaGb: z.coerce.number().min(0).max(16384).optional(),
         portGame: z.coerce.number().int().min(1024).max(65535).optional(),
         env: z.record(z.string(), z.string()).optional(),
         ...dockerOverridesSchema,
       })
-      .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-        message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
-      });
+      .refine(
+        (v) =>
+          !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+        {
+          message:
+            'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
+        },
+      );
     const input = parseBody(schema, body);
     requireAdminForOverrides(req, input);
     const actor = req.user!.username;
     const type = input.loader.toUpperCase();
 
-    const taskId = this.tasks.run(`Creating ${input.name} (${input.loader})`, { actor }, async (t) => {
-      const env = { ...(input.env || {}) };
-      const envKey = this.loaderVersions.envKeyFor(input.loader);
-      if (input.loaderVersion && envKey) env[envKey] = input.loaderVersion;
-      t.step('Creating server');
-      const createInput: CreateServerInput = {
-        name: input.name,
-        description: input.description,
-        icon: input.icon,
-        accent: input.accent,
-        type,
-        mcVersion: input.mcVersion,
-        env,
-        heapMb: input.heapMb,
-        containerMemoryMb: input.containerMemoryMb,
-        diskQuotaGb: input.diskQuotaGb,
-        portGame: input.portGame,
-        containerName: input.containerName,
-        networkName: input.networkName,
-        extraPorts: input.extraPorts as CreateServerInput['extraPorts'],
-        extraBinds: input.extraBinds as CreateServerInput['extraBinds'],
-      };
-      const server = await this.lifecycle.createServer(createInput, { actor, start: false, onProgress: (s: string) => t.step(s) });
+    const taskId = this.tasks.run(
+      `Creating ${input.name} (${input.loader})`,
+      { actor },
+      async (t) => {
+        const env = { ...(input.env || {}) };
+        const envKey = this.loaderVersions.envKeyFor(input.loader);
+        if (input.loaderVersion && envKey) env[envKey] = input.loaderVersion;
+        t.step('Creating server');
+        const createInput: CreateServerInput = {
+          name: input.name,
+          description: input.description,
+          icon: input.icon,
+          accent: input.accent,
+          type,
+          mcVersion: input.mcVersion,
+          env,
+          heapMb: input.heapMb,
+          containerMemoryMb: input.containerMemoryMb,
+          diskQuotaGb: input.diskQuotaGb,
+          portGame: input.portGame,
+          containerName: input.containerName,
+          networkName: input.networkName,
+          extraPorts: input.extraPorts,
+          extraBinds: input.extraBinds,
+        };
+        const server = await this.lifecycle.createServer(createInput, {
+          actor,
+          start: false,
+          onProgress: (s: string) => t.step(s),
+        });
 
-      // Install mods BEFORE first boot so a loader server starts with them present.
-      const failed: string[] = [];
-      for (let i = 0; i < input.mods.length; i += 1) {
-        const m = input.mods[i]!;
-        const base = m.platform === 'curseforge' ? `https://www.curseforge.com/minecraft/mc-mods/${m.ref}` : `https://modrinth.com/mod/${m.ref}`;
-        const url = m.versionId ? (m.platform === 'curseforge' ? `${base}/files/${m.versionId}` : `${base}/version/${m.versionId}`) : base;
-        t.step(`Installing mod ${i + 1}/${input.mods.length}: ${m.ref}`);
-        try {
-          await this.mods.installFromUrl(server.id, url, { actor });
-        } catch (err) {
-          failed.push(`${m.ref} (${(err as Error).message})`);
+        // Install mods BEFORE first boot so a loader server starts with them present.
+        const failed: string[] = [];
+        for (let i = 0; i < input.mods.length; i += 1) {
+          const m = input.mods[i]!;
+          const base =
+            m.platform === 'curseforge'
+              ? `https://www.curseforge.com/minecraft/mc-mods/${m.ref}`
+              : `https://modrinth.com/mod/${m.ref}`;
+          const url = m.versionId
+            ? m.platform === 'curseforge'
+              ? `${base}/files/${m.versionId}`
+              : `${base}/version/${m.versionId}`
+            : base;
+          t.step(`Installing mod ${i + 1}/${input.mods.length}: ${m.ref}`);
+          try {
+            await this.mods.installFromUrl(server.id, url, { actor });
+          } catch (err) {
+            failed.push(`${m.ref} (${(err as Error).message})`);
+          }
         }
-      }
-      t.step('Starting server');
-      await this.lifecycle.startServer(server.id, { actor });
-      return { serverId: server.id, name: server.display_name, installed: input.mods.length - failed.length, total: input.mods.length, failed };
-    });
+        t.step('Starting server');
+        await this.lifecycle.startServer(server.id, { actor });
+        return {
+          serverId: server.id,
+          name: server.display_name,
+          installed: input.mods.length - failed.length,
+          total: input.mods.length,
+          failed,
+        };
+      },
+    );
     return { ok: true, taskId };
   }
 }

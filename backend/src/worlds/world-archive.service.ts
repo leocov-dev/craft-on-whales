@@ -1,15 +1,15 @@
-import { BadRequestException, Injectable, PayloadTooLargeException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as zlib from 'node:zlib';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the legacy code's own untyped require() for this
-// package rather than fighting the types for a call it genuinely supports.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
-import yauzl = require('yauzl');
+import archiver from 'archiver';
+import * as yauzl from 'yauzl';
 import * as tar from 'tar';
 
 export const DIM_SUFFIXES = ['_nether', '_the_end'];
@@ -40,7 +40,9 @@ export class WorldArchiveService {
    * (sibling <name>_nether / <name>_the_end directories next to the main
    * world). dims[0] is always the main root; extras are split dimension dirs.
    */
-  async detectWorldRoot(extractedDir: string): Promise<DetectedWorldRoot | null> {
+  async detectWorldRoot(
+    extractedDir: string,
+  ): Promise<DetectedWorldRoot | null> {
     let queue = [path.resolve(extractedDir)];
     let found: string | null = null;
 
@@ -54,16 +56,23 @@ export class WorldArchiveService {
         } catch {
           continue;
         }
-        if (entries.some((e) => e.isFile() && e.name.toLowerCase() === 'level.dat')) {
+        if (
+          entries.some(
+            (e) => e.isFile() && e.name.toLowerCase() === 'level.dat',
+          )
+        ) {
           candidates.push(dir);
           continue;
         }
         for (const e of entries) {
-          if (e.isDirectory() && !e.isSymbolicLink()) next.push(path.join(dir, e.name));
+          if (e.isDirectory() && !e.isSymbolicLink())
+            next.push(path.join(dir, e.name));
         }
       }
       if (candidates.length) {
-        found = candidates.find((c) => !this.isDimName(path.basename(c))) || (candidates[0] as string);
+        found =
+          candidates.find((c) => !this.isDimName(path.basename(c))) ||
+          (candidates[0] as string);
       }
       queue = next;
     }
@@ -96,13 +105,18 @@ export class WorldArchiveService {
   /** 'world_nether' -> 'world', null when not a dim name. */
   dimBase(name: string): string | null {
     for (const suffix of DIM_SUFFIXES) {
-      if (name.endsWith(suffix) && name.length > suffix.length) return name.slice(0, -suffix.length);
+      if (name.endsWith(suffix) && name.length > suffix.length)
+        return name.slice(0, -suffix.length);
     }
     return null;
   }
 
   /** Zip a world: root contents at the top level, split dims as sibling dirs. */
-  zipWorld(outFile: string, rootAbs: string, dimDirs: string[] = []): Promise<void> {
+  zipWorld(
+    outFile: string,
+    rootAbs: string,
+    dimDirs: string[] = [],
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(outFile);
       const archive = archiver('zip', { zlib: { level: 6 } });
@@ -116,7 +130,11 @@ export class WorldArchiveService {
   }
 
   /** Route an archive to the right extractor by magic bytes (zip/.mcworld, tar, tar.gz). */
-  async extractArchive(file: string, destDir: string, originalName = ''): Promise<void> {
+  async extractArchive(
+    file: string,
+    destDir: string,
+    originalName = '',
+  ): Promise<void> {
     const fd = await fsp.open(file, 'r');
     const head = Buffer.alloc(265);
     await fd.read(head, 0, 265, 0);
@@ -139,7 +157,7 @@ export class WorldArchiveService {
           tarTotal += stat?.size || 0;
           if (tarTotal > MAX_EXTRACT_BYTES) {
             throw new PayloadTooLargeException(
-              `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`
+              `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`,
             );
           }
           return true;
@@ -147,7 +165,9 @@ export class WorldArchiveService {
       });
       return;
     }
-    throw new BadRequestException(`That doesn't look like a zip or tar archive${originalName ? ` (${originalName})` : ''}`);
+    throw new BadRequestException(
+      `That doesn't look like a zip or tar archive${originalName ? ` (${originalName})` : ''}`,
+    );
   }
 
   /** Zip-slip-safe extraction (yauzl) with a decompression-bomb ceiling. */
@@ -178,19 +198,30 @@ export class WorldArchiveService {
         zip.on('end', done);
         zip.on('entry', (entry) => {
           if (++entryCount > MAX_EXTRACT_ENTRIES) {
-            return fail(new PayloadTooLargeException(`Archive has too many entries (> ${MAX_EXTRACT_ENTRIES}) — refusing to extract.`));
+            return fail(
+              new PayloadTooLargeException(
+                `Archive has too many entries (> ${MAX_EXTRACT_ENTRIES}) — refusing to extract.`,
+              ),
+            );
           }
           declaredBytes += entry.uncompressedSize || 0;
           if (declaredBytes > MAX_EXTRACT_BYTES) {
             return fail(
               new PayloadTooLargeException(
-                `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`
-              )
+                `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`,
+              ),
             );
           }
           const target = path.resolve(destDir, entry.fileName);
-          if (!target.startsWith(path.resolve(destDir) + path.sep) && target !== path.resolve(destDir)) {
-            return fail(new BadRequestException(`Archive entry escapes destination: ${entry.fileName}`));
+          if (
+            !target.startsWith(path.resolve(destDir) + path.sep) &&
+            target !== path.resolve(destDir)
+          ) {
+            return fail(
+              new BadRequestException(
+                `Archive entry escapes destination: ${entry.fileName}`,
+              ),
+            );
           }
           if (/\/$/.test(entry.fileName)) {
             fs.mkdirSync(target, { recursive: true });
@@ -207,8 +238,8 @@ export class WorldArchiveService {
                   out.destroy();
                   fail(
                     new PayloadTooLargeException(
-                      `Archive exceeds the ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB extraction limit — aborted (possible decompression bomb).`
-                    )
+                      `Archive exceeds the ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB extraction limit — aborted (possible decompression bomb).`,
+                    ),
                   );
                 }
               });
@@ -230,13 +261,18 @@ export class WorldArchiveService {
     const buf = this.readLevelBuffer(levelDatAbs);
     if (!buf) return null;
     // NBT string tag: 0x08, name length (2B BE) = 4, "Name", value length (2B BE), value
-    const needle = Buffer.from('080004' + Buffer.from('Name').toString('hex'), 'hex');
+    const needle = Buffer.from(
+      '080004' + Buffer.from('Name').toString('hex'),
+      'hex',
+    );
     let idx = buf.indexOf(needle);
     while (idx !== -1) {
       const lenOff = idx + needle.length;
       if (lenOff + 2 <= buf.length) {
         const len = buf.readUInt16BE(lenOff);
-        const value = buf.subarray(lenOff + 2, lenOff + 2 + len).toString('utf8');
+        const value = buf
+          .subarray(lenOff + 2, lenOff + 2 + len)
+          .toString('utf8');
         if (/^\d+\.\d+/.test(value)) return value;
       }
       idx = buf.indexOf(needle, idx + 1);
@@ -249,7 +285,10 @@ export class WorldArchiveService {
     const buf = this.readLevelBuffer(levelDatAbs);
     if (!buf) return null;
     for (const name of ['RandomSeed', 'seed']) {
-      const needle = Buffer.concat([Buffer.from([0x04, 0x00, name.length]), Buffer.from(name, 'latin1')]);
+      const needle = Buffer.concat([
+        Buffer.from([0x04, 0x00, name.length]),
+        Buffer.from(name, 'latin1'),
+      ]);
       const idx = buf.indexOf(needle);
       if (idx !== -1 && idx + needle.length + 8 <= buf.length) {
         return buf.readBigInt64BE(idx + needle.length).toString();
@@ -329,7 +368,7 @@ export class WorldArchiveService {
 
   /** World dir names: strip path separators & control chars, keep it friendly. */
   sanitizeWorldName(name: unknown): string {
-    const clean = String(name || '')
+    const clean = (typeof name === 'string' ? name : '')
       .replace(/[\\/:*?"<>|\0]/g, '_')
       .replace(/^\.+/, '')
       .trim()
@@ -340,7 +379,14 @@ export class WorldArchiveService {
 
   /** Reject world names that could traverse paths (route params are user input). */
   checkWorldName(name: unknown): void {
-    if (!name || /[\\/\0]/.test(String(name)) || name === '.' || name === '..' || String(name).startsWith('.')) {
+    const s = typeof name === 'string' ? name : '';
+    if (
+      !name ||
+      /[\\/\0]/.test(s) ||
+      name === '.' ||
+      name === '..' ||
+      s.startsWith('.')
+    ) {
       throw new BadRequestException('Invalid world name');
     }
   }

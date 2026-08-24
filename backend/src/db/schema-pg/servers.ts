@@ -2,7 +2,14 @@
 // translation rules applied here.
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, integer, real, boolean, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  integer,
+  real,
+  boolean,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 export const servers = pgTable('servers', {
   id: text('id').primaryKey(),
@@ -39,7 +46,9 @@ export const servers = pgTable('servers', {
   pendingRecreate: boolean('pending_recreate').notNull().default(false),
   status: text('status').notNull().default('stopped'),
   lastStartedAt: text('last_started_at'),
-  createdAt: text('created_at').notNull().default(sql`now()::text`),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`now()::text`),
   deletedAt: text('deleted_at'),
 
   consoleLabel: text('console_label'),
@@ -62,7 +71,9 @@ export const serverPacks = pgTable('server_packs', {
   pinnedVersionName: text('pinned_version_name').notNull(),
   previousVersionId: text('previous_version_id'),
   previousVersionName: text('previous_version_name'),
-  installedAt: text('installed_at').notNull().default(sql`now()::text`),
+  installedAt: text('installed_at')
+    .notNull()
+    .default(sql`now()::text`),
   maxJavaVersion: integer('max_java_version'),
   channel: text('channel'),
 });
@@ -83,7 +94,11 @@ export const serverContent = pgTable(
     iconUrl: text('icon_url'),
     iconRelPath: text('icon_rel_path'),
     enabled: boolean('enabled').notNull().default(true),
-    installedAt: text('installed_at').notNull().default(sql`now()::text`),
+    installedAt: text('installed_at')
+      .notNull()
+      .default(sql`now()::text`),
   },
-  (t) => [uniqueIndex('server_content_server_filename').on(t.serverId, t.filename)]
+  (t) => [
+    uniqueIndex('server_content_server_filename').on(t.serverId, t.filename),
+  ],
 );

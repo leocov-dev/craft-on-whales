@@ -1,5 +1,11 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 export const libraryFiles = sqliteTable(
   'library_files',
@@ -22,11 +28,13 @@ export const libraryFiles = sqliteTable(
     iconRelPath: text('icon_rel_path'),
     worldSource: text('world_source'), // 'upload' | 'extract:<server_id>' | 'import'
     worldFlavor: text('world_flavor'),
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (t) => [
     index('idx_library_cat').on(t.category),
     index('idx_library_sha').on(t.sha256),
     uniqueIndex('uniq_library_sha_cat').on(t.sha256, t.category),
-  ]
+  ],
 );

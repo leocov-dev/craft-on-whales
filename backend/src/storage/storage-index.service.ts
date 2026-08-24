@@ -54,7 +54,7 @@ export class StorageIndexService {
     private readonly config: ConfigService,
     private readonly dbService: DbService,
     private readonly events: EventsService,
-    private readonly lifecycle: ServerLifecycleService
+    private readonly lifecycle: ServerLifecycleService,
   ) {}
 
   private get db() {
@@ -82,7 +82,10 @@ export class StorageIndexService {
           const childAbs = path.join(abs, entry.name);
           if (entry.isSymbolicLink()) continue;
           if (entry.isDirectory()) {
-            const sub = await walk(childAbs, rel ? `${rel}/${entry.name}` : entry.name);
+            const sub = await walk(
+              childAbs,
+              rel ? `${rel}/${entry.name}` : entry.name,
+            );
             size += sub.size;
             files += sub.files;
           } else if (entry.isFile()) {
@@ -109,12 +112,20 @@ export class StorageIndexService {
       // the opposite: an async callback with awaited statements. Branch on
       // the real driver so each dialect gets the form Drizzle supports.
       if (this.dbService.driver === 'postgres') {
-        await (this.db.transaction as unknown as (cb: (tx: typeof this.db) => Promise<void>) => Promise<void>)(async (tx) => {
+        await (
+          this.db.transaction as unknown as (
+            cb: (tx: typeof this.db) => Promise<void>,
+          ) => Promise<void>
+        )(async (tx) => {
           await tx.delete(storageIndex);
           for (const [rel, v] of results) {
             // Cache depth <= 3 to keep the table small; deeper paths are summed live.
             if (rel.split('/').length <= 3) {
-              await tx.insert(storageIndex).values({ relPath: rel, sizeBytes: v.size, fileCount: v.files });
+              await tx.insert(storageIndex).values({
+                relPath: rel,
+                sizeBytes: v.size,
+                fileCount: v.files,
+              });
             }
           }
         });
@@ -123,7 +134,9 @@ export class StorageIndexService {
           tx.delete(storageIndex).run();
           for (const [rel, v] of results) {
             if (rel.split('/').length <= 3) {
-              tx.insert(storageIndex).values({ relPath: rel, sizeBytes: v.size, fileCount: v.files }).run();
+              tx.insert(storageIndex)
+                .values({ relPath: rel, sizeBytes: v.size, fileCount: v.files })
+                .run();
             }
           }
         });
@@ -134,7 +147,10 @@ export class StorageIndexService {
         const m = /^servers\/([^/]+)$/.exec(rel);
         if (m) perServer[m[1] as string] = v.size;
       }
-      await this.db.insert(storageSnapshots).values({ totalBytes: total.size, perServerJson: JSON.stringify(perServer) });
+      await this.db.insert(storageSnapshots).values({
+        totalBytes: total.size,
+        perServerJson: JSON.stringify(perServer),
+      });
       // Retention: keep the last 500 snapshots.
       const keepRows = await this.db
         .select({ id: storageSnapshots.id })
@@ -143,10 +159,16 @@ export class StorageIndexService {
         .limit(500);
       const keepIds = keepRows.map((r) => r.id);
       if (keepIds.length) {
-        await this.db.delete(storageSnapshots).where(notInArray(storageSnapshots.id, keepIds));
+        await this.db
+          .delete(storageSnapshots)
+          .where(notInArray(storageSnapshots.id, keepIds));
       }
 
-      return { totalBytes: total.size, dirs: results.size, ms: Date.now() - started };
+      return {
+        totalBytes: total.size,
+        dirs: results.size,
+        ms: Date.now() - started,
+      };
     } finally {
       this.scanning = false;
     }
@@ -154,12 +176,19 @@ export class StorageIndexService {
 
   /** Instant size lookup from cache; 0 when not yet scanned. */
   async sizeOf(relPath: string): Promise<number> {
-    const [row] = await this.db.select({ sizeBytes: storageIndex.sizeBytes }).from(storageIndex).where(eq(storageIndex.relPath, relPath)).limit(1);
+    const [row] = await this.db
+      .select({ sizeBytes: storageIndex.sizeBytes })
+      .from(storageIndex)
+      .where(eq(storageIndex.relPath, relPath))
+      .limit(1);
     return row ? Number(row.sizeBytes) : 0;
   }
 
   async lastScan(): Promise<string | null> {
-    const [row] = await this.db.select({ t: sql<string | null>`max(${storageIndex.scannedAt})` }).from(storageIndex).limit(1);
+    const [row] = await this.db
+      .select({ t: sql<string | null>`max(${storageIndex.scannedAt})` })
+      .from(storageIndex)
+      .limit(1);
     return row && row.t != null ? String(row.t) : null;
   }
 
@@ -169,11 +198,16 @@ export class StorageIndexService {
   }
 
   /** Quota check used before disk-growing operations. Throws a friendly 409. */
-  async assertUnderQuota(server: QuotaServer, aboutToAddBytes = 0): Promise<void> {
+  async assertUnderQuota(
+    server: QuotaServer,
+    aboutToAddBytes = 0,
+  ): Promise<void> {
     if (!server.disk_quota_bytes) return;
     const used = await this.sizeOf(`servers/${server.id}`);
     if (used + aboutToAddBytes > server.disk_quota_bytes) {
-      throw new ConflictException(`${server.display_name} is over its disk quota — free space or raise the limit in Settings → Resources`);
+      throw new ConflictException(
+        `${server.display_name} is over its disk quota — free space or raise the limit in Settings → Resources`,
+      );
     }
   }
 
@@ -187,16 +221,27 @@ export class StorageIndexService {
     const rows = await this.db
       .select()
       .from(servers)
-      .where(and(isNull(servers.deletedAt), eq(servers.quotaStrict, true), gt(servers.diskQuotaBytes, 0)));
+      .where(
+        and(
+          isNull(servers.deletedAt),
+          eq(servers.quotaStrict, true),
+          gt(servers.diskQuotaBytes, 0),
+        ),
+      );
     for (const s of rows) {
       const used = await this.sizeOf(`servers/${s.id}`);
-      if (used > s.diskQuotaBytes * 1.1 && ['running', 'starting', 'unhealthy'].includes(s.status)) {
+      if (
+        used > s.diskQuotaBytes * 1.1 &&
+        ['running', 'starting', 'unhealthy'].includes(s.status)
+      ) {
         this.events.recordEvent({
           serverId: s.id,
           type: 'quota-exceeded',
           summary: `Strict quota: usage ${(used / 1024 ** 3).toFixed(1)} GB exceeds quota by >10% — stopping server`,
         });
-        await this.lifecycle.stopServer(s.id, { actor: 'system' }).catch(() => {});
+        await this.lifecycle
+          .stopServer(s.id, { actor: 'system' })
+          .catch(() => {});
       }
     }
   }

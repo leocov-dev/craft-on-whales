@@ -5,7 +5,10 @@
 import * as sqliteSchema from './sqlite';
 import * as pgSchema from '../schema-pg';
 
-const active: typeof sqliteSchema = process.env.DB_DRIVER === 'postgres' ? (pgSchema as unknown as typeof sqliteSchema) : sqliteSchema;
+const active: typeof sqliteSchema =
+  process.env.DB_DRIVER === 'postgres'
+    ? (pgSchema as unknown as typeof sqliteSchema)
+    : sqliteSchema;
 
 export const servers = active.servers;
 export const serverPacks = active.serverPacks;

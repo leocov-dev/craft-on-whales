@@ -9,12 +9,21 @@
 // InventoryService; this file only has the mutation primitives both paths
 // share (the offline path uses these directly, the online path uses
 // resolveSlot/clampCount for validation and rconSlot addressing).
+//
+// That intentional `any` typing trades away the type-checked-member-access
+// lint rules for this file — same reasoning as nbt-codec.ts.
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { NESTED_MAX_PATH, NESTED_KEY_RE } from './nbt-codec';
 
 // Vanilla armor slot numbers inside the playerdata Inventory list.
-export const ARMOR_SLOTS: Record<number, string> = { 100: 'feet', 101: 'legs', 102: 'chest', 103: 'head' };
+export const ARMOR_SLOTS: Record<number, string> = {
+  100: 'feet',
+  101: 'legs',
+  102: 'chest',
+  103: 'head',
+};
 export const OFFHAND_SLOT = -106;
 
 const ARMOR_PIECES = ['head', 'chest', 'legs', 'feet'];
@@ -22,7 +31,8 @@ const ARMOR_PIECES = ['head', 'chest', 'legs', 'feet'];
 const EQUIPMENT_DATAVERSION = 4325;
 const MAX_STACK = 99; // `item replace` count argument limit — mirrored offline
 
-export type ContainerName = 'hotbar' | 'inventory' | 'enderchest' | 'armor' | 'offhand';
+export type ContainerName =
+  'hotbar' | 'inventory' | 'enderchest' | 'armor' | 'offhand';
 
 interface SlotContainerDef {
   size: number;
@@ -35,9 +45,27 @@ interface SlotContainerDef {
 }
 
 const SLOT_CONTAINERS: Record<ContainerName, SlotContainerDef> = {
-  hotbar: { size: 9, kind: 'list', list: 'Inventory', base: 0, rcon: (n) => `hotbar.${n}` },
-  inventory: { size: 27, kind: 'list', list: 'Inventory', base: 9, rcon: (n) => `inventory.${n}` },
-  enderchest: { size: 27, kind: 'list', list: 'EnderItems', base: 0, rcon: (n) => `enderchest.${n}` },
+  hotbar: {
+    size: 9,
+    kind: 'list',
+    list: 'Inventory',
+    base: 0,
+    rcon: (n) => `hotbar.${n}`,
+  },
+  inventory: {
+    size: 27,
+    kind: 'list',
+    list: 'Inventory',
+    base: 9,
+    rcon: (n) => `inventory.${n}`,
+  },
+  enderchest: {
+    size: 27,
+    kind: 'list',
+    list: 'EnderItems',
+    base: 0,
+    rcon: (n) => `enderchest.${n}`,
+  },
   armor: {
     size: 4,
     kind: 'equipment',
@@ -45,7 +73,13 @@ const SLOT_CONTAINERS: Record<ContainerName, SlotContainerDef> = {
     legacy: [103, 102, 101, 100],
     rcon: (n) => `armor.${ARMOR_PIECES[n]}`,
   },
-  offhand: { size: 1, kind: 'equipment', pieces: ['offhand'], legacy: [OFFHAND_SLOT], rcon: () => 'weapon.offhand' },
+  offhand: {
+    size: 1,
+    kind: 'equipment',
+    pieces: ['offhand'],
+    legacy: [OFFHAND_SLOT],
+    rcon: () => 'weapon.offhand',
+  },
 };
 
 export interface SlotSpec {
@@ -59,12 +93,17 @@ export interface SlotSpec {
 }
 
 /** Validate container + slot; resolve every addressing scheme at once. */
-export function resolveSlot(container: string, slot: number | string): SlotSpec {
+export function resolveSlot(
+  container: string,
+  slot: number | string,
+): SlotSpec {
   const def = SLOT_CONTAINERS[container as ContainerName];
   if (!def) throw new BadRequestException(`Unknown container "${container}"`);
   const n = Math.trunc(Number(slot));
   if (!Number.isInteger(n) || n < 0 || n >= def.size) {
-    throw new BadRequestException(`Slot ${slot} is out of range for ${container} (0-${def.size - 1})`);
+    throw new BadRequestException(
+      `Slot ${slot} is out of range for ${container} (0-${def.size - 1})`,
+    );
   }
   return {
     container: container as ContainerName,
@@ -106,18 +145,28 @@ export function rawId(itemValue: any): string | null {
 }
 
 /** Inventory/EnderItems as a mutable array of compound values (created on demand). */
-export function rawItemList(root: any, name: string, { create = false }: { create?: boolean } = {}): any[] | null {
+export function rawItemList(
+  root: any,
+  name: string,
+  { create = false }: { create?: boolean } = {},
+): any[] | null {
   let list = root[name];
   if (!list) {
     if (!create) return null;
-    list = root[name] = { type: 'list', value: { type: 'compound', value: [] } };
+    list = root[name] = {
+      type: 'list',
+      value: { type: 'compound', value: [] },
+    };
   }
-  if (list.type !== 'list') throw new Error(`${name} in the player file is not a list`);
+  if (list.type !== 'list')
+    throw new Error(`${name} in the player file is not a list`);
   // Empty NBT lists carry element type 'end' — retype on first insert.
   if (list.value.type === 'end' || !Array.isArray(list.value.value)) {
     list.value = { type: 'compound', value: [] };
   } else if (list.value.type !== 'compound') {
-    throw new Error(`${name} in the player file has unexpected element type "${list.value.type}"`);
+    throw new Error(
+      `${name} in the player file has unexpected element type "${list.value.type}"`,
+    );
   }
   return list.value.value;
 }
@@ -150,7 +199,9 @@ export function offlineSlotRef(root: any, spec: SlotSpec): OfflineSlotRef {
     return {
       get() {
         const piece = eq()[spec.piece!];
-        return piece && piece.type === 'compound' && piece.value.id ? piece.value : null;
+        return piece && piece.type === 'compound' && piece.value.id
+          ? piece.value
+          : null;
       },
       set(itemValue: any) {
         delete itemValue.Slot; // equipment entries carry no Slot field
@@ -164,7 +215,10 @@ export function offlineSlotRef(root: any, spec: SlotSpec): OfflineSlotRef {
   // List-backed (Inventory / EnderItems) — armor/offhand fall through here on
   // pre-1.21.5 saves via their legacy slot numbers.
   const listName = spec.kind === 'equipment' ? 'Inventory' : spec.list!;
-  const find = (entries: any[]) => entries.findIndex((e) => e && e.Slot && Number(e.Slot.value) === spec.nbtSlot);
+  const find = (entries: any[]) =>
+    entries.findIndex(
+      (e) => e && e.Slot && Number(e.Slot.value) === spec.nbtSlot,
+    );
   return {
     get() {
       const entries = rawItemList(root, listName);
@@ -198,7 +252,11 @@ export interface SlotEditResult {
 export function applyOfflineSlotEdit(
   root: any,
   spec: SlotSpec,
-  { op, item, count }: { op: 'set' | 'delete' | 'count'; item: string | null; count: number }
+  {
+    op,
+    item,
+    count,
+  }: { op: 'set' | 'delete' | 'count'; item: string | null; count: number },
 ): SlotEditResult {
   const ref = offlineSlotRef(root, spec);
   if (op === 'set') {
@@ -206,9 +264,15 @@ export function applyOfflineSlotEdit(
     return { item, count };
   }
   const cur = ref.get();
-  if (!cur) throw new NotFoundException(`${spec.rconSlot} is empty — nothing to ${op === 'delete' ? 'delete' : 're-count'}`);
+  if (!cur)
+    throw new NotFoundException(
+      `${spec.rconSlot} is empty — nothing to ${op === 'delete' ? 'delete' : 're-count'}`,
+    );
   if (op === 'delete') {
-    const meta = { item: rawId(cur), count: Number((cur.count || cur.Count || {}).value || 1) };
+    const meta = {
+      item: rawId(cur),
+      count: Number((cur.count || cur.Count || {}).value || 1),
+    };
     ref.remove();
     return meta;
   }
@@ -223,17 +287,28 @@ export interface MoveResult {
 }
 
 /** Pure move/swap on a raw root. */
-export function applyOfflineMove(root: any, fromSpec: SlotSpec, toSpec: SlotSpec): MoveResult {
+export function applyOfflineMove(
+  root: any,
+  fromSpec: SlotSpec,
+  toSpec: SlotSpec,
+): MoveResult {
   const fromRef = offlineSlotRef(root, fromSpec);
   const toRef = offlineSlotRef(root, toSpec);
   const src = fromRef.get();
-  if (!src) throw new NotFoundException(`${fromSpec.rconSlot} is empty — nothing to move`);
+  if (!src)
+    throw new NotFoundException(
+      `${fromSpec.rconSlot} is empty — nothing to move`,
+    );
   const dst = toRef.get();
   fromRef.remove();
   if (dst) toRef.remove();
   toRef.set(src);
   if (dst) fromRef.set(dst); // swap
-  return { item: rawId(src), count: Number((src.count || src.Count || {}).value || 1), swapped: Boolean(dst) };
+  return {
+    item: rawId(src),
+    count: Number((src.count || src.Count || {}).value || 1),
+    swapped: Boolean(dst),
+  };
 }
 
 // Nested (backpack) editing — offline only. Walk the RAW tree along the same
@@ -241,13 +316,18 @@ export function applyOfflineMove(root: any, fromSpec: SlotSpec, toSpec: SlotSpec
 // map 1:1: compound key <-> string segment, list index <-> number segment).
 
 export function assertNestedPath(pathSegs: unknown): (string | number)[] {
-  if (!Array.isArray(pathSegs) || !pathSegs.length || pathSegs.length > NESTED_MAX_PATH) {
+  if (
+    !Array.isArray(pathSegs) ||
+    !pathSegs.length ||
+    pathSegs.length > NESTED_MAX_PATH
+  ) {
     throw new BadRequestException('Invalid nested inventory path');
   }
   for (const seg of pathSegs) {
     const okString = typeof seg === 'string' && NESTED_KEY_RE.test(seg);
     const okIndex = Number.isInteger(seg) && seg >= 0 && seg <= 255;
-    if (!okString && !okIndex) throw new BadRequestException('Invalid nested inventory path');
+    if (!okString && !okIndex)
+      throw new BadRequestException('Invalid nested inventory path');
   }
   return pathSegs as (string | number)[];
 }
@@ -257,15 +337,26 @@ function walkRaw(startTag: any, pathSegs: (string | number)[]): any {
   let cur = startTag;
   for (const seg of pathSegs) {
     if (cur.type === 'compound') {
-      if (typeof seg !== 'string' || !cur.value[seg]) throw new NotFoundException('That nested inventory no longer exists — reload');
+      if (typeof seg !== 'string' || !cur.value[seg])
+        throw new NotFoundException(
+          'That nested inventory no longer exists — reload',
+        );
       cur = cur.value[seg];
     } else if (cur.type === 'list') {
-      if (!Number.isInteger(seg) || !Array.isArray(cur.value.value) || (seg as number) >= cur.value.value.length) {
-        throw new NotFoundException('That nested inventory no longer exists — reload');
+      if (
+        !Number.isInteger(seg) ||
+        !Array.isArray(cur.value.value) ||
+        (seg as number) >= cur.value.value.length
+      ) {
+        throw new NotFoundException(
+          'That nested inventory no longer exists — reload',
+        );
       }
       cur = { type: cur.value.type, value: cur.value.value[seg as number] };
     } else {
-      throw new NotFoundException('That nested inventory no longer exists — reload');
+      throw new NotFoundException(
+        'That nested inventory no longer exists — reload',
+      );
     }
   }
   return cur;
@@ -281,13 +372,26 @@ export function applyOfflineNestedEdit(
     op,
     item,
     count,
-  }: { path: unknown; index: number; op: 'set' | 'delete' | 'count'; item: string | null; count: number }
+  }: {
+    path: unknown;
+    index: number;
+    op: 'set' | 'delete' | 'count';
+    item: string | null;
+    count: number;
+  },
 ): SlotEditResult {
   const segs = assertNestedPath(pathSegs);
   const holder = offlineSlotRef(root, spec).get();
-  if (!holder) throw new NotFoundException(`${spec.rconSlot} is empty — the backpack is gone. Reload.`);
+  if (!holder)
+    throw new NotFoundException(
+      `${spec.rconSlot} is empty — the backpack is gone. Reload.`,
+    );
   const listTag = walkRaw({ type: 'compound', value: holder }, segs);
-  if (listTag.type !== 'list' || listTag.value.type !== 'compound' || !Array.isArray(listTag.value.value)) {
+  if (
+    listTag.type !== 'list' ||
+    listTag.value.type !== 'compound' ||
+    !Array.isArray(listTag.value.value)
+  ) {
     throw new BadRequestException('That path does not point at an item list');
   }
   const entries = listTag.value.value;
@@ -296,12 +400,16 @@ export function applyOfflineNestedEdit(
   }
   const el = entries[index];
   // Wrapped shape {slot, item:{...}} vs direct {id, count, Slot?}.
-  const wrapped = !el.id && el.item && el.item.type === 'compound' && el.item.value.id;
+  const wrapped =
+    !el.id && el.item && el.item.type === 'compound' && el.item.value.id;
   const inner = wrapped ? el.item.value : el;
   if (!inner.id) throw new NotFoundException('That nested slot is empty');
 
   if (op === 'delete') {
-    const meta = { item: rawId(inner), count: Number((inner.count || inner.Count || {}).value || 1) };
+    const meta = {
+      item: rawId(inner),
+      count: Number((inner.count || inner.Count || {}).value || 1),
+    };
     entries.splice(index, 1);
     return meta;
   }

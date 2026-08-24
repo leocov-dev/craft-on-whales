@@ -25,7 +25,13 @@ const MAX_TEXT_BYTES = 2 * 1024 * 1024; // editor cap
 // written, listed, or downloaded from the UI — the database (password hashes + the
 // at-rest secret cipher) and the session secret (that cipher's key + the cookie
 // signing key). Any other top-level dotfile is treated the same, defensively.
-const PROTECTED_GLOBAL = new Set(['panel.db', 'panel.db-wal', 'panel.db-shm', 'panel.db-journal', '.session-secret']);
+const PROTECTED_GLOBAL = new Set([
+  'panel.db',
+  'panel.db-wal',
+  'panel.db-shm',
+  'panel.db-journal',
+  '.session-secret',
+]);
 
 interface ResolvedPath {
   base: string;
@@ -71,7 +77,7 @@ export class FilesService {
     private readonly pathGuard: PathGuardService,
     private readonly events: EventsService,
     private readonly indexer: StorageIndexService,
-    private readonly dbService: DbService
+    private readonly dbService: DbService,
   ) {}
 
   private get db() {
@@ -83,7 +89,9 @@ export class FilesService {
   }
 
   private resolvePath(serverId: string | null, relPath = ''): ResolvedPath {
-    const base = serverId ? this.pathGuard.safeJoin(this.config.dataDir, 'servers', serverId) : this.config.dataDir;
+    const base = serverId
+      ? this.pathGuard.safeJoin(this.config.dataDir, 'servers', serverId)
+      : this.config.dataDir;
     const abs = this.pathGuard.safeJoin(base, String(relPath || '') || '.');
     const rel = path.relative(base, abs).split(path.sep).join('/');
     return { base, abs, rel };
@@ -91,7 +99,9 @@ export class FilesService {
 
   private guardProtected(serverId: string | null, rel: string): void {
     if (!serverId && this.isProtectedGlobal(rel)) {
-      throw new ForbiddenException('That panel file is not accessible from the file manager');
+      throw new ForbiddenException(
+        'That panel file is not accessible from the file manager',
+      );
     }
   }
 
@@ -112,7 +122,10 @@ export class FilesService {
       let mtimeMs = 0;
       try {
         if (isDir) {
-          const dataRel = path.relative(this.config.dataDir, childAbs).split(path.sep).join('/');
+          const dataRel = path
+            .relative(this.config.dataDir, childAbs)
+            .split(path.sep)
+            .join('/');
           size = await this.indexer.sizeOf(dataRel);
           mtimeMs = (await fsp.stat(childAbs)).mtimeMs;
         } else {
@@ -132,38 +145,59 @@ export class FilesService {
         path: rel ? `${rel}/${e.name}` : e.name,
       });
     }
-    entries.sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    entries.sort(
+      (a, b) =>
+        Number(b.dir) - Number(a.dir) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
     return { path: rel, entries };
   }
 
-  async readText(serverId: string | null, relPath: string): Promise<ReadTextResult> {
+  async readText(
+    serverId: string | null,
+    relPath: string,
+  ): Promise<ReadTextResult> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     const st = await fsp.stat(abs).catch(() => null);
     if (!st || !st.isFile()) throw new NotFoundException('File not found');
     if (st.size > MAX_TEXT_BYTES) {
-      throw new PayloadTooLargeException(`File is too large for the editor (${this.humanBytes(st.size)} — limit is 2 MB). Download it instead.`);
+      throw new PayloadTooLargeException(
+        `File is too large for the editor (${this.humanBytes(st.size)} — limit is 2 MB). Download it instead.`,
+      );
     }
     const buf: Buffer = await fsp.readFile(abs);
     if (buf.subarray(0, 8192).includes(0)) {
-      throw new UnsupportedMediaTypeException('This looks like a binary file — download it instead of editing');
+      throw new UnsupportedMediaTypeException(
+        'This looks like a binary file — download it instead of editing',
+      );
     }
     return { content: buf.toString('utf8'), size: st.size };
   }
 
-  async writeText(serverId: string | null, relPath: string, content: string, { actor = 'system' }: { actor?: string } = {}): Promise<WriteTextResult> {
+  async writeText(
+    serverId: string | null,
+    relPath: string,
+    content: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<WriteTextResult> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     if (!rel) throw new BadRequestException('Cannot write the root');
     const bytes = Buffer.byteLength(content, 'utf8');
-    if (bytes > MAX_TEXT_BYTES) throw new PayloadTooLargeException('Content exceeds the 2 MB editor limit');
+    if (bytes > MAX_TEXT_BYTES)
+      throw new PayloadTooLargeException(
+        'Content exceeds the 2 MB editor limit',
+      );
     await this.assertRoom(serverId, bytes);
 
     const parent = path.dirname(abs);
     const pst = await fsp.stat(parent).catch(() => null);
-    if (!pst || !pst.isDirectory()) throw new NotFoundException('Parent folder not found');
+    if (!pst || !pst.isDirectory())
+      throw new NotFoundException('Parent folder not found');
     const existing = await fsp.stat(abs).catch(() => null);
-    if (existing && existing.isDirectory()) throw new BadRequestException('That path is a folder');
+    if (existing && existing.isDirectory())
+      throw new BadRequestException('That path is a folder');
 
     const tmp = path.join(parent, `.msm-write-${Date.now()}.tmp`);
     await fsp.writeFile(tmp, content, 'utf8');
@@ -179,16 +213,32 @@ export class FilesService {
     return { path: rel, size: bytes };
   }
 
-  async mkdir(serverId: string | null, relPath: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ path: string }> {
+  async mkdir(
+    serverId: string | null,
+    relPath: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ path: string }> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     if (!rel) throw new BadRequestException('Folder name cannot be empty');
-    if (fs.existsSync(abs)) throw new ConflictException('That name already exists');
+    if (fs.existsSync(abs))
+      throw new ConflictException('That name already exists');
     await fsp.mkdir(abs, { recursive: true });
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-mkdir', summary: `Folder created: ${rel}`, details: { path: rel } });
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-mkdir',
+      summary: `Folder created: ${rel}`,
+      details: { path: rel },
+    });
     return { path: rel };
   }
 
-  async rename(serverId: string | null, relPath: string, newName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ path: string }> {
+  async rename(
+    serverId: string | null,
+    relPath: string,
+    newName: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ path: string }> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     if (!rel) throw new BadRequestException('Cannot rename the root');
@@ -200,52 +250,102 @@ export class FilesService {
       throw new ConflictException(`"${clean}" already exists here`);
     }
     await fsp.rename(abs, target);
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-renamed', summary: `Renamed: ${rel} → ${clean}`, details: { from: rel, to: clean } });
-    return { path: rel.includes('/') ? `${rel.slice(0, rel.lastIndexOf('/'))}/${clean}` : clean };
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-renamed',
+      summary: `Renamed: ${rel} → ${clean}`,
+      details: { from: rel, to: clean },
+    });
+    return {
+      path: rel.includes('/')
+        ? `${rel.slice(0, rel.lastIndexOf('/'))}/${clean}`
+        : clean,
+    };
   }
 
-  async move(serverId: string | null, relPath: string, destRel: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ path: string }> {
+  async move(
+    serverId: string | null,
+    relPath: string,
+    destRel: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ path: string }> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     if (!rel) throw new BadRequestException('Cannot move the root');
     const dest = this.resolvePath(serverId, destRel);
     const dst = await fsp.stat(dest.abs).catch(() => null);
     if (!fs.existsSync(abs)) throw new NotFoundException('Not found');
-    if (!dst || !dst.isDirectory()) throw new BadRequestException('Destination folder not found');
-    if ((dest.abs + path.sep).startsWith(abs + path.sep)) throw new BadRequestException('Cannot move a folder into itself');
+    if (!dst || !dst.isDirectory())
+      throw new BadRequestException('Destination folder not found');
+    if ((dest.abs + path.sep).startsWith(abs + path.sep))
+      throw new BadRequestException('Cannot move a folder into itself');
 
     const target = path.join(dest.abs, path.basename(abs));
-    if (fs.existsSync(target)) throw new ConflictException(`"${path.basename(abs)}" already exists in the destination`);
+    if (fs.existsSync(target))
+      throw new ConflictException(
+        `"${path.basename(abs)}" already exists in the destination`,
+      );
     await this.moveEntry(abs, target);
-    const toRel = dest.rel ? `${dest.rel}/${path.basename(abs)}` : path.basename(abs);
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-moved', summary: `Moved: ${rel} → ${toRel}`, details: { from: rel, to: toRel } });
+    const toRel = dest.rel
+      ? `${dest.rel}/${path.basename(abs)}`
+      : path.basename(abs);
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-moved',
+      summary: `Moved: ${rel} → ${toRel}`,
+      details: { from: rel, to: toRel },
+    });
     return { path: toRel };
   }
 
-  async copy(serverId: string | null, relPath: string, destRel: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ path: string; sizeBytes: number }> {
+  async copy(
+    serverId: string | null,
+    relPath: string,
+    destRel: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ path: string; sizeBytes: number }> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     if (!rel) throw new BadRequestException('Cannot copy the root');
     const dest = this.resolvePath(serverId, destRel);
     const st = await fsp.stat(abs).catch(() => null);
     const dst = await fsp.stat(dest.abs).catch(() => null);
     if (!st) throw new NotFoundException('Not found');
-    if (!dst || !dst.isDirectory()) throw new BadRequestException('Destination folder not found');
-    if ((dest.abs + path.sep).startsWith(abs + path.sep)) throw new BadRequestException('Cannot copy a folder into itself');
+    if (!dst || !dst.isDirectory())
+      throw new BadRequestException('Destination folder not found');
+    if ((dest.abs + path.sep).startsWith(abs + path.sep))
+      throw new BadRequestException('Cannot copy a folder into itself');
 
     const bytes = st.isDirectory() ? await this.dirSize(abs) : st.size;
     await this.assertRoom(serverId, bytes);
     await this.assertDiskFree(bytes);
 
     const target = path.join(dest.abs, path.basename(abs));
-    if (fs.existsSync(target)) throw new ConflictException(`"${path.basename(abs)}" already exists in the destination`);
+    if (fs.existsSync(target))
+      throw new ConflictException(
+        `"${path.basename(abs)}" already exists in the destination`,
+      );
     await fsp.cp(abs, target, { recursive: true });
-    const toRel = dest.rel ? `${dest.rel}/${path.basename(abs)}` : path.basename(abs);
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-copied', summary: `Copied: ${rel} → ${toRel} (${this.humanBytes(bytes)})`, details: { from: rel, to: toRel, sizeBytes: bytes } });
+    const toRel = dest.rel
+      ? `${dest.rel}/${path.basename(abs)}`
+      : path.basename(abs);
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-copied',
+      summary: `Copied: ${rel} → ${toRel} (${this.humanBytes(bytes)})`,
+      details: { from: rel, to: toRel, sizeBytes: bytes },
+    });
     this.indexer.scan().catch(() => {});
     return { path: toRel, sizeBytes: bytes };
   }
 
-  async remove(serverId: string | null, relPath: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ freedBytes: number }> {
+  async remove(
+    serverId: string | null,
+    relPath: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ freedBytes: number }> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     if (!rel) throw new BadRequestException('Cannot delete the root folder');
@@ -253,15 +353,28 @@ export class FilesService {
     if (!st) throw new NotFoundException('Not found');
     const freedBytes = st.isDirectory() ? await this.dirSize(abs) : st.size;
     await fsp.rm(abs, { recursive: true, force: true });
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-deleted', summary: `Deleted: ${rel} (${this.humanBytes(freedBytes)} freed)`, details: { path: rel, freedBytes } });
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-deleted',
+      summary: `Deleted: ${rel} (${this.humanBytes(freedBytes)} freed)`,
+      details: { path: rel, freedBytes },
+    });
     this.indexer.scan().catch(() => {});
     return { freedBytes };
   }
 
-  async acceptUpload(serverId: string | null, destRel: string, tmpAbs: string, originalName: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ path: string; name: string; size: number }> {
+  async acceptUpload(
+    serverId: string | null,
+    destRel: string,
+    tmpAbs: string,
+    originalName: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ path: string; name: string; size: number }> {
     const dest = this.resolvePath(serverId, destRel);
     const dst = await fsp.stat(dest.abs).catch(() => null);
-    if (!dst || !dst.isDirectory()) throw new BadRequestException('Destination folder not found');
+    if (!dst || !dst.isDirectory())
+      throw new BadRequestException('Destination folder not found');
     const filename = this.sanitizeName(originalName || 'upload.bin');
     const size = (await fsp.stat(tmpAbs)).size;
     await this.assertRoom(serverId, size);
@@ -269,12 +382,21 @@ export class FilesService {
     const target = path.join(dest.abs, filename);
     await this.moveEntry(tmpAbs, target);
     const rel = dest.rel ? `${dest.rel}/${filename}` : filename;
-    this.events.recordEvent({ serverId: serverId || null, actor, type: 'file-uploaded', summary: `Uploaded: ${rel} (${this.humanBytes(size)})`, details: { path: rel, sizeBytes: size } });
+    this.events.recordEvent({
+      serverId: serverId || null,
+      actor,
+      type: 'file-uploaded',
+      summary: `Uploaded: ${rel} (${this.humanBytes(size)})`,
+      details: { path: rel, sizeBytes: size },
+    });
     this.indexer.scan().catch(() => {});
     return { path: rel, name: filename, size };
   }
 
-  async statFile(serverId: string | null, relPath: string): Promise<StatFileResult> {
+  async statFile(
+    serverId: string | null,
+    relPath: string,
+  ): Promise<StatFileResult> {
     const { abs, rel } = this.resolvePath(serverId, relPath);
     this.guardProtected(serverId, rel);
     const st = await fsp.stat(abs).catch(() => null);
@@ -282,7 +404,10 @@ export class FilesService {
     return { abs, rel, size: st.size, name: path.basename(abs) };
   }
 
-  async assertRoom(serverId: string | null, aboutToAddBytes: number): Promise<void> {
+  async assertRoom(
+    serverId: string | null,
+    aboutToAddBytes: number,
+  ): Promise<void> {
     if (!serverId) return;
     const [server] = await this.db
       .select()
@@ -290,13 +415,26 @@ export class FilesService {
       .where(and(eq(servers.id, serverId), isNull(servers.deletedAt)))
       .limit(1);
     if (server) {
-      await this.indexer.assertUnderQuota({ id: server.id, display_name: server.displayName, disk_quota_bytes: server.diskQuotaBytes }, aboutToAddBytes);
+      await this.indexer.assertUnderQuota(
+        {
+          id: server.id,
+          display_name: server.displayName,
+          disk_quota_bytes: server.diskQuotaBytes,
+        },
+        aboutToAddBytes,
+      );
     }
   }
 
   async assertDiskFree(bytes: number): Promise<void> {
-    const { free } = await this.indexer.diskFree().catch(() => ({ free: Infinity, total: Infinity }));
-    if (free < bytes * 1.1) throw new HttpException(`Not enough disk space (~${this.humanBytes(bytes)} needed)`, 507);
+    const { free } = await this.indexer
+      .diskFree()
+      .catch(() => ({ free: Infinity, total: Infinity }));
+    if (free < bytes * 1.1)
+      throw new HttpException(
+        `Not enough disk space (~${this.humanBytes(bytes)} needed)`,
+        507,
+      );
   }
 
   private async dirSize(abs: string): Promise<number> {
@@ -338,7 +476,8 @@ export class FilesService {
       .replace(/^\.+$/, '')
       .trim()
       .slice(0, 180);
-    if (!clean || clean === '.' || clean === '..') throw new BadRequestException('Invalid name');
+    if (!clean || clean === '.' || clean === '..')
+      throw new BadRequestException('Invalid name');
     return clean;
   }
 

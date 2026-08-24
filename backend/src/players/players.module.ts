@@ -12,9 +12,26 @@ import { PlayersController } from './players.controller';
 import { ServersModule } from '../servers/servers.module';
 
 @Module({
-  imports: [DbModule, EventsModule, DockerModule, PathGuardModule, forwardRef(() => InventoryModule), ServersModule],
+  imports: [
+    DbModule,
+    EventsModule,
+    DockerModule,
+    PathGuardModule,
+    forwardRef(() => InventoryModule),
+    ServersModule,
+  ],
   controllers: [PlayersController],
-  providers: [MojangService, MojangProfilesService, PlayerRosterService, PlayerTeleportService],
-  exports: [MojangService, MojangProfilesService, PlayerRosterService, PlayerTeleportService],
+  providers: [
+    MojangService,
+    MojangProfilesService,
+    PlayerRosterService,
+    PlayerTeleportService,
+  ],
+  exports: [
+    MojangService,
+    MojangProfilesService,
+    PlayerRosterService,
+    PlayerTeleportService,
+  ],
 })
 export class PlayersModule {}

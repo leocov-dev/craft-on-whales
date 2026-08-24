@@ -30,7 +30,11 @@ export class McRouterController {
 
   @Get()
   async get() {
-    return { ok: true, config: await this.mcRouter.getConfig(), routes: await this.mcRouter.listRoutes() };
+    return {
+      ok: true,
+      config: await this.mcRouter.getConfig(),
+      routes: await this.mcRouter.listRoutes(),
+    };
   }
 
   @Post()

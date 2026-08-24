@@ -11,7 +11,7 @@ export class SecretKeyMismatchError extends Error {
   constructor() {
     super(
       'A stored secret could not be decrypted — SESSION_SECRET has changed since it was saved. ' +
-        'Re-enter the affected credential (API key / RCON password), or restore the old SESSION_SECRET in .env.'
+        'Re-enter the affected credential (API key / RCON password), or restore the old SESSION_SECRET in .env.',
     );
   }
 }
@@ -21,22 +21,35 @@ export class SecretsService {
   private readonly key: Buffer;
 
   constructor(private readonly config: ConfigService) {
-    this.key = crypto.scryptSync(this.config.sessionSecret, 'msm.secrets.v1', 32);
+    this.key = crypto.scryptSync(
+      this.config.sessionSecret,
+      'msm.secrets.v1',
+      32,
+    );
   }
 
   encrypt(plaintext: string): string {
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv('aes-256-gcm', this.key, iv);
-    const data = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
-    return [iv, cipher.getAuthTag(), data].map((b) => b.toString('base64')).join('.');
+    const data = Buffer.concat([
+      cipher.update(String(plaintext), 'utf8'),
+      cipher.final(),
+    ]);
+    return [iv, cipher.getAuthTag(), data]
+      .map((b) => b.toString('base64'))
+      .join('.');
   }
 
   decrypt(ciphertext: string): string {
     try {
-      const [iv, tag, data] = ciphertext.split('.').map((s) => Buffer.from(s, 'base64'));
+      const [iv, tag, data] = ciphertext
+        .split('.')
+        .map((s) => Buffer.from(s, 'base64'));
       const decipher = crypto.createDecipheriv('aes-256-gcm', this.key, iv!);
       decipher.setAuthTag(tag!);
-      return Buffer.concat([decipher.update(data!), decipher.final()]).toString('utf8');
+      return Buffer.concat([decipher.update(data!), decipher.final()]).toString(
+        'utf8',
+      );
     } catch {
       // Almost always: SESSION_SECRET changed since this value was stored.
       throw new SecretKeyMismatchError();

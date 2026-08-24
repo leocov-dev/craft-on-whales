@@ -3,7 +3,11 @@
 // follow-up once the basics are proven out.
 
 import { http } from './http';
-import type { TimelineEvent, ScoreboardMetric, ScoreboardRow } from '../../../shared/types/analytics';
+import type {
+  TimelineEvent,
+  ScoreboardMetric,
+  ScoreboardRow,
+} from '../../../shared/types/analytics';
 
 export type { TimelineEvent, ScoreboardMetric, ScoreboardRow };
 

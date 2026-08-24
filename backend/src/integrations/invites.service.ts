@@ -1,11 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the untyped-require pattern established in
-// backend/src/worlds/world-archive.service.ts.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
+import archiver from 'archiver';
 import { and, eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';
@@ -45,7 +41,16 @@ function portForwardGuidance(port: number): string {
 
 function isPluginFlavor(type: string): boolean {
   // Plugin servers (Paper & friends) need nothing on the client.
-  return ['PAPER', 'PURPUR', 'PUFFERFISH', 'LEAF', 'FOLIA', 'SPIGOT', 'BUKKIT', 'CANYON'].includes(type);
+  return [
+    'PAPER',
+    'PURPUR',
+    'PUFFERFISH',
+    'LEAF',
+    'FOLIA',
+    'SPIGOT',
+    'BUKKIT',
+    'CANYON',
+  ].includes(type);
 }
 
 function slugify(name: string): string {
@@ -85,7 +90,10 @@ type OverlayRow = {
  */
 @Injectable()
 export class InvitesService {
-  private publicIpCache: { ip: string | null; at: number } = { ip: null, at: 0 };
+  private publicIpCache: { ip: string | null; at: number } = {
+    ip: null,
+    at: 0,
+  };
 
   constructor(
     private readonly dbService: DbService,
@@ -94,7 +102,7 @@ export class InvitesService {
     private readonly mods: ModsService,
     private readonly modrinth: ModrinthApiService,
     private readonly mojang: MojangService,
-    private readonly players: PlayerRosterService
+    private readonly players: PlayerRosterService,
   ) {}
 
   private get db() {
@@ -111,11 +119,17 @@ export class InvitesService {
   // Public IP detection (replaces UPnP — no new dependencies).
 
   async detectPublicIp(): Promise<string | null> {
-    if (Date.now() - this.publicIpCache.at < 60 * 60 * 1000) return this.publicIpCache.ip;
+    if (Date.now() - this.publicIpCache.at < 60 * 60 * 1000)
+      return this.publicIpCache.ip;
     try {
-      const res = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(5000) });
+      const res = await fetch('https://api.ipify.org', {
+        signal: AbortSignal.timeout(5000),
+      });
       const ip = res.ok ? (await res.text()).trim() : null;
-      this.publicIpCache = { ip: /^[\d.]+$/.test(ip || '') ? ip : null, at: Date.now() };
+      this.publicIpCache = {
+        ip: /^[\d.]+$/.test(ip || '') ? ip : null,
+        at: Date.now(),
+      };
     } catch {
       this.publicIpCache = { ip: null, at: Date.now() };
     }
@@ -135,7 +149,10 @@ export class InvitesService {
     const whitelistEnforced = this.players.getWhitelistEnforced(serverId);
 
     const content = await this.mods.listContent(serverId).catch(() => []);
-    const activeMods = content.filter((m) => m.enabled && !m.missing && (m.kind === 'mod' || m.kind === 'plugin'));
+    const activeMods = content.filter(
+      (m) =>
+        m.enabled && !m.missing && (m.kind === 'mod' || m.kind === 'plugin'),
+    );
     const { manual } = await this.splitOverlay(serverId);
     const publicIp = await this.detectPublicIp();
 
@@ -145,12 +162,18 @@ export class InvitesService {
       `Address: ${address}`,
       `Version: Minecraft ${mcVersion} (${flavor})`,
     ];
-    if (whitelistEnforced) lines.push('Whitelist is ON — send me your Minecraft username so I can add you.');
+    if (whitelistEnforced)
+      lines.push(
+        'Whitelist is ON — send me your Minecraft username so I can add you.',
+      );
     if (activeMods.length && !isPluginFlavor(server.type)) {
       lines.push(
-        `Mods: ${activeMods.length} — grab the client modpack (.mrpack) I sent and import it into your launcher (Prism / Modrinth App).`
+        `Mods: ${activeMods.length} — grab the client modpack (.mrpack) I sent and import it into your launcher (Prism / Modrinth App).`,
       );
-      if (manual.length) lines.push(`Also install these manually (not on Modrinth): ${manual.map((m) => m.name).join(', ')}.`);
+      if (manual.length)
+        lines.push(
+          `Also install these manually (not on Modrinth): ${manual.map((m) => m.name).join(', ')}.`,
+        );
     }
 
     return {
@@ -172,7 +195,9 @@ export class InvitesService {
   }
 
   /** Overlay rows split into mrpack-embeddable (Modrinth) vs install-manually. */
-  private async splitOverlay(serverId: string): Promise<{ modrinth: OverlayRow[]; manual: OverlayRow[] }> {
+  private async splitOverlay(
+    serverId: string,
+  ): Promise<{ modrinth: OverlayRow[]; manual: OverlayRow[] }> {
     const allRows = await this.db
       .select({
         name: serverContent.name,
@@ -186,10 +211,10 @@ export class InvitesService {
       .where(
         and(
           eq(serverContent.serverId, serverId),
-          eq(serverContent.managedBy, 'overlay')
+          eq(serverContent.managedBy, 'overlay'),
           // kind IN ('mod','plugin') filtered below — drizzle inArray would
           // also work, kept as a filter for parity with the simple legacy query
-        )
+        ),
       );
     const rows = allRows.filter((r) => r.enabled);
     return {
@@ -202,11 +227,16 @@ export class InvitesService {
   // .mrpack generation
 
   /** Concrete MC version for the pack manifest (LATEST/SNAPSHOT resolved now). */
-  private async resolvedMcVersion(server: Pick<Server, 'mc_version'>): Promise<string> {
-    if (server.mc_version !== 'LATEST' && server.mc_version !== 'SNAPSHOT') return server.mc_version;
+  private async resolvedMcVersion(
+    server: Pick<Server, 'mc_version'>,
+  ): Promise<string> {
+    if (server.mc_version !== 'LATEST' && server.mc_version !== 'SNAPSHOT')
+      return server.mc_version;
     try {
       const manifest = await this.mojang.getVersionManifest();
-      return server.mc_version === 'LATEST' ? manifest.latest.release : manifest.latest.snapshot;
+      return server.mc_version === 'LATEST'
+        ? manifest.latest.release
+        : manifest.latest.snapshot;
     } catch {
       return server.mc_version; // offline — better than nothing
     }
@@ -217,7 +247,10 @@ export class InvitesService {
    * fileCount, manual }. Caller streams it to the user and deletes it after.
    * `host` is the address the user picked for the bundled servers.dat entry.
    */
-  async generateMrpack(serverId: string, { host }: { host?: string } = {}): Promise<GenerateMrpackResult> {
+  async generateMrpack(
+    serverId: string,
+    { host }: { host?: string } = {},
+  ): Promise<GenerateMrpackResult> {
     const server = await this.mustGet(serverId);
     const { modrinth: embeddable, manual } = await this.splitOverlay(serverId);
 
@@ -246,7 +279,9 @@ export class InvitesService {
       });
     }
 
-    const dependencies: Record<string, string> = { minecraft: await this.resolvedMcVersion(server) };
+    const dependencies: Record<string, string> = {
+      minecraft: await this.resolvedMcVersion(server),
+    };
     for (const [envVar, depId] of Object.entries(LOADER_ENVS)) {
       const v = server.env[envVar];
       if (v && v.toUpperCase() !== 'LATEST') dependencies[depId] = v;
@@ -262,12 +297,19 @@ export class InvitesService {
       files,
     };
 
-    const address = host || `${localIPv4s()[0] || 'localhost'}:${server.port_game}`;
-    const serversDat = this.buildServersDat({ name: server.display_name, ip: address });
+    const address =
+      host || `${localIPv4s()[0] || 'localhost'}:${server.port_game}`;
+    const serversDat = this.buildServersDat({
+      name: server.display_name,
+      ip: address,
+    });
 
     fs.mkdirSync(this.pathGuard.dataPath('tmp'), { recursive: true });
     const filename = `${slugify(server.display_name)}.mrpack`;
-    const absPath = this.pathGuard.dataPath('tmp', `invite-${serverId}-${Date.now()}.mrpack`);
+    const absPath = this.pathGuard.dataPath(
+      'tmp',
+      `invite-${serverId}-${Date.now()}.mrpack`,
+    );
 
     await new Promise<void>((resolve, reject) => {
       const out = fs.createWriteStream(absPath);
@@ -275,12 +317,19 @@ export class InvitesService {
       out.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(out);
-      archive.append(JSON.stringify(index, null, 2), { name: 'modrinth.index.json' });
+      archive.append(JSON.stringify(index, null, 2), {
+        name: 'modrinth.index.json',
+      });
       archive.append(serversDat, { name: 'overrides/servers.dat' });
       archive.finalize();
     });
 
-    return { absPath, filename, fileCount: files.length, manual: manual.map((m) => m.name) };
+    return {
+      absPath,
+      filename,
+      fileCount: files.length,
+      manual: manual.map((m) => m.name),
+    };
   }
 
   // -------------------------------------------------------------------
@@ -312,7 +361,11 @@ export class InvitesService {
     ]);
     const count = Buffer.alloc(4);
     count.writeInt32BE(1);
-    const listPayload = Buffer.concat([Buffer.from([TAG_COMPOUND]), count, entry]);
+    const listPayload = Buffer.concat([
+      Buffer.from([TAG_COMPOUND]),
+      count,
+      entry,
+    ]);
     return Buffer.concat([
       Buffer.from([TAG_COMPOUND]),
       this.nbtStr(''),
