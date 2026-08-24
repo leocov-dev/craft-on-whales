@@ -9,12 +9,15 @@ import {
   Req,
   Res,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import * as fsp from 'node:fs/promises';
 import { z, ZodError } from 'zod';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { FilesService } from './files.service';
 import { UploadPreflightInterceptor } from './upload-preflight.interceptor';
 
@@ -40,6 +43,8 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
 
 /** Global (admin) file manager, rooted at DATA_DIR. Ports the `globalFiles` branch of legacy `src/web/routes/files.ts`. */
 @Controller('api/files')
+@UseGuards(RolesGuard)
+@Roles('admin')
 export class GlobalFilesController {
   constructor(private readonly files: FilesService) {}
 
