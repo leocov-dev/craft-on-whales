@@ -4,6 +4,8 @@ data/
 node_modules/
 public/css/app.css
 .env
+backend/dist/
+backend/tsconfig.build.tsbuildinfo
 
 
 # Logs / editor / OS noise
@@ -15,3 +17,5 @@ Thumbs.db
 
 # Local Claude Code project config
 .claude/
+
+.plan/
