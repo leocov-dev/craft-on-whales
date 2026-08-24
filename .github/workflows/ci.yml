@@ -15,11 +15,21 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+            backend/package-lock.json
 
-      # postinstall builds the CSS bundle; the rest are explicit gates.
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+
+      - run: npm --prefix frontend ci
+      - run: npm --prefix frontend run lint:check
+      - run: npm --prefix frontend run typecheck
+      - run: npm --prefix frontend run build
+
+      - run: npm --prefix backend ci
+      - run: npm --prefix backend run lint
+      - run: npm --prefix backend run test
+      - run: npm --prefix backend run build
