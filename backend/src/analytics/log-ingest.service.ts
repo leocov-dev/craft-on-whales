@@ -5,7 +5,7 @@ import { playerEvents, playerSessions } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
 import { LogClassifierService } from './log-classifier.service';
-import { ChatCommandsService } from '../chat/chat-commands.service';
+import { ChatCommandsRuntimeService } from '../chat/chat-commands-runtime.service';
 import type { ClassifiedEvent } from './types';
 
 const RUNNING = new Set(['running', 'starting', 'unhealthy']);
@@ -45,7 +45,7 @@ export class LogIngestService implements OnModuleInit {
     private readonly servers: ServerQueryService,
     private readonly logs: DockerLogsService,
     private readonly classifier: LogClassifierService,
-    private readonly chatCommands: ChatCommandsService,
+    private readonly chatCommands: ChatCommandsRuntimeService,
   ) {}
 
   private get db() {

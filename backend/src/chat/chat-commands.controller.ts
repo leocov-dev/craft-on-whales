@@ -16,6 +16,7 @@ import { z, ZodError } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { ChatCommandsService } from './chat-commands.service';
+import { ChatCommandsRuntimeService } from './chat-commands-runtime.service';
 import { PLAYER_NAME_RE } from '../utils/player-name';
 import type { HydratedCommand } from './chat.types';
 import type { ChatCommand } from '../../../shared/types/chat-commands';
@@ -105,6 +106,7 @@ export class ChatCommandsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly chatCommands: ChatCommandsService,
+    private readonly chatCommandsRuntime: ChatCommandsRuntimeService,
     private readonly containers: ContainerService,
   ) {}
 
@@ -211,9 +213,14 @@ export class ChatCommandsController {
         'The server must be running to test a chat command',
       );
     }
-    const result = await this.chatCommands.testCommand(id, cmdId, player, {
-      actor: req.user!.username,
-    });
+    const result = await this.chatCommandsRuntime.testCommand(
+      id,
+      cmdId,
+      player,
+      {
+        actor: req.user!.username,
+      },
+    );
     return { ok: true, ...result };
   }
 
