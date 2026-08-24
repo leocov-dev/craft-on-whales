@@ -12,7 +12,7 @@ if (!version) {
   process.exit(1);
 }
 
-const md = fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8');
+const md = fs.readFileSync(path.join(__dirname, '..', '..', 'CHANGELOG.md'), 'utf8');
 const out = [];
 let capturing = false;
 for (const line of md.split(/\r?\n/)) {
