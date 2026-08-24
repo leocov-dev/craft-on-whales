@@ -8,10 +8,11 @@ Guidance for coding agents (and contributors) working in this repo. Read this fi
   NestJS module/DI structure, layering, `forwardRef()` circular-module cases, boot sequence.
 - **[docs/README.md](docs/README.md)** — the user-facing feature docs, if a change touches
   behavior a user would notice.
-- **Commit messages must follow [Conventional Commits](https://www.conventionalcommits.org/)**
-  (`feat:`, `fix:`, `chore:`, etc.), enforced by commitlint on every PR. `semantic-release` reads
-  them to pick the next version and to generate each GitHub Release's notes — there's no
-  hand-maintained changelog file.
+- **PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/)**
+  (`feat:`, `fix:`, `chore:`, etc.), enforced on every PR. The repo is squash-merge-only, so a PR's
+  title becomes the single commit that lands on `main` — that's what `semantic-release` reads to
+  pick the next version and generate each GitHub Release's notes. There's no hand-maintained
+  changelog file.
 
 Coding agents should work in isolated git worktrees.
 

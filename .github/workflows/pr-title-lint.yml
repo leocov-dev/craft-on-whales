@@ -1,0 +1,20 @@
+name: PR title lint
+
+# Repo is squash-merge-only (see repo settings), and the squash commit title
+# defaults to the PR title — that's the single commit that lands on main and
+# the one semantic-release's commit-analyzer reads (see .releaserc.json), so
+# the PR title itself must be a valid Conventional Commit.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
