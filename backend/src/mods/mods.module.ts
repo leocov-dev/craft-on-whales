@@ -10,7 +10,10 @@ import { GtnhApiService } from './gtnh-api.service';
 import { PackwizApiService } from './packwiz-api.service';
 import { LoaderVersionsService } from './loader-versions.service';
 import { ModBrowserService } from './mod-browser.service';
+import { ModManifestService } from './mod-manifest.service';
+import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { ModsService } from './mods.service';
+import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
 import { ModsController, ModBrowserController } from './mods.controller';
 
 // forwardRef: ModsModule sits on the ServersModule -> SchedulerModule ->
@@ -32,7 +35,10 @@ import { ModsController, ModBrowserController } from './mods.controller';
     PackwizApiService,
     LoaderVersionsService,
     ModBrowserService,
+    ModManifestService,
+    PendingModDownloadsService,
     ModsService,
+    ModBrowserOrchestratorService,
   ],
   exports: [
     ApiCacheService,
@@ -42,7 +48,10 @@ import { ModsController, ModBrowserController } from './mods.controller';
     PackwizApiService,
     LoaderVersionsService,
     ModBrowserService,
+    ModManifestService,
+    PendingModDownloadsService,
     ModsService,
+    ModBrowserOrchestratorService,
   ],
 })
 export class ModsModule {}

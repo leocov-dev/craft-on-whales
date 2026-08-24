@@ -18,6 +18,8 @@ import { ModrinthApiService } from './modrinth-api.service';
 import { CurseforgeApiService } from './curseforge-api.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
+import { ModManifestService } from './mod-manifest.service';
+import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { serverContent, updateChecks } from '../db/schema';
 import type { Server } from '../servers/types';
 import type {
@@ -56,11 +58,6 @@ interface ClassifiedModSource {
   ref: string;
 }
 
-interface ManifestEntry {
-  slug: string | null;
-  projectId: string | null;
-}
-
 @Injectable()
 export class ModsService {
   constructor(
@@ -73,6 +70,8 @@ export class ModsService {
     private readonly curseforge: CurseforgeApiService,
     private readonly query: ServerQueryService,
     private readonly lifecycle: ServerLifecycleService,
+    private readonly manifest: ModManifestService,
+    private readonly pendingDownloadsSvc: PendingModDownloadsService,
   ) {}
 
   private get db() {
@@ -495,9 +494,9 @@ export class ModsService {
     const env = { ...server.env };
     const isCF = server.type === 'AUTO_CURSEFORGE';
     const varName = isCF ? 'CF_EXCLUDE_MODS' : 'MODRINTH_EXCLUDE_FILES';
-    const fromManifest = this.packManifestIndex(serverId).get(
-      file.replace(/\.disabled$/, ''),
-    );
+    const fromManifest = this.manifest
+      .index(serverId)
+      .get(file.replace(/\.disabled$/, ''));
     const token =
       (fromManifest && (fromManifest.slug || fromManifest.projectId)) ||
       (row && row.iconUrl && row.name
@@ -638,108 +637,17 @@ export class ModsService {
   // Manual-download handling. A CurseForge pack can pin mods whose authors disallow
   // automated download (or that were pulled from CF). mc-image-helper then writes
   // MODS_NEED_DOWNLOAD.txt and the pack install FAILS until each is excluded or
-  // supplied by hand — this turns that dead-end into guided actions.
-
-  /** Best-effort filename -> {slug, projectId} map from the pack's CF manifest. */
-  private packManifestIndex(serverId: string): Map<string, ManifestEntry> {
-    const map = new Map<string, ManifestEntry>();
-    let data: unknown;
-    try {
-      data = JSON.parse(
-        fs.readFileSync(
-          this.pathGuard.dataPath(
-            'servers',
-            serverId,
-            '.curseforge-manifest.json',
-          ),
-          'utf8',
-        ),
-      );
-    } catch {
-      return map;
-    }
-    const visit = (node: unknown): void => {
-      if (!node || typeof node !== 'object') return;
-      if (Array.isArray(node)) {
-        node.forEach(visit);
-        return;
-      }
-      const obj = node as Record<string, unknown>;
-      const fname = obj.fileName || obj.filename;
-      const slug = obj.slug || obj.projectSlug;
-      const pid = obj.projectID ?? obj.projectId ?? obj.modId;
-      if (
-        typeof fname === 'string' &&
-        /\.jar$/i.test(fname) &&
-        (slug || pid != null)
-      ) {
-        let projectId: string | null = null;
-        if (typeof pid === 'string' || typeof pid === 'number') {
-          projectId = String(pid);
-        } else if (pid != null) {
-          projectId = JSON.stringify(pid);
-        }
-        map.set(fname, {
-          slug: (slug as string) || null,
-          projectId,
-        });
-      }
-      for (const v of Object.values(obj)) visit(v);
-    };
-    visit(data);
-    return map;
-  }
-
-  /** Parse MODS_NEED_DOWNLOAD.txt text → [{ name, versionName, filename, url, slug, fileId }]. */
-  private parseModsNeedDownload(
-    text: string | null | undefined,
-  ): PendingDownload[] {
-    const out: PendingDownload[] = [];
-    for (const line of String(text || '').split(/\r?\n/)) {
-      const m = /(https?:\/\/\S*curseforge\.com\/\S+)/i.exec(line); // only data rows carry a URL
-      if (!m) continue;
-      const cols = line
-        .slice(0, m.index)
-        .split(/\s{2,}/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const filename = cols[cols.length - 1] || '';
-      const versionName = cols.length > 1 ? cols[cols.length - 2]! : '';
-      const name =
-        cols.length > 2 ? cols.slice(0, -2).join(' ') : cols[0] || filename;
-      const slug =
-        (/curseforge\.com\/minecraft\/mc-mods\/([^/]+)/i.exec(m[1]!) ||
-          [])[1] || null;
-      const fileId = (/\/download\/(\d+)/.exec(m[1]!) || [])[1] || null;
-      out.push({ name, versionName, filename, url: m[1]!, slug, fileId });
-    }
-    return out;
-  }
+  // supplied by hand — this turns that dead-end into guided actions. Parsing lives
+  // in PendingModDownloadsService; these just delegate to keep the public surface.
 
   /** Mods a CF pack needs supplied by hand, parsed from the server's MODS_NEED_DOWNLOAD.txt. */
   pendingDownloads(serverId: string): PendingDownload[] {
-    try {
-      return this.parseModsNeedDownload(
-        fs.readFileSync(
-          this.pathGuard.dataPath(
-            'servers',
-            serverId,
-            'MODS_NEED_DOWNLOAD.txt',
-          ),
-          'utf8',
-        ),
-      );
-    } catch {
-      return [];
-    }
+    return this.pendingDownloadsSvc.pendingDownloads(serverId);
   }
 
   /** The exclusion token (slug preferred) for a pending mod identified by filename. */
   pendingExcludeToken(serverId: string, filename: string): string {
-    const entry = this.pendingDownloads(serverId).find(
-      (p) => p.filename === filename,
-    );
-    return (entry && entry.slug) || filename.replace(/(-[\d.]+.*)?\.jar$/, '');
+    return this.pendingDownloadsSvc.pendingExcludeToken(serverId, filename);
   }
 
   /** Drop a resolved mod's line from MODS_NEED_DOWNLOAD.txt (best-effort). */
@@ -747,27 +655,7 @@ export class ModsService {
     serverId: string,
     filename: string | null | undefined,
   ): void {
-    const file = this.pathGuard.dataPath(
-      'servers',
-      serverId,
-      'MODS_NEED_DOWNLOAD.txt',
-    );
-    let text: string;
-    try {
-      text = fs.readFileSync(file, 'utf8');
-    } catch {
-      return;
-    }
-    const kept = text
-      .split(/\r?\n/)
-      .filter((l) => !filename || !l.includes(filename));
-    try {
-      if (kept.some((l) => /curseforge\.com/i.test(l)))
-        fs.writeFileSync(file, kept.join('\n'));
-      else fs.rmSync(file, { force: true });
-    } catch {
-      /* ownership not aligned yet — the banner clears on the next successful start */
-    }
+    this.pendingDownloadsSvc.clearPendingLine(serverId, filename);
   }
 
   /** Add a project slug/ID to the pack's exclusion env var (applies on recreate). */
