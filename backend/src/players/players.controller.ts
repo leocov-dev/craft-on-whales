@@ -13,6 +13,8 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { PlayerRosterService } from './player-roster.service';
 import { PlayerTeleportService } from './player-teleport.service';
+import { StructureRegistryService } from './structure-registry.service';
+import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
@@ -117,6 +119,8 @@ export class PlayersController {
     private readonly containers: ContainerService,
     private readonly roster: PlayerRosterService,
     private readonly teleport: PlayerTeleportService,
+    private readonly structureRegistry: StructureRegistryService,
+    private readonly biomeRegistry: BiomeRegistryService,
   ) {}
 
   private async loadContext(id: string, req: Request) {
@@ -153,7 +157,7 @@ export class PlayersController {
       const { ctx } = await this.loadContext(id, req);
       return {
         ok: true,
-        structures: await this.teleport.getServerStructures(id, {
+        structures: await this.structureRegistry.getServerStructures(id, {
           running: ctx.running,
         }),
       };
@@ -166,7 +170,7 @@ export class PlayersController {
   async biomesList(@Param('id') id: string, @Req() req: Request) {
     try {
       const { ctx } = await this.loadContext(id, req);
-      const registry = await this.teleport.getServerBiomes(id, {
+      const registry = await this.biomeRegistry.getServerBiomes(id, {
         running: ctx.running,
       });
       const seen = new Map<string, { id: string; dimension: string }>();
