@@ -1,0 +1,17 @@
+name: Commitlint
+
+# Enforces Conventional Commits on every commit in a PR — semantic-release's
+# commit-analyzer (see .releaserc.json) reads these to decide the next version,
+# so malformed commits would silently produce no release rather than a wrong one.
+on:
+  pull_request:
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: wagoid/commitlint-github-action@v6

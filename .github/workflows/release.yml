@@ -1,41 +1,147 @@
 name: Release
 
-# Publish a GitHub Release for a pushed version tag (v1.2.3). Notes come straight
-# from CHANGELOG.md, so the tag's version must have a matching CHANGELOG entry and
-# match package.json (checked below as a sanity guard against tagging before the
-# version bump lands). Publishing the release fans out to docker-publish.yml.
+# semantic-release analyzes Conventional Commits on every push to main to decide
+# whether a release is warranted and what version it gets, then tags + publishes
+# a GitHub Release with auto-generated notes — see .releaserc.json. No changelog
+# file, no manual tagging.
+#
+# The docker job runs right after in the SAME workflow (not triggered by the
+# release event) because a release/tag created via the default GITHUB_TOKEN does
+# not fire other workflows' triggers — that's deliberate on GitHub's part, to
+# avoid infinite trigger loops.
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [main]
 
 permissions:
-  contents: write # create the release
+  contents: write
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.semrel.outputs.new_release_published }}
+      tag: ${{ steps.semrel.outputs.new_release_git_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - id: version
-        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
 
-      - name: Verify tag matches package.json version
-        run: |
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$pkg" != "${{ steps.version.outputs.value }}" ]; then
-            echo "Tag ${{ github.ref_name }} does not match package.json version $pkg" >&2
-            exit 1
-          fi
+      - run: npm ci
 
-      - name: Build release notes from CHANGELOG
-        run: node tools/changelog-notes/changelog-notes.js "${{ steps.version.outputs.value }}" > release-notes.md
-
-      - name: Create GitHub Release
+      - id: semrel
+        uses: cycjimmy/semantic-release-action@v4
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "${{ github.ref_name }}"
-          --title "${{ github.ref_name }}"
-          --notes-file release-notes.md
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      # GHCR/OCI tags must be lowercase — github.repository preserves the
+      # owner's actual casing (e.g. OwenWright8/...), which buildx rejects.
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,push=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Set platform name
+        id: platform
+        run: echo "name=$(echo ${{ matrix.platform }} | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ steps.platform.outputs.name }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge and push manifest
+    runs-on: ubuntu-latest
+    needs: [release, build]
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        run: |
+          digests=$(ls /tmp/digests)
+
+          sources=""
+          for digest in $digests; do
+            sources="$sources ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:$digest"
+          done
+
+          docker buildx imagetools create \
+            --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            --tag "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.release.outputs.tag }}" \
+            $sources
