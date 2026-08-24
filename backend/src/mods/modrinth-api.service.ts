@@ -72,7 +72,7 @@ export class ModrinthApiService {
     if (!res.ok)
       throw new BadGatewayException(`Modrinth answered HTTP ${res.status}`);
     const data = (await res.json()) as T;
-    this.cache.set(cacheKey, data);
+    void this.cache.set(cacheKey, data).catch(() => undefined);
     return data;
   }
 

@@ -124,7 +124,8 @@ export class CurseforgeApiService {
     if (!res.ok)
       throw new BadGatewayException(`CurseForge answered HTTP ${res.status}`);
     const data = (await res.json()) as T;
-    if (method === 'GET') this.cache.set(cacheKey, data);
+    if (method === 'GET')
+      void this.cache.set(cacheKey, data).catch(() => undefined);
     return data;
   }
 

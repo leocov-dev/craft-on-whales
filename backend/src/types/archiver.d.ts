@@ -20,7 +20,9 @@ declare module 'archiver' {
       filepath: string,
       data: { name: string } & Record<string, unknown>,
     ): Archiver;
-    finalize(): Promise<void>;
+    // Kicks off the async write; completion is signaled via the 'close'/'end'
+    // stream events (or 'error'), not by this call's return value.
+    finalize(): void;
   }
 
   export default function archiver(

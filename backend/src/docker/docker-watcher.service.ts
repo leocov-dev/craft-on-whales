@@ -82,8 +82,8 @@ export class DockerWatcherService implements OnModuleInit {
         buffer = buffer.slice(idx + 1);
         if (!line) continue;
         try {
-          this.handleEvent(JSON.parse(line)).catch((err: Error) =>
-            this.logger.error(`[watcher] ${err.message}`),
+          this.handleEvent(JSON.parse(line) as DockerEvent).catch(
+            (err: Error) => this.logger.error(`[watcher] ${err.message}`),
           );
         } catch {
           /* partial frame */

@@ -144,7 +144,7 @@ export class GtnhApiService {
         `GTNH index is malformed JSON (${(err as Error).message})`,
       );
     }
-    this.cache.set(CACHE_KEY, raw);
+    void this.cache.set(CACHE_KEY, raw).catch(() => undefined);
     return this.normalizeIndex(raw);
   }
 
