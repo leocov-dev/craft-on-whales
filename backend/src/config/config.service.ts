@@ -1,23 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as crypto from 'node:crypto';
 
-const MB = 1024 * 1024;
+import {
+  ResourceDefaults,
+  ResourceDefaultsResolver,
+} from './resource-defaults.resolver';
+import { SessionSecretProvider } from './session-secret.provider';
 
 export type TrustProxy = boolean | number | string;
 export type CookieSecure = boolean | 'auto';
 export type DbDriver = 'sqlite' | 'postgres';
 
-export interface ResourceDefaults {
-  heapMb: number;
-  containerMemoryMb: number;
-  cpus: number;
-  diskQuotaGb: number;
-  quotaWarnPct: number;
-  quotaCriticalPct: number;
-}
+export type { ResourceDefaults };
 
 /**
  * Central panel configuration — a straight port of src/config/index.ts's
@@ -31,6 +25,15 @@ export interface ResourceDefaults {
  * express-session's middleware *before* `app.init()` mounts Nest's router
  * (middleware registered after `init()` runs after routing in the Express
  * stack, so session data wouldn't be populated yet when guards/controllers run).
+ *
+ * Session-secret resolution/persistence and host-memory-derived resource
+ * defaults are delegated to `SessionSecretProvider` / `ResourceDefaultsResolver`
+ * so those two concerns are independently testable (SRP finding,
+ * `.plan/reviews/01-core-infra.md`); everything else (paths, ports, DB
+ * driver, trust-proxy, cookie policy, Docker-bind-mount host/proxy
+ * translation) stays here as the coordinator. Public surface unchanged —
+ * both collaborators are constructor-injected and consulted synchronously
+ * so all fields remain available right after construction.
  */
 @Injectable()
 export class ConfigService {
@@ -56,7 +59,10 @@ export class ConfigService {
   readonly dbDriver: DbDriver;
   readonly databaseUrl: string | undefined;
 
-  constructor() {
+  constructor(
+    private readonly sessionSecretProvider: SessionSecretProvider,
+    private readonly resourceDefaultsResolver: ResourceDefaultsResolver,
+  ) {
     // backend/ is one level deeper than src/ was (repo/backend/dist vs
     // repo/src) — DATA_DIR still defaults to ./data at the repo root so an
     // existing install's data directory keeps working unmodified.
@@ -91,7 +97,7 @@ export class ConfigService {
         max: 65535,
       }),
     };
-    this.defaults = this.resolveDefaults();
+    this.defaults = this.resourceDefaultsResolver.resolve();
     this.dbDriver = this.resolveDbDriver();
     this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
     if (this.dbDriver === 'postgres' && !this.databaseUrl) {
@@ -101,7 +107,7 @@ export class ConfigService {
     }
     this.dataDirHost = this.resolveDataDirHost();
     this.mapProxyHost = this.resolveMapProxyHost();
-    this.sessionSecret = this.resolveSessionSecret();
+    this.sessionSecret = this.sessionSecretProvider.resolve(this.dataDir);
     if (!this.sessionSecret || this.sessionSecret.length < 16) {
       throw new Error('Failed to resolve a session secret.');
     }
@@ -121,70 +127,6 @@ export class ConfigService {
       );
     }
     return n;
-  }
-
-  private resolveSessionSecret(): string {
-    const fromEnv = process.env.SESSION_SECRET;
-    if (fromEnv && fromEnv.trim().length > 0) {
-      if (fromEnv.trim().length < 16) {
-        throw new Error(
-          'SESSION_SECRET is set but too short — use at least 16 characters (e.g. `openssl rand -base64 48`).',
-        );
-      }
-      return fromEnv.trim();
-    }
-    const secretFile = path.join(this.dataDir, '.session-secret');
-    try {
-      const existing = fs.readFileSync(secretFile, 'utf8').trim();
-      if (existing.length >= 16) return existing;
-    } catch {
-      /* not created yet — fall through and generate */
-    }
-    const generated = crypto.randomBytes(48).toString('base64url');
-    try {
-      fs.mkdirSync(this.dataDir, { recursive: true });
-      fs.writeFileSync(secretFile, generated, { mode: 0o600 });
-
-      console.log(
-        `No SESSION_SECRET set — generated one and saved it to ${secretFile} (keep it private; delete it to rotate).`,
-      );
-    } catch (err) {
-      throw new Error(
-        `Could not persist a generated session secret to ${secretFile}: ${(err as Error).message}`,
-      );
-    }
-    return generated;
-  }
-
-  private resolveDefaults(): ResourceDefaults {
-    const envHeap = this.numFromEnv('DEFAULT_HEAP_MB', 0, {
-      min: 0,
-      max: 1024 * 1024,
-    });
-    const envContainer = this.numFromEnv('DEFAULT_CONTAINER_MEMORY_MB', 0, {
-      min: 0,
-      max: 1024 * 1024,
-    });
-    const envQuota = this.numFromEnv('DEFAULT_DISK_QUOTA_GB', 0, {
-      min: 0,
-      max: 1024 * 1024,
-    });
-    const hostMb = os.totalmem() / MB;
-    const autoHeap = Math.min(
-      8192,
-      Math.max(1024, Math.round((hostMb * 0.25) / 512) * 512),
-    );
-    const heapMb = envHeap || autoHeap;
-    const containerMemoryMb =
-      envContainer || Math.round((heapMb * 1.5) / 512) * 512;
-    return {
-      heapMb,
-      containerMemoryMb,
-      cpus: 0,
-      diskQuotaGb: envQuota || 25,
-      quotaWarnPct: 80,
-      quotaCriticalPct: 95,
-    };
   }
 
   private resolveDbDriver(): DbDriver {
