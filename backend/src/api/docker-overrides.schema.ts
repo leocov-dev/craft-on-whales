@@ -1,3 +1,5 @@
+import { ForbiddenException } from '@nestjs/common';
+import type { Request } from 'express';
 import { z } from 'zod';
 
 /**
@@ -40,3 +42,41 @@ export const dockerOverridesSchema = {
     .max(20)
     .optional(),
 };
+
+export interface OverridesInput {
+  containerName?: string;
+  networkName?: string;
+  extraPorts?: unknown;
+  extraBinds?: unknown;
+}
+
+export function overridesPresent(input: OverridesInput): boolean {
+  return (
+    input.containerName !== undefined ||
+    input.networkName !== undefined ||
+    input.extraPorts !== undefined ||
+    input.extraBinds !== undefined
+  );
+}
+
+/**
+ * Hand-rolled admin gate for the docker-override fields embedded in
+ * create/patch payloads. NOT replaced with a route-level `@Roles('admin')`
+ * guard: create/patch are used by non-admins too whenever the payload
+ * doesn't touch containerName/networkName/extraPorts/extraBinds — the
+ * guard would have to be conditional on which fields are *present in this
+ * particular request body*, which `@Roles()` can't express. See
+ * `.plan/reviews/02-api-servers.md` finding #2. Shared by
+ * `servers.controller.ts`, `blueprints.controller.ts`, and
+ * `mods.controller.ts` — all three embed these same override fields.
+ */
+export function requireAdminForOverrides(
+  req: Request,
+  input: OverridesInput,
+): void {
+  if (overridesPresent(input) && req.user?.role !== 'admin') {
+    throw new ForbiddenException(
+      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
+    );
+  }
+}

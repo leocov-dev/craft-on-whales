@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -21,6 +20,7 @@ import multer from 'multer';
 import { z, ZodError } from 'zod';
 import { nanoid } from 'nanoid';
 import { PathGuardService } from '../storage/path-guard.service';
+import { requireAdminForOverrides } from '../api/docker-overrides.schema';
 import type { Server } from '../servers/types';
 import { BlueprintExportService } from './blueprint-export.service';
 import { BlueprintImportService } from './blueprint-import.service';
@@ -77,29 +77,6 @@ const dockerOverridesSchema = {
     .max(20)
     .optional(),
 };
-
-interface OverridesInput {
-  containerName?: string;
-  networkName?: string;
-  extraPorts?: unknown;
-  extraBinds?: unknown;
-}
-function overridesPresent(input: OverridesInput): boolean {
-  return (
-    input.containerName !== undefined ||
-    input.networkName !== undefined ||
-    input.extraPorts !== undefined ||
-    input.extraBinds !== undefined
-  );
-}
-/** Throw 403 unless override-carrying input comes from an admin. */
-function requireAdminForOverrides(req: Request, input: OverridesInput): void {
-  if (overridesPresent(input) && req.user?.role !== 'admin') {
-    throw new ForbiddenException(
-      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
-    );
-  }
-}
 
 const overridesSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),

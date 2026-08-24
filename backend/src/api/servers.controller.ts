@@ -3,7 +3,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -28,7 +27,10 @@ import { MojangService } from '../players/mojang.service';
 import { SettingsService } from '../settings/settings.service';
 import { ServerViewModelService } from './server-view-model.service';
 import type { Server } from '../servers/types';
-import { dockerOverridesSchema } from './docker-overrides.schema';
+import {
+  dockerOverridesSchema,
+  requireAdminForOverrides,
+} from './docker-overrides.schema';
 
 export function parseBody<T extends z.ZodType>(
   schema: T,
@@ -42,38 +44,6 @@ export function parseBody<T extends z.ZodType>(
         err.issues[0]?.message || 'Invalid request',
       );
     throw err;
-  }
-}
-
-interface OverridesInput {
-  containerName?: string;
-  networkName?: string;
-  extraPorts?: unknown;
-  extraBinds?: unknown;
-}
-
-/**
- * Hand-rolled admin gate for the docker-override fields embedded in
- * create/patch payloads. NOT replaced with a route-level `@Roles('admin')`
- * guard: create/patch are used by non-admins too whenever the payload
- * doesn't touch containerName/networkName/extraPorts/extraBinds — the
- * guard would have to be conditional on which fields are *present in this
- * particular request body*, which `@Roles()` can't express. See
- * `.plan/reviews/02-api-servers.md` finding #2.
- */
-export function requireAdminForOverrides(
-  req: Request,
-  input: OverridesInput,
-): void {
-  const present =
-    input.containerName !== undefined ||
-    input.networkName !== undefined ||
-    input.extraPorts !== undefined ||
-    input.extraBinds !== undefined;
-  if (present && req.user?.role !== 'admin') {
-    throw new ForbiddenException(
-      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
-    );
   }
 }
 

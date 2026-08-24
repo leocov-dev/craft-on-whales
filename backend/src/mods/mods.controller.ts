@@ -9,7 +9,6 @@ import {
   Body,
   ConflictException,
   NotFoundException,
-  ForbiddenException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -31,6 +30,7 @@ import {
   MOD_LOADERS,
   fromModsSchema,
 } from './mod-browser-orchestrator.service';
+import { requireAdminForOverrides } from '../api/docker-overrides.schema';
 
 function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
@@ -41,28 +41,6 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
         err.issues[0]?.message || 'Invalid request',
       );
     throw err;
-  }
-}
-
-interface OverridesInput {
-  containerName?: string;
-  networkName?: string;
-  extraPorts?: unknown;
-  extraBinds?: unknown;
-}
-function overridesPresent(input: OverridesInput): boolean {
-  return (
-    input.containerName !== undefined ||
-    input.networkName !== undefined ||
-    input.extraPorts !== undefined ||
-    input.extraBinds !== undefined
-  );
-}
-function requireAdminForOverrides(req: Request, input: OverridesInput): void {
-  if (overridesPresent(input) && req.user?.role !== 'admin') {
-    throw new ForbiddenException(
-      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
-    );
   }
 }
 
