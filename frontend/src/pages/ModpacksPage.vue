@@ -57,15 +57,33 @@
         <q-input v-model="packwiz.name" dense outlined label="Server name" />
         <div class="row q-col-gutter-sm">
           <div class="col-6">
-            <q-input v-model.number="packwiz.portGame" type="number" label="Game port" outlined dense />
+            <q-input
+              v-model.number="packwiz.portGame"
+              type="number"
+              label="Game port"
+              outlined
+              dense
+            />
           </div>
           <div class="col-6">
-            <q-input v-model.number="packwiz.diskQuotaGb" type="number" label="Disk quota (GB)" outlined dense />
+            <q-input
+              v-model.number="packwiz.diskQuotaGb"
+              type="number"
+              label="Disk quota (GB)"
+              outlined
+              dense
+            />
           </div>
         </div>
         <div class="row q-col-gutter-sm">
           <div class="col-6">
-            <q-input v-model.number="packwiz.heapMb" type="number" label="Java heap (MB)" outlined dense />
+            <q-input
+              v-model.number="packwiz.heapMb"
+              type="number"
+              label="Java heap (MB)"
+              outlined
+              dense
+            />
           </div>
           <div class="col-6">
             <q-input
@@ -135,7 +153,7 @@
       v-model="detailsOpen"
       :platform="detailsSource === 'preview' ? 'packwiz' : undefined"
       :pack-ref="detailsSource === 'preview' ? packwiz.url.trim() : undefined"
-      :server-id="detailsSource === 'installed' ? detailsServerId ?? undefined : undefined"
+      :server-id="detailsSource === 'installed' ? (detailsServerId ?? undefined) : undefined"
       :show-create="detailsSource === 'preview'"
       :creating="creating"
       @create="createFromPackwiz"

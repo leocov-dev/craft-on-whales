@@ -1,4 +1,12 @@
-import { Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -22,11 +30,14 @@ export class ItemsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly itemRegistry: ItemRegistryService,
-    private readonly tasks: TasksService
+    private readonly tasks: TasksService,
   ) {}
 
   @Get()
-  async search(@Param('id') id: string, @Query() query: Record<string, unknown>) {
+  async search(
+    @Param('id') id: string,
+    @Query() query: Record<string, unknown>,
+  ) {
     const server = await this.serverQuery.mustGet(id);
     const params = searchSchema.parse(query);
     const { items, total } = await this.itemRegistry.search(server.id, params);
@@ -37,7 +48,11 @@ export class ItemsController {
       total,
       mods: registry.mods,
       iconBase: this.itemRegistry.iconBaseUrl(),
-      registry: { count: registry.items.length, builtAt: registry.builtAt, buildMs: registry.buildMs },
+      registry: {
+        count: registry.items.length,
+        builtAt: registry.builtAt,
+        buildMs: registry.buildMs,
+      },
     };
   }
 
@@ -58,8 +73,12 @@ export class ItemsController {
             if (label) t.log(label);
           },
         });
-        return { items: registry.items.length, mods: registry.mods.length, buildMs: registry.buildMs };
-      }
+        return {
+          items: registry.items.length,
+          mods: registry.mods.length,
+          buildMs: registry.buildMs,
+        };
+      },
     );
     return { ok: true, taskId };
   }

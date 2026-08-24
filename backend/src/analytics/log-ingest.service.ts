@@ -19,7 +19,8 @@ interface LogTap {
 // Docker prepends this RFC3339(Nano) receive time to each line when
 // `timestamps: true` — the authoritative event time, independent of the
 // container's TZ. (nanoseconds trimmed to ms for JS Date.)
-const DOCKER_TS_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s([\s\S]*)$/;
+const DOCKER_TS_RE =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s([\s\S]*)$/;
 
 interface SplitTimestamp {
   ts: string | null;
@@ -44,7 +45,7 @@ export class LogIngestService implements OnModuleInit {
     private readonly servers: ServerQueryService,
     private readonly logs: DockerLogsService,
     private readonly classifier: LogClassifierService,
-    private readonly chatCommands: ChatCommandsService
+    private readonly chatCommands: ChatCommandsService,
   ) {}
 
   private get db() {
@@ -55,7 +56,9 @@ export class LogIngestService implements OnModuleInit {
     // Fire-and-forget, matching legacy's boot-time `startIngest()` call —
     // must never block app startup on the first tap-sync round.
     this.startIngest().catch((err) =>
-      this.logger.error(`initial tap sync failed: ${err instanceof Error ? err.message : err}`)
+      this.logger.error(
+        `initial tap sync failed: ${err instanceof Error ? err.message : err}`,
+      ),
     );
   }
 
@@ -65,7 +68,10 @@ export class LogIngestService implements OnModuleInit {
     if (!m) return { ts: null, rest: line };
     const iso = (m[1] ?? '').replace(/(\.\d{3})\d*Z$/, '$1Z'); // trim ns → ms
     const d = new Date(iso);
-    return { ts: Number.isNaN(d.getTime()) ? null : d.toISOString(), rest: m[2] ?? '' };
+    return {
+      ts: Number.isNaN(d.getTime()) ? null : d.toISOString(),
+      rest: m[2] ?? '',
+    };
   }
 
   /**
@@ -74,39 +80,79 @@ export class LogIngestService implements OnModuleInit {
    * future means the line is from yesterday. Used only for lines with no
    * Docker prefix.
    */
-  private buildTs(hms: string | null | undefined, now: Date = new Date()): string {
+  private buildTs(
+    hms: string | null | undefined,
+    now: Date = new Date(),
+  ): string {
     if (!hms) return now.toISOString();
     const [h, m, s] = hms.split(':').map(Number);
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h ?? 0, m ?? 0, s ?? 0));
+    const d = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        h ?? 0,
+        m ?? 0,
+        s ?? 0,
+      ),
+    );
     if (d.getTime() - now.getTime() > 60_000) d.setUTCDate(d.getUTCDate() - 1);
     return d.toISOString();
   }
 
-  private async openSession(serverId: string, player: string, ts: string): Promise<void> {
+  private async openSession(
+    serverId: string,
+    player: string,
+    ts: string,
+  ): Promise<void> {
     // A dangling open session means we missed the leave — close it at the new join.
     await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)));
+      .where(
+        and(
+          eq(playerSessions.serverId, serverId),
+          eq(playerSessions.player, player),
+          isNull(playerSessions.endedAt),
+        ),
+      );
     await this.db
       .insert(playerSessions)
       .values({ serverId, player, startedAt: ts })
       .onConflictDoNothing();
   }
 
-  private async closeSession(serverId: string, player: string, ts: string): Promise<void> {
+  private async closeSession(
+    serverId: string,
+    player: string,
+    ts: string,
+  ): Promise<void> {
     await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, player), isNull(playerSessions.endedAt)));
+      .where(
+        and(
+          eq(playerSessions.serverId, serverId),
+          eq(playerSessions.player, player),
+          isNull(playerSessions.endedAt),
+        ),
+      );
   }
 
   /** Close every open session for a server (server stopped / log tap ended). */
-  async closeAllSessions(serverId: string, ts: string = new Date().toISOString()): Promise<void> {
+  async closeAllSessions(
+    serverId: string,
+    ts: string = new Date().toISOString(),
+  ): Promise<void> {
     await this.db
       .update(playerSessions)
       .set({ endedAt: ts })
-      .where(and(eq(playerSessions.serverId, serverId), isNull(playerSessions.endedAt)));
+      .where(
+        and(
+          eq(playerSessions.serverId, serverId),
+          isNull(playerSessions.endedAt),
+        ),
+      );
   }
 
   /**
@@ -119,52 +165,91 @@ export class LogIngestService implements OnModuleInit {
     evt: ClassifiedEvent,
     ts: string,
     raw: string,
-    { sessions = true }: { sessions?: boolean } = {}
+    { sessions = true }: { sessions?: boolean } = {},
   ): Promise<boolean> {
     if (evt.type === 'join' || evt.type === 'leave') {
       const [prev] = await this.db
-        .select({ ts: playerEvents.ts, type: playerEvents.type, target: playerEvents.target })
+        .select({
+          ts: playerEvents.ts,
+          type: playerEvents.type,
+          target: playerEvents.target,
+        })
         .from(playerEvents)
-        .where(and(eq(playerEvents.serverId, serverId), eq(playerEvents.player, evt.player)))
+        .where(
+          and(
+            eq(playerEvents.serverId, serverId),
+            eq(playerEvents.player, evt.player),
+          ),
+        )
         .orderBy(desc(playerEvents.id))
         .limit(1);
-      if (prev && prev.type === evt.type && Math.abs(Date.parse(String(prev.ts)) - Date.parse(ts)) <= DEDUPE_WINDOW_MS) {
+      if (
+        prev &&
+        prev.type === evt.type &&
+        Math.abs(Date.parse(String(prev.ts)) - Date.parse(ts)) <=
+          DEDUPE_WINDOW_MS
+      ) {
         return false;
       }
     }
     await this.db
       .insert(playerEvents)
-      .values({ serverId, ts, type: evt.type, player: evt.player, target: evt.target, message: evt.message, raw });
+      .values({
+        serverId,
+        ts,
+        type: evt.type,
+        player: evt.player,
+        target: evt.target,
+        message: evt.message,
+        raw,
+      });
     if (sessions) {
       if (evt.type === 'join') await this.openSession(serverId, evt.player, ts);
-      else if (evt.type === 'leave') await this.closeSession(serverId, evt.player, ts);
+      else if (evt.type === 'leave')
+        await this.closeSession(serverId, evt.player, ts);
     }
     return true;
   }
 
   private async handleLine(serverId: string, line: string): Promise<void> {
-    const { ts: dockerTs, rest } = this.splitDockerTimestamp(line.replace(/\r$/, ''));
+    const { ts: dockerTs, rest } = this.splitDockerTimestamp(
+      line.replace(/\r$/, ''),
+    );
     const raw = rest;
     const evt = this.classifier.classify(raw);
     if (!evt) return;
     try {
-      await this.insertEvent(serverId, evt, dockerTs || this.buildTs(evt.time), raw);
+      await this.insertEvent(
+        serverId,
+        evt,
+        dockerTs || this.buildTs(evt.time),
+        raw,
+      );
     } catch (err) {
-      this.logger.error(`insert failed for ${serverId}: ${err instanceof Error ? err.message : err}`);
+      this.logger.error(
+        `insert failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+      );
     }
     // Custom chat commands (!rtp2 …): fire-and-forget — a broken command
     // handler must never break log ingestion.
     if (evt.type === 'chat' && evt.player !== '[Server]') {
-      this.chatCommands.handleChat(serverId, evt.player, evt.message).catch((err) => {
-        this.logger.error(`chat-command handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`);
-      });
+      this.chatCommands
+        .handleChat(serverId, evt.player, evt.message)
+        .catch((err) => {
+          this.logger.error(
+            `chat-command handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+          );
+        });
     }
   }
 
   private async attach(serverId: string): Promise<void> {
     // timestamps:true so each line carries Docker's authoritative UTC receive
     // time — TZ-independent, unlike the container's bare HH:MM:SS console prefix.
-    const { stream, stop } = await this.logs.followLogs(serverId, { tail: 0, timestamps: true });
+    const { stream, stop } = await this.logs.followLogs(serverId, {
+      tail: 0,
+      timestamps: true,
+    });
     const tap: LogTap = { stop, buf: '' };
     this.taps.set(serverId, tap);
     stream.on('data', (chunk: Buffer) => {
@@ -175,7 +260,9 @@ export class LogIngestService implements OnModuleInit {
         tap.buf = tap.buf.slice(nl + 1);
         if (line.trim()) {
           this.handleLine(serverId, line).catch((err: unknown) =>
-            this.logger.error(`line handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`)
+            this.logger.error(
+              `line handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+            ),
           );
         }
       }
@@ -184,7 +271,9 @@ export class LogIngestService implements OnModuleInit {
       if (this.taps.get(serverId) !== tap) return;
       this.taps.delete(serverId);
       this.closeAllSessions(serverId).catch((err: unknown) =>
-        this.logger.error(`closeAllSessions failed for ${serverId}: ${err instanceof Error ? err.message : err}`)
+        this.logger.error(
+          `closeAllSessions failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+        ),
       );
     };
     stream.on('end', cleanup);
@@ -200,14 +289,20 @@ export class LogIngestService implements OnModuleInit {
     if (this.syncing) return;
     this.syncing = true;
     try {
-      const running = new Set((await this.servers.listServers()).filter((s) => RUNNING.has(s.status)).map((s) => s.id));
+      const running = new Set(
+        (await this.servers.listServers())
+          .filter((s) => RUNNING.has(s.status))
+          .map((s) => s.id),
+      );
       for (const [id, tap] of this.taps) {
         if (!running.has(id)) tap.stop(); // stream end handler does the cleanup
       }
       for (const id of running) {
         if (!this.taps.has(id)) {
           await this.attach(id).catch((err) =>
-            this.logger.error(`tap ${id} failed: ${err instanceof Error ? err.message : err}`)
+            this.logger.error(
+              `tap ${id} failed: ${err instanceof Error ? err.message : err}`,
+            ),
           );
         }
       }
@@ -219,7 +314,9 @@ export class LogIngestService implements OnModuleInit {
   /** Start live ingestion; re-syncs taps every 60 s as servers start/stop. */
   async startIngest(): Promise<void> {
     await this.syncTaps().catch((err) =>
-      this.logger.error(`initial tap sync failed: ${err instanceof Error ? err.message : err}`)
+      this.logger.error(
+        `initial tap sync failed: ${err instanceof Error ? err.message : err}`,
+      ),
     );
     this.pollTimer = setInterval(() => this.syncTaps().catch(() => {}), 60_000);
     this.pollTimer.unref?.();
@@ -237,7 +334,10 @@ export class LogIngestService implements OnModuleInit {
    * same second. Sessions are not touched — replayed historical joins would
    * reopen them.
    */
-  async backfillFromLogs(serverId: string, { tail = 5000 }: { tail?: number } = {}): Promise<{ inserted: number }> {
+  async backfillFromLogs(
+    serverId: string,
+    { tail = 5000 }: { tail?: number } = {},
+  ): Promise<{ inserted: number }> {
     const raw = await this.logs.fetchLogs(serverId, { tail, timestamps: true });
     const [newest] = await this.db
       .select({ ts: playerEvents.ts })
@@ -257,21 +357,38 @@ export class LogIngestService implements OnModuleInit {
       const [dup] = await this.db
         .select({ one: playerEvents.id })
         .from(playerEvents)
-        .where(and(eq(playerEvents.serverId, serverId), eq(playerEvents.ts, ts), eq(playerEvents.raw, line)))
+        .where(
+          and(
+            eq(playerEvents.serverId, serverId),
+            eq(playerEvents.ts, ts),
+            eq(playerEvents.raw, line),
+          ),
+        )
         .limit(1);
       if (dup) continue;
-      if (await this.insertEvent(serverId, evt, ts, line, { sessions: false })) inserted++;
+      if (await this.insertEvent(serverId, evt, ts, line, { sessions: false }))
+        inserted++;
     }
     return { inserted };
   }
 
   /** Prune old timeline rows and closed sessions. Returns deleted counts. */
-  async pruneOlderThan(days: number): Promise<{ events: number; sessions: number }> {
+  async pruneOlderThan(
+    days: number,
+  ): Promise<{ events: number; sessions: number }> {
     const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-    const deletedEvents = await this.db.delete(playerEvents).where(lt(playerEvents.ts, cutoff)).returning({ id: playerEvents.id });
+    const deletedEvents = await this.db
+      .delete(playerEvents)
+      .where(lt(playerEvents.ts, cutoff))
+      .returning({ id: playerEvents.id });
     const deletedSessions = await this.db
       .delete(playerSessions)
-      .where(and(isNotNull(playerSessions.endedAt), lt(playerSessions.endedAt, cutoff)))
+      .where(
+        and(
+          isNotNull(playerSessions.endedAt),
+          lt(playerSessions.endedAt, cutoff),
+        ),
+      )
       .returning({ serverId: playerSessions.serverId });
     return { events: deletedEvents.length, sessions: deletedSessions.length };
   }

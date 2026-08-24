@@ -229,7 +229,7 @@ host.docker.internal:host-gateway` (Docker Engine 20.10+) for the fallback path;
 | `DATA_DIR`                                                                  | `./data`                   | Root for **all** panel state (DB, server data, backups, library).                                                                                                                                                                                                                                        |
 | `DATA_DIR_HOST`                                                             | = `DATA_DIR`               | Only when the panel runs **in a container**: the absolute host path of the `DATA_DIR` mount, used to re-root bind mounts for the host daemon.                                                                                                                                                            |
 | `MAP_PROXY_HOST`                                                            | see note                   | Address the panel uses to reach sibling containers' host-published ports (currently just the live map). `127.0.0.1` bare metal; auto-switches to `host.docker.internal` when `DATA_DIR_HOST` is set (containerized panel — needs `extra_hosts`, see above). Override for rootless Docker/remote daemons. |
-| `PANEL_HOST` / `PANEL_PORT`                                                 | `127.0.0.1` / `3000`      | Web UI bind address + port. Localhost-only by default; set `PANEL_HOST=0.0.0.0` for LAN access.                                                                                                                                                                                                          |
+| `PANEL_HOST` / `PANEL_PORT`                                                 | `127.0.0.1` / `3000`       | Web UI bind address + port. Localhost-only by default; set `PANEL_HOST=0.0.0.0` for LAN access.                                                                                                                                                                                                          |
 | `SESSION_SECRET`                                                            | auto-generated             | Signs session cookies + derives the at-rest encryption key. Auto-created and persisted if unset.                                                                                                                                                                                                         |
 | `TRUST_PROXY` / `COOKIE_SECURE`                                             | —                          | Set when behind a TLS-terminating reverse proxy, so `req.ip` (rate-limiting) and `Secure` cookies work.                                                                                                                                                                                                  |
 | `DOCKER_HOST`                                                               | auto-detected              | Docker endpoint override for rootless Docker, Podman, or a remote daemon (per-OS socket/pipe otherwise).                                                                                                                                                                                                 |
@@ -264,7 +264,7 @@ it runs on. This section covers how to reach it from elsewhere and exactly which
 
 | What                     | Port(s)                                      | Protocol  | Open to the internet?                     |
 | ------------------------ | -------------------------------------------- | --------- | ----------------------------------------- |
-| **Admin panel (web UI)** | `PANEL_PORT` — default **3000**             | TCP       | Only behind TLS (reverse proxy), not raw  |
+| **Admin panel (web UI)** | `PANEL_PORT` — default **3000**              | TCP       | Only behind TLS (reverse proxy), not raw  |
 | **Game server (Java)**   | from `PORT_GAME_START` (**25565**) upward    | TCP + UDP | **Yes** — this is how players connect     |
 | **RCON**                 | game port **+ 1000** (from **26565**)        | TCP       | **No — never.** Panel-internal management |
 | **Bedrock / Geyser**     | from `PORT_BEDROCK_START` (**19132**) upward | UDP       | Only if you run Bedrock                   |
@@ -488,7 +488,7 @@ The field catalog in `src/config/` is the single source of truth for server sett
 | `npm run build`      | minified CSS build (also runs automatically on install) |
 | `npm run lint`       | ESLint over `src/`, `scripts/`, `public/js/`, `test/`   |
 | `npm run format`     | Prettier over the tree                                  |
-| `npm run typecheck`  | `tsc -p tsconfig.json` — strict, over all of `src/`      |
+| `npm run typecheck`  | `tsc -p tsconfig.json` — strict, over all of `src/`     |
 | `npm test`           | unit tests (`node:test`); runs on a clean clone         |
 | `npm run test:smoke` | live QA sweep against a running panel (needs Docker)    |
 

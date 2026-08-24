@@ -1,5 +1,11 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/sqlite-core';
 
 export const chatCommandSettings = sqliteTable('chat_command_settings', {
   serverId: text('server_id').primaryKey(),
@@ -20,7 +26,9 @@ export const chatCommands = sqliteTable(
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
     uses: integer('uses').notNull().default(0),
     lastUsedAt: text('last_used_at'),
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
     msgPending: text('msg_pending'),
     msgSuccess: text('msg_success'),
     msgFailure: text('msg_failure'),
@@ -28,5 +36,5 @@ export const chatCommands = sqliteTable(
   (t) => [
     index('idx_chatcmd_server').on(t.serverId),
     uniqueIndex('chat_commands_server_trigger').on(t.serverId, t.trigger),
-  ]
+  ],
 );

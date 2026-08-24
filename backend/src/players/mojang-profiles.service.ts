@@ -46,14 +46,25 @@ export class MojangProfilesService {
    */
   async resolveProfile(name: string): Promise<MojangProfile | null> {
     const key = CACHE_PREFIX + String(name).toLowerCase();
-    const [cached] = await this.db.select().from(apiCache).where(eq(apiCache.key, key)).limit(1);
-    if (cached && Date.now() - Date.parse(String(cached.fetchedAt) + 'Z') < TTL_MS) {
+    const [cached] = await this.db
+      .select()
+      .from(apiCache)
+      .where(eq(apiCache.key, key))
+      .limit(1);
+    if (
+      cached &&
+      Date.now() - Date.parse(String(cached.fetchedAt) + 'Z') < TTL_MS
+    ) {
       return JSON.parse(cached.valueJson);
     }
 
     let profile: MojangProfile | null;
     try {
-      const res = await fetch('https://api.mojang.com/users/profiles/minecraft/' + encodeURIComponent(name), { signal: AbortSignal.timeout(8000) });
+      const res = await fetch(
+        'https://api.mojang.com/users/profiles/minecraft/' +
+          encodeURIComponent(name),
+        { signal: AbortSignal.timeout(8000) },
+      );
       if (res.status === 404 || res.status === 204) {
         profile = null;
       } else if (!res.ok) {
@@ -70,7 +81,13 @@ export class MojangProfilesService {
     await this.db
       .insert(apiCache)
       .values({ key, valueJson: JSON.stringify(profile) })
-      .onConflictDoUpdate({ target: apiCache.key, set: { valueJson: JSON.stringify(profile), fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') } });
+      .onConflictDoUpdate({
+        target: apiCache.key,
+        set: {
+          valueJson: JSON.stringify(profile),
+          fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        },
+      });
     return profile;
   }
 }

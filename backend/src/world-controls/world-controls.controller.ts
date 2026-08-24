@@ -14,24 +14,34 @@ const quickSchema = z.object({
 export class WorldControlsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
-    private readonly worldControls: WorldControlsService
+    private readonly worldControls: WorldControlsService,
   ) {}
 
   @Get('state')
   async state(@Param('id') id: string) {
     await this.serverQuery.mustGet(id);
     try {
-      return { ok: true, running: true, state: await this.worldControls.getState(id) };
+      return {
+        ok: true,
+        running: true,
+        state: await this.worldControls.getState(id),
+      };
     } catch {
       return { ok: true, running: false, state: {} };
     }
   }
 
   @Post('quick')
-  async quick(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async quick(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.serverQuery.mustGet(id);
     const { action } = quickSchema.parse(body);
-    const result = await this.worldControls.runQuick(id, action, { actor: req.user!.username });
+    const result = await this.worldControls.runQuick(id, action, {
+      actor: req.user!.username,
+    });
     return { ok: true, ...result };
   }
 }

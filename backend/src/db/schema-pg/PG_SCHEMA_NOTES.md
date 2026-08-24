@@ -15,9 +15,8 @@ Translation rules applied uniformly when porting a column:
    by checking each target column's Postgres type at import time — it does
    NOT rely on this file, so don't skip updating both when adding a new
    boolean column.
-2. `text(col).default(sql\`(datetime('now'))\`)` → `text(col).default(sql\`now()::text\`)`.
-   Timestamps stay `text` columns on the Postgres side too (not a native
-   `timestamp` type) — application code already treats these as opaque
+2. `text(col).default(sql\`(datetime('now'))\`)`→`text(col).default(sql\`now()::text\`)`.
+Timestamps stay `text`columns on the Postgres side too (not a native`timestamp` type) — application code already treats these as opaque
    ISO-ish strings, so this avoids any parsing/timezone translation risk.
 3. `integer('id').primaryKey({ autoIncrement: true })` → `serial('id').primaryKey()`.
 4. Everything else (`text`, `integer`, `real`, `.primaryKey()`, `.notNull()`,

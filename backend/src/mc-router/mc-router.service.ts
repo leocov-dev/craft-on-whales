@@ -5,9 +5,15 @@ import { SettingsService } from '../settings/settings.service';
 import { DbService } from '../db/db.service';
 import { servers } from '../db/schema';
 import { McRouterDockerService } from '../docker/mc-router-docker.service';
-import { DockerNetworksService, ROUTER_NETWORK_NAME } from '../docker/docker-networks.service';
+import {
+  DockerNetworksService,
+  ROUTER_NETWORK_NAME,
+} from '../docker/docker-networks.service';
 import { DockerConnectionService } from '../docker/docker-connection.service';
-import type { McRouterConfig, RouterRoute } from '../../../shared/types/mcRouter';
+import type {
+  McRouterConfig,
+  RouterRoute,
+} from '../../../shared/types/mcRouter';
 
 export type { McRouterConfig, RouterRoute };
 
@@ -40,11 +46,14 @@ export class McRouterService {
     private readonly dbService: DbService,
     private readonly dockerRouter: McRouterDockerService,
     private readonly dockerNetworks: DockerNetworksService,
-    private readonly connection: DockerConnectionService
+    private readonly connection: DockerConnectionService,
   ) {}
 
   async getConfig(): Promise<McRouterConfig> {
-    const stored = (await this.settings.get(SETTINGS_KEY, null)) as Partial<McRouterConfig> | null;
+    const stored = (await this.settings.get(
+      SETTINGS_KEY,
+      null,
+    )) as Partial<McRouterConfig> | null;
     return { ...DEFAULT_CONFIG, ...(stored || {}) };
   }
 
@@ -87,10 +96,11 @@ export class McRouterService {
     const socketPath = this.connection.getSocketPath();
     if (!socketPath) {
       throw new InternalServerErrorException(
-        'mc-router needs direct access to the Docker socket, which is not available on this platform/configuration (DOCKER_HOST or Windows).'
+        'mc-router needs direct access to the Docker socket, which is not available on this platform/configuration (DOCKER_HOST or Windows).',
       );
     }
-    const networkName = await this.dockerNetworks.ensureNetwork(ROUTER_NETWORK_NAME);
+    const networkName =
+      await this.dockerNetworks.ensureNetwork(ROUTER_NETWORK_NAME);
 
     const info = await this.dockerRouter.inspectStatus();
     if (info.exists) {

@@ -27,7 +27,12 @@ export class DockerNetworksService {
     const nets = await this.connection.getDocker().listNetworks();
     return nets
       .filter((n) => !HIDDEN_NETWORKS.has(n.Name))
-      .map((n) => ({ id: n.Id, name: n.Name, driver: n.Driver, scope: n.Scope }))
+      .map((n) => ({
+        id: n.Id,
+        name: n.Name,
+        driver: n.Driver,
+        scope: n.Scope,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -40,7 +45,13 @@ export class DockerNetworksService {
   /** Create the panel-owned network if it doesn't exist yet. Idempotent. */
   async ensureNetwork(name: string = ROUTER_NETWORK_NAME): Promise<string> {
     if (await this.networkExists(name)) return name;
-    await this.connection.getDocker().createNetwork({ Name: name, Driver: 'bridge', Labels: { 'msm.managed': 'true' } });
+    await this.connection
+      .getDocker()
+      .createNetwork({
+        Name: name,
+        Driver: 'bridge',
+        Labels: { 'msm.managed': 'true' },
+      });
     return name;
   }
 }

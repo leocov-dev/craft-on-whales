@@ -17,9 +17,30 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
   // forwardRef: WorldsModule sits on the ServersModule -> SchedulerModule ->
   // WorldsModule -> ServersModule cycle created once SchedulerModule
   // (forwardRef'd from ServersModule) pulled WorldsModule in.
-  imports: [DockerModule, forwardRef(() => ServersModule), PathGuardModule, StorageIndexModule, LibraryModule, forwardRef(() => MapModule)],
+  imports: [
+    DockerModule,
+    forwardRef(() => ServersModule),
+    PathGuardModule,
+    StorageIndexModule,
+    LibraryModule,
+    forwardRef(() => MapModule),
+  ],
   controllers: [WorldsController, ServerWorldsController],
-  providers: [WorldArchiveService, WorldPropsService, WorldLibraryService, WorldSaveLockService, BackupsService, WorldOperationsService],
-  exports: [WorldArchiveService, WorldPropsService, WorldLibraryService, WorldSaveLockService, BackupsService, WorldOperationsService],
+  providers: [
+    WorldArchiveService,
+    WorldPropsService,
+    WorldLibraryService,
+    WorldSaveLockService,
+    BackupsService,
+    WorldOperationsService,
+  ],
+  exports: [
+    WorldArchiveService,
+    WorldPropsService,
+    WorldLibraryService,
+    WorldSaveLockService,
+    BackupsService,
+    WorldOperationsService,
+  ],
 })
 export class WorldsModule {}

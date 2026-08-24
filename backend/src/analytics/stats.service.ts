@@ -1,18 +1,36 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { eq, and, desc, asc, lte, lt, or, like, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
-import { playerStatSnapshots, playerSessions, playerEvents } from '../db/schema';
+import {
+  playerStatSnapshots,
+  playerSessions,
+  playerEvents,
+} from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { WorldPropsService } from '../worlds/world-props.service';
 import { uuidToDashed } from './mojang-uuid.util';
 import type { CuratedStats } from './types';
-import type { TimelineEvent, ScoreboardRow as SharedScoreboardRow } from '../../../shared/types/analytics';
+import type {
+  TimelineEvent,
+  ScoreboardRow as SharedScoreboardRow,
+} from '../../../shared/types/analytics';
 
 const RUNNING = new Set(['running', 'starting', 'unhealthy']);
-const STONE_BLOCKS = ['minecraft:stone', 'minecraft:cobblestone', 'minecraft:deepslate', 'minecraft:cobbled_deepslate'];
+const STONE_BLOCKS = [
+  'minecraft:stone',
+  'minecraft:cobblestone',
+  'minecraft:deepslate',
+  'minecraft:cobbled_deepslate',
+];
 const METRICS = new Set<keyof CuratedStats>([
   'playtimeTicks',
   'deaths',
@@ -30,14 +48,17 @@ const METRICS = new Set<keyof CuratedStats>([
   'blocksUsedTotal',
 ]);
 
-const num = (v: unknown): number => (Number.isFinite(Number(v)) ? Number(v) : 0);
+const num = (v: unknown): number =>
+  Number.isFinite(Number(v)) ? Number(v) : 0;
 const sumAll = (obj: Record<string, unknown> | null | undefined): number => {
   let n = 0;
   for (const v of Object.values(obj || {})) n += num(v);
   return n;
 };
-const pick = (obj: Record<string, unknown> | null | undefined, keys: string[]): number =>
-  keys.reduce((n, k) => n + num(obj && obj[k]), 0);
+const pick = (
+  obj: Record<string, unknown> | null | undefined,
+  keys: string[],
+): number => keys.reduce((n, k) => n + num(obj && obj[k]), 0);
 
 type Window = '24h' | '7d' | 'all';
 
@@ -107,7 +128,7 @@ export class StatsService implements OnModuleInit {
     private readonly dbService: DbService,
     private readonly pathGuard: PathGuardService,
     private readonly servers: ServerQueryService,
-    private readonly worldProps: WorldPropsService
+    private readonly worldProps: WorldPropsService,
   ) {}
 
   private get db() {
@@ -120,7 +141,10 @@ export class StatsService implements OnModuleInit {
   }
 
   /** Vanilla stats JSON -> curated flat object (stable key order for diffing). */
-  private curate(root: { stats?: Record<string, Record<string, unknown>> } | null | undefined): CuratedStats {
+  private curate(
+    root:
+      { stats?: Record<string, Record<string, unknown>> } | null | undefined,
+  ): CuratedStats {
     const stats = (root && root.stats) || {};
     const custom = stats['minecraft:custom'] || {};
     const mined = stats['minecraft:mined'] || {};
@@ -129,7 +153,9 @@ export class StatsService implements OnModuleInit {
       if (key.endsWith('_one_cm')) distanceCm += num(value); // walk/sprint/swim/fly/boat/horse/…
     }
     return {
-      playtimeTicks: num(custom['minecraft:play_time']) || num(custom['minecraft:play_one_minute']),
+      playtimeTicks:
+        num(custom['minecraft:play_time']) ||
+        num(custom['minecraft:play_one_minute']),
       deaths: num(custom['minecraft:deaths']),
       mobKills: num(custom['minecraft:mob_kills']),
       playerKills: num(custom['minecraft:player_kills']),
@@ -139,8 +165,14 @@ export class StatsService implements OnModuleInit {
       distanceCm,
       blocksMinedTotal: sumAll(mined),
       stoneMined: pick(mined, STONE_BLOCKS),
-      diamondsMined: pick(mined, ['minecraft:diamond_ore', 'minecraft:deepslate_diamond_ore']),
-      ironMined: pick(mined, ['minecraft:iron_ore', 'minecraft:deepslate_iron_ore']),
+      diamondsMined: pick(mined, [
+        'minecraft:diamond_ore',
+        'minecraft:deepslate_diamond_ore',
+      ]),
+      ironMined: pick(mined, [
+        'minecraft:iron_ore',
+        'minecraft:deepslate_iron_ore',
+      ]),
       ancientDebrisMined: num(mined['minecraft:ancient_debris']),
       // Vanilla has no "blocks placed" stat; minecraft:used counts right-click
       // uses per item, which is dominated by block placements — good builder proxy.
@@ -151,7 +183,12 @@ export class StatsService implements OnModuleInit {
   private readUsercache(serverId: string): Map<string, string> {
     const names = new Map<string, string>();
     try {
-      const rows = JSON.parse(fs.readFileSync(this.pathGuard.dataPath('servers', serverId, 'usercache.json'), 'utf8')) as {
+      const rows = JSON.parse(
+        fs.readFileSync(
+          this.pathGuard.dataPath('servers', serverId, 'usercache.json'),
+          'utf8',
+        ),
+      ) as {
         uuid: string;
         name: string;
       }[];
@@ -169,7 +206,9 @@ export class StatsService implements OnModuleInit {
    * Read <server>/<level>/stats/*.json and snapshot each player whose
    * curated stats changed since the last snapshot. Returns { players, snapshots }.
    */
-  async ingestStats(serverId: string): Promise<{ players: number; snapshots: number }> {
+  async ingestStats(
+    serverId: string,
+  ): Promise<{ players: number; snapshots: number }> {
     const server = await this.servers.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     // activeLevelName honors LEVEL env AND server.properties level-name — a
@@ -178,8 +217,19 @@ export class StatsService implements OnModuleInit {
     // MC 26.x moved stat files from <world>/stats to <world>/players/stats.
     let statsDir: string;
     try {
-      const modern = this.pathGuard.dataPath('servers', serverId, level, 'players', 'stats');
-      const legacy = this.pathGuard.dataPath('servers', serverId, level, 'stats');
+      const modern = this.pathGuard.dataPath(
+        'servers',
+        serverId,
+        level,
+        'players',
+        'stats',
+      );
+      const legacy = this.pathGuard.dataPath(
+        'servers',
+        serverId,
+        level,
+        'stats',
+      );
       statsDir = fs.existsSync(modern) ? modern : legacy;
     } catch {
       return { players: 0, snapshots: 0 };
@@ -195,7 +245,9 @@ export class StatsService implements OnModuleInit {
       if (!uuid) continue;
       let curated: CuratedStats;
       try {
-        curated = this.curate(JSON.parse(fs.readFileSync(path.join(statsDir, file), 'utf8')));
+        curated = this.curate(
+          JSON.parse(fs.readFileSync(path.join(statsDir, file), 'utf8')),
+        );
       } catch {
         continue; // partial write / malformed file — retry next cycle
       }
@@ -204,33 +256,56 @@ export class StatsService implements OnModuleInit {
       const [latest] = await this.db
         .select({ statsJson: playerStatSnapshots.statsJson })
         .from(playerStatSnapshots)
-        .where(and(eq(playerStatSnapshots.serverId, serverId), eq(playerStatSnapshots.uuid, uuid)))
+        .where(
+          and(
+            eq(playerStatSnapshots.serverId, serverId),
+            eq(playerStatSnapshots.uuid, uuid),
+          ),
+        )
         .orderBy(desc(playerStatSnapshots.id))
         .limit(1);
       if (latest && latest.statsJson === json) continue;
       await this.db
         .insert(playerStatSnapshots)
-        .values({ serverId, uuid, name: names.get(uuid) || '', ts: new Date().toISOString(), statsJson: json });
+        .values({
+          serverId,
+          uuid,
+          name: names.get(uuid) || '',
+          ts: new Date().toISOString(),
+          statsJson: json,
+        });
       snapshots++;
     }
     return { players, snapshots };
   }
 
   /** Periodic stat ingestion for all running servers. Returns a stop function. */
-  startStatsIngest({ intervalMs = 5 * 60 * 1000 }: { intervalMs?: number } = {}): () => void {
+  startStatsIngest({
+    intervalMs = 5 * 60 * 1000,
+  }: { intervalMs?: number } = {}): () => void {
     const tick = async () => {
       for (const server of await this.servers.listServers()) {
         if (!RUNNING.has(server.status)) continue;
         try {
           await this.ingestStats(server.id);
         } catch (err) {
-          this.logger.error(`stats ingest ${server.id} failed: ${err instanceof Error ? err.message : err}`);
+          this.logger.error(
+            `stats ingest ${server.id} failed: ${err instanceof Error ? err.message : err}`,
+          );
         }
       }
     };
-    tick().catch((err: unknown) => this.logger.error(`stats ingest tick failed: ${err instanceof Error ? err.message : err}`));
+    tick().catch((err: unknown) =>
+      this.logger.error(
+        `stats ingest tick failed: ${err instanceof Error ? err.message : err}`,
+      ),
+    );
     this.timer = setInterval(() => {
-      tick().catch((err: unknown) => this.logger.error(`stats ingest tick failed: ${err instanceof Error ? err.message : err}`));
+      tick().catch((err: unknown) =>
+        this.logger.error(
+          `stats ingest tick failed: ${err instanceof Error ? err.message : err}`,
+        ),
+      );
     }, intervalMs);
     this.timer.unref?.();
     return () => {
@@ -239,11 +314,19 @@ export class StatsService implements OnModuleInit {
     };
   }
 
-  private async latestSnapshot(serverId: string, uuid: string): Promise<SnapshotRow | undefined> {
+  private async latestSnapshot(
+    serverId: string,
+    uuid: string,
+  ): Promise<SnapshotRow | undefined> {
     const [row] = await this.db
       .select()
       .from(playerStatSnapshots)
-      .where(and(eq(playerStatSnapshots.serverId, serverId), eq(playerStatSnapshots.uuid, uuid)))
+      .where(
+        and(
+          eq(playerStatSnapshots.serverId, serverId),
+          eq(playerStatSnapshots.uuid, uuid),
+        ),
+      )
       .orderBy(desc(playerStatSnapshots.id))
       .limit(1);
     return row;
@@ -255,18 +338,33 @@ export class StatsService implements OnModuleInit {
    * since tracking started), the oldest snapshot stands in so deltas never
    * exceed what was actually observed.
    */
-  private async baselineSnapshot(serverId: string, uuid: string, cutoffIso: string): Promise<SnapshotRow | undefined> {
+  private async baselineSnapshot(
+    serverId: string,
+    uuid: string,
+    cutoffIso: string,
+  ): Promise<SnapshotRow | undefined> {
     const [before] = await this.db
       .select()
       .from(playerStatSnapshots)
-      .where(and(eq(playerStatSnapshots.serverId, serverId), eq(playerStatSnapshots.uuid, uuid), lte(playerStatSnapshots.ts, cutoffIso)))
+      .where(
+        and(
+          eq(playerStatSnapshots.serverId, serverId),
+          eq(playerStatSnapshots.uuid, uuid),
+          lte(playerStatSnapshots.ts, cutoffIso),
+        ),
+      )
       .orderBy(desc(playerStatSnapshots.ts))
       .limit(1);
     if (before) return before;
     const [oldest] = await this.db
       .select()
       .from(playerStatSnapshots)
-      .where(and(eq(playerStatSnapshots.serverId, serverId), eq(playerStatSnapshots.uuid, uuid)))
+      .where(
+        and(
+          eq(playerStatSnapshots.serverId, serverId),
+          eq(playerStatSnapshots.uuid, uuid),
+        ),
+      )
       .orderBy(asc(playerStatSnapshots.ts))
       .limit(1);
     return oldest;
@@ -274,12 +372,18 @@ export class StatsService implements OnModuleInit {
 
   private windowCutoff(window: Window): string | null {
     const hours = window === '24h' ? 24 : window === '7d' ? 24 * 7 : null;
-    return hours ? new Date(Date.now() - hours * 3_600_000).toISOString() : null;
+    return hours
+      ? new Date(Date.now() - hours * 3_600_000).toISOString()
+      : null;
   }
 
-  private deltaBetween(latest: CuratedStats, base: CuratedStats | null): CuratedStats {
+  private deltaBetween(
+    latest: CuratedStats,
+    base: CuratedStats | null,
+  ): CuratedStats {
     const out = {} as CuratedStats;
-    for (const key of METRICS) out[key] = Math.max(0, num(latest[key]) - num(base ? base[key] : 0));
+    for (const key of METRICS)
+      out[key] = Math.max(0, num(latest[key]) - num(base ? base[key] : 0));
     return out;
   }
 
@@ -293,16 +397,26 @@ export class StatsService implements OnModuleInit {
    * The scale factors put a typical hour of each activity in the same order
    * of magnitude so the split reflects how time is actually spent.
    */
-  private playstyle(stats: CuratedStats): Record<'miner' | 'builder' | 'fighter' | 'explorer', number> {
+  private playstyle(
+    stats: CuratedStats,
+  ): Record<'miner' | 'builder' | 'fighter' | 'explorer', number> {
     const scores = {
       miner: stats.blocksMinedTotal,
-      builder: stats.blocksUsedTotal > 0 ? stats.blocksUsedTotal : stats.jumps / 2,
-      fighter: 25 * (stats.mobKills + 4 * stats.playerKills) + stats.damageDealt / 10,
+      builder:
+        stats.blocksUsedTotal > 0 ? stats.blocksUsedTotal : stats.jumps / 2,
+      fighter:
+        25 * (stats.mobKills + 4 * stats.playerKills) + stats.damageDealt / 10,
       explorer: stats.distanceCm / 1600,
     };
     const total = Object.values(scores).reduce((n, v) => n + v, 0);
-    const pct = {} as Record<'miner' | 'builder' | 'fighter' | 'explorer', number>;
-    for (const [key, value] of Object.entries(scores) as [keyof typeof scores, number][]) {
+    const pct = {} as Record<
+      'miner' | 'builder' | 'fighter' | 'explorer',
+      number
+    >;
+    for (const [key, value] of Object.entries(scores) as [
+      keyof typeof scores,
+      number,
+    ][]) {
       pct[key] = total > 0 ? Math.round((value / total) * 100) : 0;
     }
     return pct;
@@ -317,27 +431,52 @@ export class StatsService implements OnModuleInit {
     const deltas = {} as Record<'24h' | '7d', CuratedStats>;
     for (const window of ['24h', '7d'] as const) {
       const cutoff = this.windowCutoff(window);
-      const base = cutoff ? await this.baselineSnapshot(serverId, dashed, cutoff) : undefined;
-      deltas[window] = this.deltaBetween(stats, base ? (JSON.parse(base.statsJson) as CuratedStats) : null);
+      const base = cutoff
+        ? await this.baselineSnapshot(serverId, dashed, cutoff)
+        : undefined;
+      deltas[window] = this.deltaBetween(
+        stats,
+        base ? (JSON.parse(base.statsJson) as CuratedStats) : null,
+      );
     }
 
     const name = row.name || '';
     const sessionAgg = name
       ? await this.db
-          .select({ startedAt: playerSessions.startedAt, endedAt: playerSessions.endedAt })
+          .select({
+            startedAt: playerSessions.startedAt,
+            endedAt: playerSessions.endedAt,
+          })
           .from(playerSessions)
-          .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, name)))
+          .where(
+            and(
+              eq(playerSessions.serverId, serverId),
+              eq(playerSessions.player, name),
+            ),
+          )
       : [];
     const count = sessionAgg.length;
     const closedSeconds = sessionAgg.reduce(
-      (n, s) => n + (s.endedAt ? (Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 1000 : 0),
-      0
+      (n, s) =>
+        n +
+        (s.endedAt
+          ? (Date.parse(s.endedAt) - Date.parse(s.startedAt)) / 1000
+          : 0),
+      0,
     );
     const recentSessionRows = name
       ? await this.db
-          .select({ startedAt: playerSessions.startedAt, endedAt: playerSessions.endedAt })
+          .select({
+            startedAt: playerSessions.startedAt,
+            endedAt: playerSessions.endedAt,
+          })
           .from(playerSessions)
-          .where(and(eq(playerSessions.serverId, serverId), eq(playerSessions.player, name)))
+          .where(
+            and(
+              eq(playerSessions.serverId, serverId),
+              eq(playerSessions.player, name),
+            ),
+          )
           .orderBy(desc(playerSessions.startedAt))
           .limit(10)
       : [];
@@ -346,7 +485,11 @@ export class StatsService implements OnModuleInit {
       endedAt: s.endedAt,
       durationSec: Math.max(
         0,
-        Math.round(((s.endedAt ? Date.parse(s.endedAt) : Date.now()) - Date.parse(s.startedAt)) / 1000)
+        Math.round(
+          ((s.endedAt ? Date.parse(s.endedAt) : Date.now()) -
+            Date.parse(s.startedAt)) /
+            1000,
+        ),
       ),
       open: !s.endedAt,
     }));
@@ -369,8 +512,15 @@ export class StatsService implements OnModuleInit {
   }
 
   /** Rank every tracked player by one metric, absolute or windowed delta. */
-  async scoreboard(serverId: string, { metric = 'playtimeTicks' as keyof CuratedStats, window = 'all' as Window } = {}): Promise<ScoreboardRow[]> {
-    if (!METRICS.has(metric)) throw new BadRequestException(`Unknown metric: ${metric}`);
+  async scoreboard(
+    serverId: string,
+    {
+      metric = 'playtimeTicks' as keyof CuratedStats,
+      window = 'all' as Window,
+    } = {},
+  ): Promise<ScoreboardRow[]> {
+    if (!METRICS.has(metric))
+      throw new BadRequestException(`Unknown metric: ${metric}`);
     const cutoff = this.windowCutoff(window);
     const uuids = await this.db
       .selectDistinct({ uuid: playerStatSnapshots.uuid })
@@ -384,12 +534,22 @@ export class StatsService implements OnModuleInit {
       let value = num(stats[metric]);
       if (cutoff) {
         const base = await this.baselineSnapshot(serverId, uuid, cutoff);
-        value = Math.max(0, value - num(base ? (JSON.parse(base.statsJson) as CuratedStats)[metric] : 0));
+        value = Math.max(
+          0,
+          value -
+            num(
+              base ? (JSON.parse(base.statsJson) as CuratedStats)[metric] : 0,
+            ),
+        );
       }
       rows.push({ uuid, name: latest.name || uuid.slice(0, 8), value });
     }
     rows.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
-    return rows.map((row, i) => ({ ...row, rank: i + 1, crown: i === 0 && row.value > 0 }));
+    return rows.map((row, i) => ({
+      ...row,
+      rank: i + 1,
+      crown: i === 0 && row.value > 0,
+    }));
   }
 
   private median(values: number[]): number {
@@ -425,9 +585,11 @@ export class StatsService implements OnModuleInit {
           diamondRatio: s.diamondsMined / (s.stoneMined + 1),
           debrisRatio: s.ancientDebrisMined / (s.stoneMined + 1),
         };
-      })
+      }),
     );
-    const players: XrayPlayer[] = playersRaw.filter((p): p is XrayPlayer => p !== null);
+    const players: XrayPlayer[] = playersRaw.filter(
+      (p): p is XrayPlayer => p !== null,
+    );
 
     const eligible = players.filter((p) => p.stoneMined >= 64);
     const medDiamond = this.median(eligible.map((p) => p.diamondRatio));
@@ -439,18 +601,38 @@ export class StatsService implements OnModuleInit {
     const ratios = players.map((p) => p.diamondRatio).sort((a, b) => a - b);
     const out: XrayFlaggedPlayer[] = players
       .map((p) => {
-        const flaggedDiamond = p.stoneMined >= 64 && p.diamondsMined >= 16 && p.diamondRatio > 4 * effDiamond;
-        const flaggedDebris = p.stoneMined >= 64 && p.ancientDebrisMined >= 8 && p.debrisRatio > 4 * effDebris;
+        const flaggedDiamond =
+          p.stoneMined >= 64 &&
+          p.diamondsMined >= 16 &&
+          p.diamondRatio > 4 * effDiamond;
+        const flaggedDebris =
+          p.stoneMined >= 64 &&
+          p.ancientDebrisMined >= 8 &&
+          p.debrisRatio > 4 * effDebris;
         return {
           ...p,
           diamondRatio: Number(p.diamondRatio.toFixed(5)),
           debrisRatio: Number(p.debrisRatio.toFixed(5)),
           percentile:
-            ratios.length > 1 ? Math.round((ratios.filter((r) => r <= p.diamondRatio).length / ratios.length) * 100) : 100,
+            ratios.length > 1
+              ? Math.round(
+                  (ratios.filter((r) => r <= p.diamondRatio).length /
+                    ratios.length) *
+                    100,
+                )
+              : 100,
           flagged: flaggedDiamond || flaggedDebris,
           reasons: [
-            ...(flaggedDiamond ? [`diamond ratio ${(p.diamondRatio / effDiamond).toFixed(1)}x server median`] : []),
-            ...(flaggedDebris ? [`ancient debris ratio ${(p.debrisRatio / effDebris).toFixed(1)}x server median`] : []),
+            ...(flaggedDiamond
+              ? [
+                  `diamond ratio ${(p.diamondRatio / effDiamond).toFixed(1)}x server median`,
+                ]
+              : []),
+            ...(flaggedDebris
+              ? [
+                  `ancient debris ratio ${(p.debrisRatio / effDebris).toFixed(1)}x server median`,
+                ]
+              : []),
           ],
         };
       })
@@ -466,12 +648,32 @@ export class StatsService implements OnModuleInit {
     };
   }
 
-  private static readonly EVENT_TYPES = ['chat', 'join', 'leave', 'death', 'advancement', 'pvp', 'command'];
+  private static readonly EVENT_TYPES = [
+    'chat',
+    'join',
+    'leave',
+    'death',
+    'advancement',
+    'pvp',
+    'command',
+  ];
 
   /** Paginated player_events feed for the server's history tab. Ports the `/timeline` route's inline query. */
   async timeline(
     serverId: string,
-    { q, type, player, limit = 50, before }: { q?: string; type?: string; player?: string; limit?: number; before?: number }
+    {
+      q,
+      type,
+      player,
+      limit = 50,
+      before,
+    }: {
+      q?: string;
+      type?: string;
+      player?: string;
+      limit?: number;
+      before?: number;
+    },
   ): Promise<{ events: TimelineEvent[]; nextBefore: number | null }> {
     const clauses = [eq(playerEvents.serverId, serverId)];
     if (type) {
@@ -483,14 +685,31 @@ export class StatsService implements OnModuleInit {
     }
     if (player) clauses.push(eq(playerEvents.player, player));
     if (before) clauses.push(lt(playerEvents.id, before));
-    if (q) clauses.push(or(like(playerEvents.message, `%${q}%`), like(playerEvents.player, `%${q}%`))!);
+    if (q)
+      clauses.push(
+        or(
+          like(playerEvents.message, `%${q}%`),
+          like(playerEvents.player, `%${q}%`),
+        )!,
+      );
     const events = (await this.db
-      .select({ id: playerEvents.id, ts: playerEvents.ts, type: playerEvents.type, player: playerEvents.player, target: playerEvents.target, message: playerEvents.message })
+      .select({
+        id: playerEvents.id,
+        ts: playerEvents.ts,
+        type: playerEvents.type,
+        player: playerEvents.player,
+        target: playerEvents.target,
+        message: playerEvents.message,
+      })
       .from(playerEvents)
       .where(and(...clauses))
       .orderBy(desc(playerEvents.id))
       .limit(limit)) as (typeof playerEvents.$inferSelect)[];
-    return { events, nextBefore: events.length === limit ? events[events.length - 1]!.id : null };
+    return {
+      events,
+      nextBefore:
+        events.length === limit ? events[events.length - 1]!.id : null,
+    };
   }
 
   /** Join/leave session list for the server's history tab. Ports the `/sessions` route's inline query. */
@@ -498,7 +717,12 @@ export class StatsService implements OnModuleInit {
     const clauses = [eq(playerSessions.serverId, serverId)];
     if (player) clauses.push(eq(playerSessions.player, player));
     const rows = await this.db
-      .select({ id: playerSessions.id, player: playerSessions.player, startedAt: playerSessions.startedAt, endedAt: playerSessions.endedAt })
+      .select({
+        id: playerSessions.id,
+        player: playerSessions.player,
+        startedAt: playerSessions.startedAt,
+        endedAt: playerSessions.endedAt,
+      })
       .from(playerSessions)
       .where(and(...clauses))
       .orderBy(desc(playerSessions.startedAt))
@@ -509,25 +733,49 @@ export class StatsService implements OnModuleInit {
       startedAt: s.startedAt,
       endedAt: s.endedAt,
       open: !s.endedAt,
-      durationSec: Math.max(0, Math.round(((s.endedAt ? Date.parse(s.endedAt) : Date.now()) - Date.parse(s.startedAt)) / 1000)),
+      durationSec: Math.max(
+        0,
+        Math.round(
+          ((s.endedAt ? Date.parse(s.endedAt) : Date.now()) -
+            Date.parse(s.startedAt)) /
+            1000,
+        ),
+      ),
     }));
   }
 
   /** Distinct players seen in the timeline plus everyone with stat snapshots. Ports the `/players` route's inline query. */
-  async playersList(serverId: string): Promise<{ name: string; uuid: string }[]> {
+  async playersList(
+    serverId: string,
+  ): Promise<{ name: string; uuid: string }[]> {
     const fromEventsRows = await this.db
       .selectDistinct({ name: playerEvents.player })
       .from(playerEvents)
-      .where(and(eq(playerEvents.serverId, serverId), sql`${playerEvents.player} != '' AND ${playerEvents.player} != '[Server]'`));
+      .where(
+        and(
+          eq(playerEvents.serverId, serverId),
+          sql`${playerEvents.player} != '' AND ${playerEvents.player} != '[Server]'`,
+        ),
+      );
     const fromEvents = fromEventsRows.map((r) => ({ name: r.name, uuid: '' }));
     const fromSnapshots = await this.db
-      .selectDistinct({ name: playerStatSnapshots.name, uuid: playerStatSnapshots.uuid })
+      .selectDistinct({
+        name: playerStatSnapshots.name,
+        uuid: playerStatSnapshots.uuid,
+      })
       .from(playerStatSnapshots)
-      .where(and(eq(playerStatSnapshots.serverId, serverId), sql`${playerStatSnapshots.name} != ''`));
+      .where(
+        and(
+          eq(playerStatSnapshots.serverId, serverId),
+          sql`${playerStatSnapshots.name} != ''`,
+        ),
+      );
     const byName = new Map<string, { name: string; uuid: string }>();
     for (const p of [...fromEvents, ...fromSnapshots]) {
       if (!byName.has(p.name) || p.uuid) byName.set(p.name, p);
     }
-    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    return [...byName.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
   }
 }

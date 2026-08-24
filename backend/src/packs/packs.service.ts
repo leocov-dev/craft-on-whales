@@ -1,4 +1,9 @@
-import { Injectable, HttpException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -15,7 +20,12 @@ import { ModsService } from '../mods/mods.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { WorldPropsService } from '../worlds/world-props.service';
 import { WorldArchiveService } from '../worlds/world-archive.service';
-import type { PackLatestInfo, PackPlatform, ResolvePackOptions, ResolvedPack } from './packs.types';
+import type {
+  PackLatestInfo,
+  PackPlatform,
+  ResolvePackOptions,
+  ResolvedPack,
+} from './packs.types';
 
 type ServerPackRow = typeof serverPacks.$inferSelect;
 
@@ -39,7 +49,7 @@ export class PacksService {
     private readonly mods: ModsService,
     private readonly pathGuard: PathGuardService,
     private readonly worldProps: WorldPropsService,
-    private readonly worldArchive: WorldArchiveService
+    private readonly worldArchive: WorldArchiveService,
   ) {}
 
   private get db() {
@@ -68,13 +78,26 @@ export class PacksService {
   async resolvePack(
     platform: PackPlatform,
     ref: string,
-    { versionId = null, mcVersion, includeBeta = false }: ResolvePackOptions = {}
+    {
+      versionId = null,
+      mcVersion,
+      includeBeta = false,
+    }: ResolvePackOptions = {},
   ): Promise<ResolvedPack> {
     if (platform === 'curseforge') {
-      const project = await this.curseforge.resolveUrl(this.normalizeCurseforgeRef(ref));
-      const files = await this.curseforge.getFiles(project.modId, { mcVersion });
-      const file = versionId ? await this.curseforge.getFile(project.modId, Number(versionId)) : files.find((f) => f.releaseType === 'release') || files[0];
-      if (!file) throw new NotFoundException(`No installable file found for ${project.name}`);
+      const project = await this.curseforge.resolveUrl(
+        this.normalizeCurseforgeRef(ref),
+      );
+      const files = await this.curseforge.getFiles(project.modId, {
+        mcVersion,
+      });
+      const file = versionId
+        ? await this.curseforge.getFile(project.modId, Number(versionId))
+        : files.find((f) => f.releaseType === 'release') || files[0];
+      if (!file)
+        throw new NotFoundException(
+          `No installable file found for ${project.name}`,
+        );
       return {
         platform,
         projectRef: project.slug,
@@ -84,14 +107,28 @@ export class PacksService {
         versionId: String(file.fileId),
         versionName: file.name,
         mcVersion: this.pickMcVersion(file.gameVersions),
-        allVersions: files.slice(0, 25).map((f) => ({ id: String(f.fileId), name: f.name, type: f.releaseType, date: f.fileDate })),
+        allVersions: files
+          .slice(0, 25)
+          .map((f) => ({
+            id: String(f.fileId),
+            name: f.name,
+            type: f.releaseType,
+            date: f.fileDate,
+          })),
       };
     }
     if (platform === 'modrinth') {
       const project = await this.modrinth.resolveUrl(ref);
-      const versions = await this.modrinth.getVersions(project.projectId, { mcVersion });
-      const version = versionId ? await this.modrinth.getVersion(versionId) : versions.find((v) => v.version_type === 'release') || versions[0];
-      if (!version) throw new NotFoundException(`No installable version found for ${project.title}`);
+      const versions = await this.modrinth.getVersions(project.projectId, {
+        mcVersion,
+      });
+      const version = versionId
+        ? await this.modrinth.getVersion(versionId)
+        : versions.find((v) => v.version_type === 'release') || versions[0];
+      if (!version)
+        throw new NotFoundException(
+          `No installable version found for ${project.title}`,
+        );
       return {
         platform,
         projectRef: project.slug,
@@ -100,7 +137,8 @@ export class PacksService {
         iconUrl: project.iconUrl,
         versionId: version.id,
         versionName: version.version_number,
-        mcVersion: version.game_versions[version.game_versions.length - 1] || null,
+        mcVersion:
+          version.game_versions[version.game_versions.length - 1] || null,
         loaders: version.loaders,
         allVersions: versions.slice(0, 25).map((v) => ({
           id: v.id,
@@ -112,8 +150,14 @@ export class PacksService {
     }
     if (platform === 'ftb') {
       const id = String(ref).match(/\d+/)?.[0];
-      if (!id) throw new BadRequestException('FTB packs are referenced by numeric modpack ID');
-      if (!versionId) throw new BadRequestException('FTB installs need an explicit version ID (the panel never uses latest)');
+      if (!id)
+        throw new BadRequestException(
+          'FTB packs are referenced by numeric modpack ID',
+        );
+      if (!versionId)
+        throw new BadRequestException(
+          'FTB installs need an explicit version ID (the panel never uses latest)',
+        );
       return {
         platform,
         projectRef: id,
@@ -131,9 +175,14 @@ export class PacksService {
       // index.toml — packwiz's own hash for exactly this content, and the
       // only stable thing to pin/compare against since pack.toml's `version`
       // field is free text authors aren't required to bump.
-      if (!/^https?:\/\//i.test(ref)) throw new BadRequestException('packwiz packs are referenced by their pack.toml URL');
+      if (!/^https?:\/\//i.test(ref))
+        throw new BadRequestException(
+          'packwiz packs are referenced by their pack.toml URL',
+        );
       const resolved = await this.packwiz.resolvePack(ref);
-      const loaders = (['fabric', 'forge', 'quilt', 'neoforge'] as const).filter((l) => resolved.pack.versions[l]);
+      const loaders = (
+        ['fabric', 'forge', 'quilt', 'neoforge'] as const
+      ).filter((l) => resolved.pack.versions[l]);
       return {
         platform,
         projectRef: ref,
@@ -151,8 +200,14 @@ export class PacksService {
     // and a pack version is its own id. The Minecraft version is hardcoded
     // because the index does not state one — GTNH is a 1.7.10 pack by definition.
     const all = await this.gtnh.listVersions({ includeBeta: true });
-    const entry = versionId ? await this.gtnh.getVersion(String(versionId)) : this.gtnh.pickLatest(all, { includeBeta });
-    if (!entry) throw new HttpException('The GTNH release index returned no installable versions', 502);
+    const entry = versionId
+      ? await this.gtnh.getVersion(String(versionId))
+      : this.gtnh.pickLatest(all, { includeBeta });
+    if (!entry)
+      throw new HttpException(
+        'The GTNH release index returned no installable versions',
+        502,
+      );
     return {
       platform,
       projectRef: 'gtnh',
@@ -164,7 +219,9 @@ export class PacksService {
       mcVersion: '1.7.10',
       maxJavaVersion: entry.maxJavaVersion,
       channel: entry.channel,
-      javaTag: this.javaMatrix.pickJavaTag('1.7.10', 'GTNH', { maxJavaVersion: entry.maxJavaVersion }),
+      javaTag: this.javaMatrix.pickJavaTag('1.7.10', 'GTNH', {
+        maxJavaVersion: entry.maxJavaVersion,
+      }),
       changelogUrl: entry.changelogUrl,
       allVersions: all.map((e) => ({
         id: e.version,
@@ -179,7 +236,11 @@ export class PacksService {
   /** Env vars implementing the PINNED install for each platform. */
   packEnv(resolved: ResolvedPack): Record<string, string> {
     if (resolved.platform === 'curseforge') {
-      return { TYPE: 'AUTO_CURSEFORGE', CF_SLUG: resolved.projectRef, CF_FILE_ID: resolved.versionId };
+      return {
+        TYPE: 'AUTO_CURSEFORGE',
+        CF_SLUG: resolved.projectRef,
+        CF_FILE_ID: resolved.versionId,
+      };
     }
     if (resolved.platform === 'modrinth') {
       const env: Record<string, string> = {
@@ -187,7 +248,9 @@ export class PacksService {
         MODRINTH_MODPACK: resolved.projectRef,
         MODRINTH_VERSION: resolved.versionId,
       };
-      const loader = (resolved.loaders || []).find((l) => ['fabric', 'forge', 'neoforge', 'quilt'].includes(l));
+      const loader = (resolved.loaders || []).find((l) =>
+        ['fabric', 'forge', 'neoforge', 'quilt'].includes(l),
+      );
       if (loader) env.MODRINTH_LOADER = loader;
       return env;
     }
@@ -206,7 +269,11 @@ export class PacksService {
       // that stored one, same as every other platform's update check.
       return { TYPE: 'PACKWIZ', PACKWIZ_URL: resolved.projectRef };
     }
-    return { TYPE: 'FTBA', FTB_MODPACK_ID: resolved.projectRef, FTB_MODPACK_VERSION_ID: resolved.versionId };
+    return {
+      TYPE: 'FTBA',
+      FTB_MODPACK_ID: resolved.projectRef,
+      FTB_MODPACK_VERSION_ID: resolved.versionId,
+    };
   }
 
   /**
@@ -217,7 +284,10 @@ export class PacksService {
   async applyPack(
     serverId: string,
     resolved: ResolvedPack,
-    { actor = 'system', force = false }: { actor?: string; force?: boolean } = {}
+    {
+      actor = 'system',
+      force = false,
+    }: { actor?: string; force?: boolean } = {},
   ): Promise<{ previous: ServerPackRow | null }> {
     const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
@@ -228,11 +298,18 @@ export class PacksService {
     if (!force) {
       const warnings = this.worldVersionWarnings(server, resolved);
       if (warnings.length) {
-        throw new HttpException({ message: warnings.join(' '), warnings, requiresForce: true }, 409);
+        throw new HttpException(
+          { message: warnings.join(' '), warnings, requiresForce: true },
+          409,
+        );
       }
     }
 
-    const previousRows = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
+    const previousRows = await this.db
+      .select()
+      .from(serverPacks)
+      .where(eq(serverPacks.serverId, serverId))
+      .limit(1);
     const previous = previousRows[0] ?? null;
 
     // Strip EVERY previous pack-selection/exclusion env var (CF_/MODRINTH_/FTB_/GTNH_)
@@ -241,9 +318,14 @@ export class PacksService {
     // user env is preserved. SKIP_GTNH_ is its own prefix (not GTNH_-prefixed)
     // because that env var name is dictated by the container image's contract.
     const cleanedEnv: Record<string, string> = Object.fromEntries(
-      Object.entries(server.env).filter(([key]) => !/^(CF_|MODRINTH_|FTB_|GTNH_|SKIP_GTNH_|PACKWIZ_)/.test(key))
+      Object.entries(server.env).filter(
+        ([key]) => !/^(CF_|MODRINTH_|FTB_|GTNH_|SKIP_GTNH_|PACKWIZ_)/.test(key),
+      ),
     );
-    const env: Record<string, string> = { ...cleanedEnv, ...this.packEnv(resolved) };
+    const env: Record<string, string> = {
+      ...cleanedEnv,
+      ...this.packEnv(resolved),
+    };
     // GTNH's own server start scripts ship -Dfml.queryResult=confirm, and the
     // itzg launcher path loses it. Without it, the FIRST boot after any pack
     // version change over an existing world blocks forever on Forge's
@@ -253,10 +335,16 @@ export class PacksService {
     const FML_CONFIRM = 'fml.queryResult=confirm';
     if (resolved.platform === 'gtnh') {
       const user = cleanedEnv.JVM_DD_OPTS;
-      env.JVM_DD_OPTS = user ? (user.includes(FML_CONFIRM) ? user : `${user} ${FML_CONFIRM}`) : FML_CONFIRM;
+      env.JVM_DD_OPTS = user
+        ? user.includes(FML_CONFIRM)
+          ? user
+          : `${user} ${FML_CONFIRM}`
+        : FML_CONFIRM;
     } else if (previous && previous.platform === 'gtnh' && env.JVM_DD_OPTS) {
       // Leaving GTNH: take back only the panel's own token; user pairs survive.
-      const stripped = env.JVM_DD_OPTS.split(/[\s,]+/).filter((pair) => pair && pair !== FML_CONFIRM);
+      const stripped = env.JVM_DD_OPTS.split(/[\s,]+/).filter(
+        (pair) => pair && pair !== FML_CONFIRM,
+      );
       if (stripped.length) env.JVM_DD_OPTS = stripped.join(' ');
       else delete env.JVM_DD_OPTS;
     }
@@ -320,7 +408,11 @@ export class PacksService {
   }
 
   async getPack(serverId: string): Promise<ServerPackRow | null> {
-    const [row] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, serverId)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(serverPacks)
+      .where(eq(serverPacks.serverId, serverId))
+      .limit(1);
     return row ?? null;
   }
 
@@ -335,7 +427,10 @@ export class PacksService {
       const resolved = await this.packwiz.resolvePack(pack.projectRef);
       return {
         current: { id: pack.pinnedVersionId, name: pack.pinnedVersionName },
-        latest: { id: resolved.indexHash, name: resolved.pack.version || resolved.indexHash.slice(0, 12) },
+        latest: {
+          id: resolved.indexHash,
+          name: resolved.pack.version || resolved.indexHash.slice(0, 12),
+        },
         updateAvailable: resolved.indexHash !== pack.pinnedVersionId,
         projectName: pack.projectName,
         projectRef: pack.projectRef,
@@ -345,7 +440,9 @@ export class PacksService {
     if (pack.platform === 'gtnh') {
       // Track the channel this server was pinned from: a stable server must never
       // be offered a beta, and a beta server should see beta releases.
-      const newest = await this.gtnh.latest({ includeBeta: pack.channel === 'beta' });
+      const newest = await this.gtnh.latest({
+        includeBeta: pack.channel === 'beta',
+      });
       if (!newest) return null;
       return {
         current: { id: pack.pinnedVersionId, name: pack.pinnedVersionName },
@@ -360,8 +457,15 @@ export class PacksService {
     // Scope "latest" to the server's own MC version — otherwise the checker
     // offers upgrades that silently cross MC versions.
     const server = await this.serverQuery.getServer(serverId);
-    const mcVersion = server && !['LATEST', 'SNAPSHOT'].includes(server.mc_version) ? server.mc_version : undefined;
-    const resolved = await this.resolvePack(pack.platform as PackPlatform, pack.projectRef, { mcVersion });
+    const mcVersion =
+      server && !['LATEST', 'SNAPSHOT'].includes(server.mc_version)
+        ? server.mc_version
+        : undefined;
+    const resolved = await this.resolvePack(
+      pack.platform as PackPlatform,
+      pack.projectRef,
+      { mcVersion },
+    );
     return {
       current: { id: pack.pinnedVersionId, name: pack.pinnedVersionName },
       latest: { id: resolved.versionId, name: resolved.versionName },
@@ -373,26 +477,43 @@ export class PacksService {
   }
 
   /** After any pack install/update completes on disk, restore the overlay. */
-  async afterPackOperation(serverId: string, { actor = 'system' }: { actor?: string } = {}): Promise<{ restored: number }> {
+  async afterPackOperation(
+    serverId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ restored: number }> {
     return this.mods.reapplyOverlay(serverId, { actor });
   }
 
   /** Warnings when a pack's MC version conflicts with the server's existing world. */
-  private worldVersionWarnings(server: Server, resolved: ResolvedPack): string[] {
+  private worldVersionWarnings(
+    server: Server,
+    resolved: ResolvedPack,
+  ): string[] {
     if (!resolved.mcVersion) return [];
     const warnings: string[] = [];
     try {
       const level = this.worldProps.activeLevelName(server);
-      const worldVersion = this.worldArchive.readLevelVersion(path.join(this.pathGuard.dataPath('servers', server.id), level, 'level.dat'));
+      const worldVersion = this.worldArchive.readLevelVersion(
+        path.join(
+          this.pathGuard.dataPath('servers', server.id),
+          level,
+          'level.dat',
+        ),
+      );
       if (worldVersion && worldVersion !== resolved.mcVersion) {
         const wv = this.javaMatrix.parseVersion(worldVersion);
         const pv = this.javaMatrix.parseVersion(resolved.mcVersion);
         const downgrade =
-          wv && pv && (pv.major < wv.major || (pv.major === wv.major && (pv.minor < wv.minor || (pv.minor === wv.minor && pv.patch < wv.patch))));
+          wv &&
+          pv &&
+          (pv.major < wv.major ||
+            (pv.major === wv.major &&
+              (pv.minor < wv.minor ||
+                (pv.minor === wv.minor && pv.patch < wv.patch))));
         warnings.push(
           downgrade
             ? `This pack runs Minecraft ${resolved.mcVersion} but the existing world was generated on ${worldVersion} — Minecraft cannot load newer worlds on older versions and the server will crash. Reset or swap the world first, or confirm to proceed anyway.`
-            : `This pack runs Minecraft ${resolved.mcVersion} but the existing world is from ${worldVersion} — starting will permanently upgrade the world (make a backup first).`
+            : `This pack runs Minecraft ${resolved.mcVersion} but the existing world is from ${worldVersion} — starting will permanently upgrade the world (make a backup first).`,
         );
       }
     } catch {

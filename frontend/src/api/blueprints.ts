@@ -1,7 +1,11 @@
 // Wraps /api/blueprints (src/web/routes/blueprints.ts).
 
 import { http } from './http';
-import type { BlueprintViewModel, BlueprintManifest, ImportPreview } from '../../../shared/types/blueprints';
+import type {
+  BlueprintViewModel,
+  BlueprintManifest,
+  ImportPreview,
+} from '../../../shared/types/blueprints';
 
 export type { BlueprintViewModel, BlueprintManifest, ImportPreview };
 

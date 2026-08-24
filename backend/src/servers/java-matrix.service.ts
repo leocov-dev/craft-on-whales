@@ -43,24 +43,41 @@ export class JavaMatrixService {
    * @param type      itzg TYPE (FORGE needs java8 below 1.18)
    * @param options   { maxJavaVersion } — GTNH-specific cap
    */
-  pickJavaTag(mcVersion: string | null | undefined, type: string = 'VANILLA', { maxJavaVersion = null }: PickJavaTagOptions = {}): string {
+  pickJavaTag(
+    mcVersion: string | null | undefined,
+    type: string = 'VANILLA',
+    { maxJavaVersion = null }: PickJavaTagOptions = {},
+  ): string {
     // GTNH: the pinned pack version decides, not the 1.7.10 → java8 rule below.
     // Unknown cap (no pin yet, or the index was unreachable) → java17, which
     // every version in the GTNH index supports.
     if (type === 'GTNH') {
-      const cap = Number.isInteger(maxJavaVersion) ? (maxJavaVersion as number) : 17;
+      const cap = Number.isInteger(maxJavaVersion)
+        ? (maxJavaVersion as number)
+        : 17;
       if (cap < 17) return 'java8';
-      return (GTNH_JAVA_LADDER.find((step) => cap >= step.min) || { tag: 'java17' }).tag;
+      return (
+        GTNH_JAVA_LADDER.find((step) => cap >= step.min) || { tag: 'java17' }
+      ).tag;
     }
     // LATEST/SNAPSHOT and Mojang's 2026+ version scheme (e.g. "26.2") need the
     // newest Java the image ships (:latest tag) — verified live: 26.x class
     // files are version 69 (Java 25), which java21 refuses to load.
-    if (!mcVersion || mcVersion === 'LATEST' || mcVersion === 'SNAPSHOT') return 'latest';
+    if (!mcVersion || mcVersion === 'LATEST' || mcVersion === 'SNAPSHOT')
+      return 'latest';
     const v = parseVersion(mcVersion);
     if (!v) return 'latest'; // snapshot naming (26w02a…) → newest
     if (v.major > 1) return 'latest'; // 25.x/26.x era versions
 
-    const isForgeFamily = ['FORGE', 'MOHIST', 'ARCLIGHT', 'MAGMA', 'MAGMA_MAINTAINED', 'CRUCIBLE', 'KETTING'].includes(type);
+    const isForgeFamily = [
+      'FORGE',
+      'MOHIST',
+      'ARCLIGHT',
+      'MAGMA',
+      'MAGMA_MAINTAINED',
+      'CRUCIBLE',
+      'KETTING',
+    ].includes(type);
 
     if (v.major === 1 && v.minor <= 16) {
       // Paper 1.16.5 runs on java16, but java8 is the safe default for the

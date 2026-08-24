@@ -8,7 +8,13 @@ import { ModrinthApiService } from '../mods/modrinth-api.service';
 import { CurseforgeApiService } from '../mods/curseforge-api.service';
 import { ModsService } from '../mods/mods.service';
 import { ApiCacheService } from '../mods/api-cache.service';
-import { serverContent, libraryFiles, servers, serverPacks, updateChecks } from '../db/schema';
+import {
+  serverContent,
+  libraryFiles,
+  servers,
+  serverPacks,
+  updateChecks,
+} from '../db/schema';
 import type { UpdateFinding, OutdatedRow } from './updates.types';
 
 interface UpsertCheckOptions {
@@ -33,14 +39,16 @@ export class UpdateCheckerService {
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
     private readonly mods: ModsService,
-    private readonly apiCache: ApiCacheService
+    private readonly apiCache: ApiCacheService,
   ) {}
 
   private get db() {
     return this.dbService.db;
   }
 
-  async checkAll({ actor = 'scheduler' }: { actor?: string } = {}): Promise<UpdateFinding[]> {
+  async checkAll({ actor = 'scheduler' }: { actor?: string } = {}): Promise<
+    UpdateFinding[]
+  > {
     const findings: UpdateFinding[] = [];
     for (const server of await this.serverQuery.listServers()) {
       // Pack updates
@@ -52,7 +60,8 @@ export class UpdateCheckerService {
           // fallback (which, for GTNH, is only the generic changelogs
           // directory).
           const changelog = result.updateAvailable
-            ? result.changelogUrl || this.packChangelogUrl(result.platform, result.projectRef || '')
+            ? result.changelogUrl ||
+              this.packChangelogUrl(result.platform, result.projectRef || '')
             : null;
           await this.upsertCheck('pack', server.id, result.current.name || '', {
             isNew: result.updateAvailable,
@@ -85,20 +94,35 @@ export class UpdateCheckerService {
         })
         .from(serverContent)
         .innerJoin(libraryFiles, eq(libraryFiles.id, serverContent.libraryId))
-        .where(and(eq(serverContent.serverId, server.id), eq(serverContent.managedBy, 'overlay'), isNotNull(libraryFiles.projectId)));
-      const mcVersion = server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT' ? undefined : server.mc_version;
+        .where(
+          and(
+            eq(serverContent.serverId, server.id),
+            eq(serverContent.managedBy, 'overlay'),
+            isNotNull(libraryFiles.projectId),
+          ),
+        );
+      const mcVersion =
+        server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
+          ? undefined
+          : server.mc_version;
       const loader = this.mods.loaderOf(server) ?? undefined;
       for (const row of rows) {
         try {
           let latest: { id: string; name: string } | null = null;
           let changelogUrl: string | null = null;
           if (row.platform === 'modrinth' && row.projectId) {
-            const versions = await this.modrinth.getVersions(row.projectId, { loader, mcVersion });
+            const versions = await this.modrinth.getVersions(row.projectId, {
+              loader,
+              mcVersion,
+            });
             const first = versions[0];
             if (first) latest = { id: first.id, name: first.version_number };
             changelogUrl = `https://modrinth.com/project/${row.projectId}/changelog`;
           } else if (row.platform === 'curseforge' && row.projectId) {
-            const files = await this.curseforge.getFiles(Number(row.projectId), { mcVersion, loader });
+            const files = await this.curseforge.getFiles(
+              Number(row.projectId),
+              { mcVersion, loader },
+            );
             const first = files[0];
             if (first) latest = { id: String(first.fileId), name: first.name };
             changelogUrl = `https://www.curseforge.com/projects/${row.projectId}`;
@@ -133,7 +157,9 @@ export class UpdateCheckerService {
     this.events.recordEvent({
       actor,
       type: 'update-check',
-      summary: findings.length ? `Update check: ${findings.length} update(s) available` : 'Update check: everything up to date',
+      summary: findings.length
+        ? `Update check: ${findings.length} update(s) available`
+        : 'Update check: everything up to date',
       details: { findings: findings as unknown as Record<string, unknown> },
     });
     return findings;
@@ -145,7 +171,12 @@ export class UpdateCheckerService {
    * id, latestName the human-readable version name. Up-to-date subjects get
    * NULLs, so `latestVersion IS NOT NULL` cleanly means "update available".
    */
-  private async upsertCheck(subjectType: 'pack' | 'content', subjectId: string, current: string, { isNew, latestId, latestName, changelogUrl }: UpsertCheckOptions): Promise<void> {
+  private async upsertCheck(
+    subjectType: 'pack' | 'content',
+    subjectId: string,
+    current: string,
+    { isNew, latestId, latestName, changelogUrl }: UpsertCheckOptions,
+  ): Promise<void> {
     await this.db
       .insert(updateChecks)
       .values({
@@ -168,21 +199,30 @@ export class UpdateCheckerService {
       });
   }
 
-  private packChangelogUrl(platform: string, projectRef: string): string | null {
-    if (platform === 'modrinth') return `https://modrinth.com/project/${projectRef}/changelog`;
-    if (platform === 'curseforge') return `https://www.curseforge.com/minecraft/modpacks/${projectRef}/files`;
+  private packChangelogUrl(
+    platform: string,
+    projectRef: string,
+  ): string | null {
+    if (platform === 'modrinth')
+      return `https://modrinth.com/project/${projectRef}/changelog`;
+    if (platform === 'curseforge')
+      return `https://www.curseforge.com/minecraft/modpacks/${projectRef}/files`;
     // Fallback only: latestFor's gtnh branch normally supplies a real
     // per-version link straight from the index entry (see checkAll above).
     // This is the "all files" equivalent for the rare case a version's
     // changelog href didn't pass safeChangelogUrl's github.com/https check.
-    if (platform === 'gtnh') return 'https://github.com/GTNewHorizons/DreamAssemblerXXL/tree/master/releases/changelogs';
+    if (platform === 'gtnh')
+      return 'https://github.com/GTNewHorizons/DreamAssemblerXXL/tree/master/releases/changelogs';
     return null;
   }
 
   /** Everything outdated, joined for the Updates page. */
   async listOutdated(): Promise<OutdatedRow[]> {
     const rows: OutdatedRow[] = [];
-    const checks = await this.db.select().from(updateChecks).where(isNotNull(updateChecks.latestVersion));
+    const checks = await this.db
+      .select()
+      .from(updateChecks)
+      .where(isNotNull(updateChecks.latestVersion));
     for (const c of checks) {
       if (c.subjectType === 'pack') {
         const [server] = await this.db
@@ -190,7 +230,11 @@ export class UpdateCheckerService {
           .from(servers)
           .where(and(eq(servers.id, c.subjectId), isNull(servers.deletedAt)))
           .limit(1);
-        const [pack] = await this.db.select().from(serverPacks).where(eq(serverPacks.serverId, c.subjectId)).limit(1);
+        const [pack] = await this.db
+          .select()
+          .from(serverPacks)
+          .where(eq(serverPacks.serverId, c.subjectId))
+          .limit(1);
         if (server && pack && pack.pinnedVersionId !== c.latestVersion) {
           rows.push({
             serverId: server.id,
@@ -213,7 +257,13 @@ export class UpdateCheckerService {
             displayName: servers.displayName,
           })
           .from(serverContent)
-          .innerJoin(servers, and(eq(servers.id, serverContent.serverId), isNull(servers.deletedAt)))
+          .innerJoin(
+            servers,
+            and(
+              eq(servers.id, serverContent.serverId),
+              isNull(servers.deletedAt),
+            ),
+          )
           .where(eq(serverContent.id, c.subjectId))
           .limit(1);
         // Name-to-name: skip rows the user already updated since the last check.
@@ -236,6 +286,11 @@ export class UpdateCheckerService {
 
   async lastCheckedAt(): Promise<string | null> {
     const row = await this.apiCache.get('last-update-check');
-    return row ? new Date(Date.now() - row.ageMs).toISOString().slice(0, 19).replace('T', ' ') : null;
+    return row
+      ? new Date(Date.now() - row.ageMs)
+          .toISOString()
+          .slice(0, 19)
+          .replace('T', ' ')
+      : null;
   }
 }

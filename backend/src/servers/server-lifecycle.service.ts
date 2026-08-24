@@ -1,4 +1,10 @@
-import { ConflictException, forwardRef, Inject, Injectable, PreconditionFailedException } from '@nestjs/common';
+import {
+  ConflictException,
+  forwardRef,
+  Inject,
+  Injectable,
+  PreconditionFailedException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
@@ -141,16 +147,25 @@ export class ServerLifecycleService {
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    @Inject(forwardRef(() => require('../scheduler/scheduler.service').SchedulerService))
-    private readonly scheduler: SchedulerService
+    @Inject(
+      forwardRef(
+        () => require('../scheduler/scheduler.service').SchedulerService,
+      ),
+    )
+    private readonly scheduler: SchedulerService,
   ) {}
 
   private get db() {
     return this.dbService.db;
   }
 
-  createServer(input: CreateServerInput, opts: CreateServerOptions = {}): Promise<Server> {
-    return this.locks.runSerializedCreate(() => this.createServerImpl(input, opts));
+  createServer(
+    input: CreateServerInput,
+    opts: CreateServerOptions = {},
+  ): Promise<Server> {
+    return this.locks.runSerializedCreate(() =>
+      this.createServerImpl(input, opts),
+    );
   }
 
   /**
@@ -161,15 +176,25 @@ export class ServerLifecycleService {
    */
   private async createServerImpl(
     input: CreateServerInput,
-    { actor = 'system', start = false, onProgress = () => {}, javaTagHint }: CreateServerOptions = {}
+    {
+      actor = 'system',
+      start = false,
+      onProgress = () => {},
+      javaTagHint,
+    }: CreateServerOptions = {},
   ): Promise<Server> {
     // Fail fast instead of shipping a crash-looping container: anything
     // CurseForge needs the API key present in the panel's store.
     const inputEnv = input.env || {};
-    const wantsCurseforge = input.type === 'AUTO_CURSEFORGE' || inputEnv.CF_SLUG || inputEnv.CF_FILE_ID || inputEnv.CF_PAGE_URL || inputEnv.CURSEFORGE_FILES;
+    const wantsCurseforge =
+      input.type === 'AUTO_CURSEFORGE' ||
+      inputEnv.CF_SLUG ||
+      inputEnv.CF_FILE_ID ||
+      inputEnv.CF_PAGE_URL ||
+      inputEnv.CURSEFORGE_FILES;
     if (wantsCurseforge && !(await this.apiKeys.getKey('curseforge'))) {
       throw new PreconditionFailedException(
-        'CurseForge needs an API key — add yours in Settings → API keys first (console.curseforge.com), then create the server.'
+        'CurseForge needs an API key — add yours in Settings → API keys first (console.curseforge.com), then create the server.',
       );
     }
 
@@ -180,16 +205,24 @@ export class ServerLifecycleService {
     if (input.portGame) {
       // The RCON port is derived when not given explicitly — validate the
       // DERIVED value too, or an explicit game port skips collision checks.
-      const rcon = input.portRcon || input.portGame + this.config.ports.rconOffset;
+      const rcon =
+        input.portRcon || input.portGame + this.config.ports.rconOffset;
       const toCheck = [input.portGame, rcon];
       if (input.portBedrock) toCheck.push(input.portBedrock);
       if (input.portQuery) toCheck.push(input.portQuery);
       for (const p of toCheck) {
-        if (!(await this.ports.isPortFree(p))) throw new ConflictException(`Port ${p} is already in use or invalid`);
+        if (!(await this.ports.isPortFree(p)))
+          throw new ConflictException(`Port ${p} is already in use or invalid`);
       }
-      ports = { game: input.portGame, rcon, bedrock: input.portBedrock || null };
+      ports = {
+        game: input.portGame,
+        rcon,
+        bedrock: input.portBedrock || null,
+      };
     } else {
-      ports = await this.ports.suggestPorts({ withBedrock: Boolean(input.withBedrock) });
+      ports = await this.ports.suggestPorts({
+        withBedrock: Boolean(input.withBedrock),
+      });
     }
 
     await this.dockerSpec.validateOverrides({
@@ -202,50 +235,55 @@ export class ServerLifecycleService {
     const rconPassword = this.secrets.generatePassword();
     const defaults = this.config.defaults;
 
-    await this.db
-      .insert(servers)
-      .values({
-        id,
-        displayName: input.name,
-        description: input.description || '',
-        icon: input.icon || 'grass',
-        accent: input.accent || '#3fa62b',
-        tagsJson: JSON.stringify(input.tags || []),
-        type: input.type,
-        mcVersion: input.mcVersion || 'LATEST',
-        javaTag: input.javaTag || '',
-        envJson: JSON.stringify(input.env || {}),
-        portGame: ports.game,
-        portRcon: ports.rcon,
-        portQuery: input.portQuery || null,
-        portBedrock: ports.bedrock,
-        rconPasswordCipher: this.secrets.encrypt(rconPassword),
-        heapMb: input.heapMb ?? defaults.heapMb,
-        containerMemoryMb: input.containerMemoryMb ?? defaults.containerMemoryMb,
-        containerSwapMb: input.containerSwapMb ?? 0,
-        cpus: input.cpus ?? defaults.cpus,
-        diskQuotaBytes: (input.diskQuotaGb ?? defaults.diskQuotaGb) * 1024 ** 3,
-        quotaStrict: Boolean(input.quotaStrict),
-        updatePolicy: input.updatePolicy || 'manual',
-        autoStart: Boolean(input.autoStart),
-        autoRestart: input.autoRestart !== false,
-        status: 'stopped',
-        containerName: input.containerName || null,
-        networkName: input.networkName || null,
-        extraPortsJson: JSON.stringify(input.extraPorts || []),
-        extraBindsJson: JSON.stringify(input.extraBinds || []),
-      });
+    await this.db.insert(servers).values({
+      id,
+      displayName: input.name,
+      description: input.description || '',
+      icon: input.icon || 'grass',
+      accent: input.accent || '#3fa62b',
+      tagsJson: JSON.stringify(input.tags || []),
+      type: input.type,
+      mcVersion: input.mcVersion || 'LATEST',
+      javaTag: input.javaTag || '',
+      envJson: JSON.stringify(input.env || {}),
+      portGame: ports.game,
+      portRcon: ports.rcon,
+      portQuery: input.portQuery || null,
+      portBedrock: ports.bedrock,
+      rconPasswordCipher: this.secrets.encrypt(rconPassword),
+      heapMb: input.heapMb ?? defaults.heapMb,
+      containerMemoryMb: input.containerMemoryMb ?? defaults.containerMemoryMb,
+      containerSwapMb: input.containerSwapMb ?? 0,
+      cpus: input.cpus ?? defaults.cpus,
+      diskQuotaBytes: (input.diskQuotaGb ?? defaults.diskQuotaGb) * 1024 ** 3,
+      quotaStrict: Boolean(input.quotaStrict),
+      updatePolicy: input.updatePolicy || 'manual',
+      autoStart: Boolean(input.autoStart),
+      autoRestart: input.autoRestart !== false,
+      status: 'stopped',
+      containerName: input.containerName || null,
+      networkName: input.networkName || null,
+      extraPortsJson: JSON.stringify(input.extraPorts || []),
+      extraBindsJson: JSON.stringify(input.extraBinds || []),
+    });
 
     const server = (await this.query.getServer(id))!;
 
     try {
       fs.mkdirSync(this.pathGuard.dataPath('servers', id), { recursive: true });
-      fs.mkdirSync(this.pathGuard.dataPath('logs', id, 'events'), { recursive: true });
+      fs.mkdirSync(this.pathGuard.dataPath('logs', id, 'events'), {
+        recursive: true,
+      });
 
-      const image = await this.environment.resolveImage(server, { javaTagHint });
+      const image = await this.environment.resolveImage(server, {
+        javaTagHint,
+      });
       onProgress(`Pulling image ${image} (first time can take a few minutes)…`);
       await this.images.ensureImage(image, ({ current, total }) => {
-        if (total) onProgress(`Downloading image: ${Math.round((current / total) * 100)}%`);
+        if (total)
+          onProgress(
+            `Downloading image: ${Math.round((current / total) * 100)}%`,
+          );
       });
 
       onProgress('Creating container…');
@@ -254,14 +292,25 @@ export class ServerLifecycleService {
         image,
         env: await this.environment.assembleEnv(server),
         dataDir: this.pathGuard.dataPath('servers', id),
-        ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
+        ports: {
+          game: server.port_game,
+          rcon: server.port_rcon,
+          bedrock: server.port_bedrock ?? undefined,
+        },
         extraPorts: await this.environment.mergeExtraPorts(server),
-        resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
+        resources: {
+          memoryMb: server.container_memory_mb,
+          swapMb: server.container_swap_mb,
+          cpus: server.cpus,
+        },
         containerName: server.containerName ?? undefined,
         networkName: server.networkName ?? undefined,
         extraBinds: server.extraBinds,
       });
-      await this.db.update(servers).set({ containerId }).where(eq(servers.id, id));
+      await this.db
+        .update(servers)
+        .set({ containerId })
+        .where(eq(servers.id, id));
     } catch (err: unknown) {
       // Roll back: remove any partial container, drop the row (frees its
       // ports), and delete the freshly-made data/log dirs. Then surface the
@@ -269,17 +318,28 @@ export class ServerLifecycleService {
       await this.containers.removeContainer(id).catch(() => {});
       await this.db.delete(servers).where(eq(servers.id, id));
       try {
-        fs.rmSync(this.pathGuard.dataPath('servers', id), { recursive: true, force: true });
+        fs.rmSync(this.pathGuard.dataPath('servers', id), {
+          recursive: true,
+          force: true,
+        });
       } catch {
         /* best effort */
       }
       try {
-        fs.rmSync(this.pathGuard.dataPath('logs', id), { recursive: true, force: true });
+        fs.rmSync(this.pathGuard.dataPath('logs', id), {
+          recursive: true,
+          force: true,
+        });
       } catch {
         /* best effort */
       }
-      if ((err as { statusCode?: number }).statusCode === 409 && input.containerName) {
-        throw new ConflictException(`Container name "${input.containerName}" is already in use by another Docker container`);
+      if (
+        (err as { statusCode?: number }).statusCode === 409 &&
+        input.containerName
+      ) {
+        throw new ConflictException(
+          `Container name "${input.containerName}" is already in use by another Docker container`,
+        );
       }
       throw err;
     }
@@ -308,14 +368,24 @@ export class ServerLifecycleService {
   }
 
   restartServer(id: string, opts: { actor?: string } = {}): Promise<void> {
-    return this.locks.guard(id, 'restart', () => this.restartServerImpl(id, opts));
+    return this.locks.guard(id, 'restart', () =>
+      this.restartServerImpl(id, opts),
+    );
   }
 
-  recreateServer(id: string, opts: { actor?: string; quiet?: boolean } = {}): Promise<void> {
-    return this.locks.guard(id, 'recreate', () => this.recreateServerImpl(id, opts));
+  recreateServer(
+    id: string,
+    opts: { actor?: string; quiet?: boolean } = {},
+  ): Promise<void> {
+    return this.locks.guard(id, 'recreate', () =>
+      this.recreateServerImpl(id, opts),
+    );
   }
 
-  private async startServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+  private async startServerImpl(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<void> {
     const server = await this.query.mustGet(id);
     await this.environment.ensureOwnership(id);
     const info = await this.containers.inspectStatus(id);
@@ -323,16 +393,37 @@ export class ServerLifecycleService {
       await this.recreateServerImpl(id, { actor, quiet: true });
     }
     await this.containers.startContainer(id);
-    await this.db.update(servers).set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` }).where(eq(servers.id, id));
-    this.events.recordEvent({ serverId: id, actor, type: 'started', summary: 'Server start requested' });
+    await this.db
+      .update(servers)
+      .set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` })
+      .where(eq(servers.id, id));
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'started',
+      summary: 'Server start requested',
+    });
   }
 
-  private async stopServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+  private async stopServerImpl(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<void> {
     await this.query.mustGet(id);
-    this.events.recordEvent({ serverId: id, actor, type: 'stop-requested', summary: 'Graceful stop requested' });
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'stop-requested',
+      summary: 'Graceful stop requested',
+    });
     await this.containers.stopContainer(id);
-    await this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id));
-    const excerpt = await this.logs.fetchLogs(id, { tail: 100 }).catch(() => '');
+    await this.db
+      .update(servers)
+      .set({ status: 'stopped' })
+      .where(eq(servers.id, id));
+    const excerpt = await this.logs
+      .fetchLogs(id, { tail: 100 })
+      .catch(() => '');
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -342,27 +433,63 @@ export class ServerLifecycleService {
     });
   }
 
-  private async restartServerImpl(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
-    this.events.recordEvent({ serverId: id, actor, type: 'restart-requested', summary: 'Restart requested' });
+  private async restartServerImpl(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<void> {
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'restart-requested',
+      summary: 'Restart requested',
+    });
     await this.stopServerImpl(id, { actor });
     await this.startServerImpl(id, { actor });
-    this.events.recordEvent({ serverId: id, actor, type: 'restarted', summary: 'Server restarted' });
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'restarted',
+      summary: 'Server restarted',
+    });
   }
 
-  async killServer(id: string, { actor = 'system' }: { actor?: string } = {}): Promise<void> {
+  async killServer(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<void> {
     await this.query.mustGet(id);
-    this.events.recordEvent({ serverId: id, actor, type: 'kill-requested', summary: 'Force kill requested' });
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'kill-requested',
+      summary: 'Force kill requested',
+    });
     await this.containers.killContainer(id);
-    await this.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, id));
-    this.events.recordEvent({ serverId: id, actor, type: 'killed', summary: 'Server force-killed (world may not have saved)' });
+    await this.db
+      .update(servers)
+      .set({ status: 'stopped' })
+      .where(eq(servers.id, id));
+    this.events.recordEvent({
+      serverId: id,
+      actor,
+      type: 'killed',
+      summary: 'Server force-killed (world may not have saved)',
+    });
   }
 
   /** Recreate: remove + create with current env/resources. Applies pending changes. */
-  private async recreateServerImpl(id: string, { actor = 'system', quiet = false }: { actor?: string; quiet?: boolean } = {}): Promise<void> {
+  private async recreateServerImpl(
+    id: string,
+    {
+      actor = 'system',
+      quiet = false,
+    }: { actor?: string; quiet?: boolean } = {},
+  ): Promise<void> {
     const server = await this.query.mustGet(id);
     await this.environment.ensureOwnership(id);
     const info = await this.containers.inspectStatus(id);
-    const wasRunning = info.exists && ['running', 'starting', 'unhealthy'].includes(info.status);
+    const wasRunning =
+      info.exists && ['running', 'starting', 'unhealthy'].includes(info.status);
     if (wasRunning) await this.containers.stopContainer(id);
     await this.containers.removeContainer(id);
 
@@ -375,9 +502,17 @@ export class ServerLifecycleService {
         image,
         env: await this.environment.assembleEnv(server),
         dataDir: this.pathGuard.dataPath('servers', id),
-        ports: { game: server.port_game, rcon: server.port_rcon, bedrock: server.port_bedrock ?? undefined },
+        ports: {
+          game: server.port_game,
+          rcon: server.port_rcon,
+          bedrock: server.port_bedrock ?? undefined,
+        },
         extraPorts: await this.environment.mergeExtraPorts(server),
-        resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
+        resources: {
+          memoryMb: server.container_memory_mb,
+          swapMb: server.container_swap_mb,
+          cpus: server.cpus,
+        },
         containerName: server.containerName ?? undefined,
         networkName: server.networkName ?? undefined,
         extraBinds: server.extraBinds,
@@ -385,20 +520,44 @@ export class ServerLifecycleService {
         routerAutoScale: server.routerAutoScale ?? undefined,
       });
     } catch (err: unknown) {
-      if ((err as { statusCode?: number }).statusCode === 409 && server.containerName) {
-        throw new ConflictException(`Container name "${server.containerName}" is already in use by another Docker container`);
+      if (
+        (err as { statusCode?: number }).statusCode === 409 &&
+        server.containerName
+      ) {
+        throw new ConflictException(
+          `Container name "${server.containerName}" is already in use by another Docker container`,
+        );
       }
       throw err;
     }
-    await this.db.update(servers).set({ containerId, pendingRecreate: false }).where(eq(servers.id, id));
-    if (!quiet) this.events.recordEvent({ serverId: id, actor, type: 'recreated', summary: 'Container recreated with current configuration' });
+    await this.db
+      .update(servers)
+      .set({ containerId, pendingRecreate: false })
+      .where(eq(servers.id, id));
+    if (!quiet)
+      this.events.recordEvent({
+        serverId: id,
+        actor,
+        type: 'recreated',
+        summary: 'Container recreated with current configuration',
+      });
     if (wasRunning) await this.startServerImpl(id, { actor });
   }
 
   /** Update config fields; computes a diff event and flags recreate needs. */
-  async updateServer(id: string, changes: UpdateServerChanges, { actor = 'system' }: { actor?: string } = {}): Promise<UpdateServerResult> {
+  async updateServer(
+    id: string,
+    changes: UpdateServerChanges,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<UpdateServerResult> {
     const before = await this.query.mustGet(id);
-    const RECREATE_FIELDS = new Set(['mcVersion', 'javaTag', 'heapMb', 'containerMemoryMb', 'cpus']);
+    const RECREATE_FIELDS = new Set([
+      'mcVersion',
+      'javaTag',
+      'heapMb',
+      'containerMemoryMb',
+      'cpus',
+    ]);
     const columns: Record<string, keyof typeof servers.$inferInsert> = {
       name: 'displayName',
       description: 'description',
@@ -452,7 +611,9 @@ export class ServerLifecycleService {
       }
     }
     if (changes.routerHostname !== undefined) {
-      const val = changes.routerHostname ? changes.routerHostname.trim().toLowerCase() : null;
+      const val = changes.routerHostname
+        ? changes.routerHostname.trim().toLowerCase()
+        : null;
       if (val !== (before.routerHostname || null)) {
         diff.routerHostname = [before.routerHostname, val];
         set.routerHostname = val;
@@ -460,7 +621,11 @@ export class ServerLifecycleService {
         // Routing requires the container on the router's shared network —
         // pin it there whenever a hostname is assigned, unless the caller
         // already picked a network explicitly in this same update.
-        if (val && changes.networkName === undefined && before.networkName !== ROUTER_NETWORK_NAME) {
+        if (
+          val &&
+          changes.networkName === undefined &&
+          before.networkName !== ROUTER_NETWORK_NAME
+        ) {
           diff.networkName = [before.networkName, ROUTER_NETWORK_NAME];
           set.networkName = ROUTER_NETWORK_NAME;
         }
@@ -485,19 +650,31 @@ export class ServerLifecycleService {
       needsRecreate = true;
     }
     if (changes.diskQuotaGb !== undefined) {
-      diff.diskQuotaGb = [Math.round(before.disk_quota_bytes / 1024 ** 3), changes.diskQuotaGb];
+      diff.diskQuotaGb = [
+        Math.round(before.disk_quota_bytes / 1024 ** 3),
+        changes.diskQuotaGb,
+      ];
       set.diskQuotaBytes = changes.diskQuotaGb * 1024 ** 3;
     }
     for (const flag of ['autoStart', 'autoRestart', 'quotaStrict'] as const) {
       if (changesRec[flag] === undefined) continue;
-      const col = { autoStart: 'autoStart', autoRestart: 'autoRestart', quotaStrict: 'quotaStrict' }[flag];
-      const beforeBool = { autoStart: before.auto_start, autoRestart: before.auto_restart, quotaStrict: before.quota_strict }[flag];
+      const col = {
+        autoStart: 'autoStart',
+        autoRestart: 'autoRestart',
+        quotaStrict: 'quotaStrict',
+      }[flag];
+      const beforeBool = {
+        autoStart: before.auto_start,
+        autoRestart: before.auto_restart,
+        quotaStrict: before.quota_strict,
+      }[flag];
       if (Boolean(beforeBool) === Boolean(changesRec[flag])) continue;
       diff[flag] = [Boolean(beforeBool), Boolean(changesRec[flag])];
       set[col] = Boolean(changesRec[flag]);
     }
 
-    if (!Object.keys(set).length) return { server: before, needsRecreate: false };
+    if (!Object.keys(set).length)
+      return { server: before, needsRecreate: false };
     if (needsRecreate) set.pendingRecreate = true;
     await this.db.update(servers).set(set).where(eq(servers.id, id));
     this.events.recordEvent({
@@ -518,13 +695,22 @@ export class ServerLifecycleService {
    * other in the legacy code (a genuine bidirectional cycle per the plan's
    * require-cycle audit), resolved here via `forwardRef()` on both sides.
    */
-  async deleteServer(id: string, { actor = 'system', keepWorld = false }: { actor?: string; keepWorld?: boolean } = {}): Promise<{ freedBytes: number }> {
+  async deleteServer(
+    id: string,
+    {
+      actor = 'system',
+      keepWorld = false,
+    }: { actor?: string; keepWorld?: boolean } = {},
+  ): Promise<{ freedBytes: number }> {
     const server = await this.query.mustGet(id);
     await this.containers.stopContainer(id).catch(() => {});
     await this.containers.removeContainer(id);
 
     // Schedules: disarm the live cron jobs, not just the rows.
-    const scheduleRows = await this.db.select({ id: schedules.id }).from(schedules).where(eq(schedules.serverId, id));
+    const scheduleRows = await this.db
+      .select({ id: schedules.id })
+      .from(schedules)
+      .where(eq(schedules.serverId, id));
     for (const sched of scheduleRows) {
       try {
         await this.scheduler.deleteSchedule(sched.id, { actor });
@@ -546,7 +732,10 @@ export class ServerLifecycleService {
         // directory for us.
         const code = (err as NodeJS.ErrnoException).code;
         if (code === 'EACCES' || code === 'EPERM') {
-          await this.containers.removeDataDir(dir, await this.environment.resolveImage(server));
+          await this.containers.removeDataDir(
+            dir,
+            await this.environment.resolveImage(server),
+          );
           fs.rmSync(dir, { recursive: true, force: true }); // no-op if the container cleared it
         } else {
           throw err;
@@ -558,20 +747,28 @@ export class ServerLifecycleService {
     // rows block library deletions forever. (Schedules are already disarmed
     // and deleted above; the transaction's own schedules delete below is a
     // harmless no-op backstop in case a row survived the loop.)
-    const backupRows = await this.db.select({ sizeBytes: backups.sizeBytes }).from(backups).where(eq(backups.serverId, id));
+    const backupRows = await this.db
+      .select({ sizeBytes: backups.sizeBytes })
+      .from(backups)
+      .where(eq(backups.serverId, id));
     freedBytes += backupRows.reduce((n, b) => n + Number(b.sizeBytes || 0), 0);
     const backupsDir = this.pathGuard.dataPath('backups', id);
-    if (fs.existsSync(backupsDir)) fs.rmSync(backupsDir, { recursive: true, force: true });
+    if (fs.existsSync(backupsDir))
+      fs.rmSync(backupsDir, { recursive: true, force: true });
 
     // Archived logs / event excerpts.
     const logsDir = this.pathGuard.dataPath('logs', id);
-    if (fs.existsSync(logsDir)) fs.rmSync(logsDir, { recursive: true, force: true });
+    if (fs.existsSync(logsDir))
+      fs.rmSync(logsDir, { recursive: true, force: true });
 
     // All row cleanup + the soft-delete flag run in ONE transaction so a
     // mid-cleanup error can't leave a "live" (deleted_at IS NULL) server
     // whose content/backups are already gone — a zombie. Either everything
     // is removed or nothing is.
-    const contentRows = await this.db.select({ id: serverContent.id }).from(serverContent).where(eq(serverContent.serverId, id));
+    const contentRows = await this.db
+      .select({ id: serverContent.id })
+      .from(serverContent)
+      .where(eq(serverContent.serverId, id));
     const contentIds = contentRows.map((r) => r.id);
     // Drizzle's SQLite (sync-driver) transaction() rejects async callbacks at
     // the type level (DrizzleTypeError: "Sync drivers can't use async
@@ -581,10 +778,22 @@ export class ServerLifecycleService {
     // callback with awaited statements. Branch on the real driver so each
     // dialect gets the form Drizzle actually supports.
     if (this.dbService.driver === 'postgres') {
-      await (this.db.transaction as unknown as (cb: (tx: typeof this.db) => Promise<void>) => Promise<void>)(async (tx) => {
-        await tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`);
+      await (
+        this.db.transaction as unknown as (
+          cb: (tx: typeof this.db) => Promise<void>,
+        ) => Promise<void>
+      )(async (tx) => {
+        await tx
+          .delete(updateChecks)
+          .where(
+            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
+          );
         for (const cid of contentIds) {
-          await tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`);
+          await tx
+            .delete(updateChecks)
+            .where(
+              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
+            );
         }
         await tx.delete(schedules).where(eq(schedules.serverId, id));
         await tx.delete(backups).where(eq(backups.serverId, id));
@@ -593,18 +802,37 @@ export class ServerLifecycleService {
         await tx.delete(integrations).where(eq(integrations.serverId, id));
         await tx.delete(playerEvents).where(eq(playerEvents.serverId, id));
         await tx.delete(playerSessions).where(eq(playerSessions.serverId, id));
-        await tx.delete(playerStatSnapshots).where(eq(playerStatSnapshots.serverId, id));
+        await tx
+          .delete(playerStatSnapshots)
+          .where(eq(playerStatSnapshots.serverId, id));
         await tx.delete(crashReports).where(eq(crashReports.serverId, id));
         await tx.delete(chatCommands).where(eq(chatCommands.serverId, id));
-        await tx.delete(chatCommandSettings).where(eq(chatCommandSettings.serverId, id));
-        await tx.delete(storageIndex).where(sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`);
-        await tx.update(servers).set({ deletedAt: sql`now()::text`, status: 'stopped' }).where(eq(servers.id, id));
+        await tx
+          .delete(chatCommandSettings)
+          .where(eq(chatCommandSettings.serverId, id));
+        await tx
+          .delete(storageIndex)
+          .where(
+            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
+          );
+        await tx
+          .update(servers)
+          .set({ deletedAt: sql`now()::text`, status: 'stopped' })
+          .where(eq(servers.id, id));
       });
     } else {
       this.db.transaction((tx) => {
-        tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`).run();
+        tx.delete(updateChecks)
+          .where(
+            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
+          )
+          .run();
         for (const cid of contentIds) {
-          tx.delete(updateChecks).where(sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`).run();
+          tx.delete(updateChecks)
+            .where(
+              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
+            )
+            .run();
         }
         tx.delete(schedules).where(eq(schedules.serverId, id)).run();
         tx.delete(backups).where(eq(backups.serverId, id)).run();
@@ -613,14 +841,25 @@ export class ServerLifecycleService {
         tx.delete(integrations).where(eq(integrations.serverId, id)).run();
         tx.delete(playerEvents).where(eq(playerEvents.serverId, id)).run();
         tx.delete(playerSessions).where(eq(playerSessions.serverId, id)).run();
-        tx.delete(playerStatSnapshots).where(eq(playerStatSnapshots.serverId, id)).run();
+        tx.delete(playerStatSnapshots)
+          .where(eq(playerStatSnapshots.serverId, id))
+          .run();
         tx.delete(crashReports).where(eq(crashReports.serverId, id)).run();
         // Added: these were previously leaked on delete (no FK cascade).
         tx.delete(chatCommands).where(eq(chatCommands.serverId, id)).run();
-        tx.delete(chatCommandSettings).where(eq(chatCommandSettings.serverId, id)).run();
-        tx.delete(storageIndex).where(sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`).run();
+        tx.delete(chatCommandSettings)
+          .where(eq(chatCommandSettings.serverId, id))
+          .run();
+        tx.delete(storageIndex)
+          .where(
+            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
+          )
+          .run();
         // Keep the soft-deleted server row itself (history retains context).
-        tx.update(servers).set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' }).where(eq(servers.id, id)).run();
+        tx.update(servers)
+          .set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' })
+          .where(eq(servers.id, id))
+          .run();
       });
     }
     this.events.recordEvent({
@@ -643,16 +882,32 @@ export class ServerLifecycleService {
         // process starts, long before the MC server accepts players. Keep
         // the panel's 'starting' until the log shows 'Done (' — but only
         // spend a log fetch on servers stuck 'starting' for over 2 minutes.
-        if (server.status === 'starting' && info.exists && info.status === 'running' && info.health == null) {
-          const startedMs = Date.parse(String(server.last_started_at || '').replace(' ', 'T') + 'Z');
-          if (!Number.isFinite(startedMs) || Date.now() - startedMs > 2 * 60_000) {
-            const tail = await this.logs.fetchLogs(server.id, { tail: 50 }).catch(() => '');
+        if (
+          server.status === 'starting' &&
+          info.exists &&
+          info.status === 'running' &&
+          info.health == null
+        ) {
+          const startedMs = Date.parse(
+            String(server.last_started_at || '').replace(' ', 'T') + 'Z',
+          );
+          if (
+            !Number.isFinite(startedMs) ||
+            Date.now() - startedMs > 2 * 60_000
+          ) {
+            const tail = await this.logs
+              .fetchLogs(server.id, { tail: 50 })
+              .catch(() => '');
             status = /Done \(/.test(tail) ? 'running' : 'starting';
           } else {
             status = 'starting';
           }
         }
-        if (status !== server.status) await this.db.update(servers).set({ status }).where(eq(servers.id, server.id));
+        if (status !== server.status)
+          await this.db
+            .update(servers)
+            .set({ status })
+            .where(eq(servers.id, server.id));
       } catch {
         /* daemon offline — leave cached */
       }

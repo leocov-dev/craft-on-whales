@@ -41,7 +41,11 @@ export class PathGuardService {
    * deepest component of `resolved` that exists on disk, resolve it through
    * any symlinks, and confirm it's still inside `base`.
    */
-  private assertRealContainment(base: string, resolved: string, attempted: string): void {
+  private assertRealContainment(
+    base: string,
+    resolved: string,
+    attempted: string,
+  ): void {
     const realBase = this.realBaseOf(base);
     if (realBase === null) return; // base doesn't exist yet — nothing to escape
 
@@ -69,7 +73,11 @@ export class PathGuardService {
       }
     }
     const rel = path.relative(realBase, realDir);
-    if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    if (
+      rel === '..' ||
+      rel.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(rel)
+    ) {
       throw new PathEscapeError(attempted);
     }
   }
@@ -81,12 +89,16 @@ export class PathGuardService {
    */
   safeJoin(base: string, ...parts: string[]): string {
     const joined = parts.join('/');
-    if (joined.includes('\0') || /(^|[\\/])[^\\/]*:[^\\/]*$/.test(joined.replace(/^[a-zA-Z]:/, ''))) {
+    if (
+      joined.includes('\0') ||
+      /(^|[\\/])[^\\/]*:[^\\/]*$/.test(joined.replace(/^[a-zA-Z]:/, ''))
+    ) {
       throw new PathEscapeError(joined);
     }
     const resolved = path.resolve(base, joined);
     const rel = path.relative(base, resolved);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new PathEscapeError(joined);
+    if (rel.startsWith('..') || path.isAbsolute(rel))
+      throw new PathEscapeError(joined);
     this.assertRealContainment(base, resolved, joined);
     return resolved;
   }

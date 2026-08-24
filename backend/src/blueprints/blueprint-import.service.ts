@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -9,15 +14,28 @@ import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { ServerQueryService } from '../servers/server-query.service';
-import { ServerLifecycleService, type CreateServerInput } from '../servers/server-lifecycle.service';
+import {
+  ServerLifecycleService,
+  type CreateServerInput,
+} from '../servers/server-lifecycle.service';
 import type { Server } from '../servers/types';
 import { PacksService } from '../packs/packs.service';
-import { LibraryService, CATEGORY_DIR, type LibraryCategory, type DownloadMeta } from '../library/library.service';
+import {
+  LibraryService,
+  CATEGORY_DIR,
+  type LibraryCategory,
+  type DownloadMeta,
+} from '../library/library.service';
 import { ModsService } from '../mods/mods.service';
 import { ModrinthApiService } from '../mods/modrinth-api.service';
 import { CurseforgeApiService } from '../mods/curseforge-api.service';
 import { blueprints, libraryFiles, serverContent } from '../db/schema';
-import { extractZipSafe, hashFile, readZipIndex, sanitizeFilename } from './zip.util';
+import {
+  extractZipSafe,
+  hashFile,
+  readZipIndex,
+  sanitizeFilename,
+} from './zip.util';
 import {
   KNOWN_TYPES,
   manifestSchema,
@@ -44,7 +62,7 @@ export class BlueprintImportService {
     private readonly mods: ModsService,
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
-    private readonly exportService: BlueprintExportService
+    private readonly exportService: BlueprintExportService,
   ) {}
 
   private get db() {
@@ -57,7 +75,10 @@ export class BlueprintImportService {
    */
   async importPreview(zipPath: string): Promise<ImportPreviewResult> {
     const { entries, manifestText } = await readZipIndex(zipPath);
-    if (!manifestText) throw new BadRequestException('Not a Minecraft Server Manager blueprint: manifest.json is missing');
+    if (!manifestText)
+      throw new BadRequestException(
+        'Not a Minecraft Server Manager blueprint: manifest.json is missing',
+      );
 
     let raw: unknown;
     try {
@@ -71,42 +92,68 @@ export class BlueprintImportService {
         .slice(0, 3)
         .map((i) => `${i.path.join('.')}: ${i.message}`)
         .join('; ');
-      throw new BadRequestException(`Blueprint manifest failed validation — ${detail}`);
+      throw new BadRequestException(
+        `Blueprint manifest failed validation — ${detail}`,
+      );
     }
     const manifest: BlueprintManifest = parsed.data;
     for (const rel of manifest.configFiles) {
       if (rel.split('/').includes('..') || path.isAbsolute(rel)) {
-        throw new BadRequestException(`Blueprint config file path escapes the server directory: ${rel}`);
+        throw new BadRequestException(
+          `Blueprint config file path escapes the server directory: ${rel}`,
+        );
       }
     }
 
     const entryNames = new Set(entries.map((e) => e.name));
     const warnings: string[] = [];
     if (!KNOWN_TYPES.has(manifest.config.type)) {
-      warnings.push(`Unknown server type "${manifest.config.type}" — this panel may not know how to run it.`);
+      warnings.push(
+        `Unknown server type "${manifest.config.type}" — this panel may not know how to run it.`,
+      );
     }
     const mcMatch = /^1\.(\d+)/.exec(manifest.config.mcVersion);
     if (mcMatch && Number(mcMatch[1]) < 13) {
-      warnings.push(`Minecraft ${manifest.config.mcVersion} is very old — expect Java and mod availability quirks.`);
+      warnings.push(
+        `Minecraft ${manifest.config.mcVersion} is very old — expect Java and mod availability quirks.`,
+      );
     }
     if (manifest.embedFiles) {
-      const missing = manifest.overlay.filter((o) => o.filename && !entryNames.has(`payload/overlay/${o.filename}`));
+      const missing = manifest.overlay.filter(
+        (o) => o.filename && !entryNames.has(`payload/overlay/${o.filename}`),
+      );
       if (missing.length)
-        warnings.push(`${missing.length} embedded overlay file(s) are missing from the archive — they will be downloaded instead.`);
+        warnings.push(
+          `${missing.length} embedded overlay file(s) are missing from the archive — they will be downloaded instead.`,
+        );
     }
     for (const entry of manifest.overlay) {
-      if (!entry.sourceUrl && !(entry.filename && entryNames.has(`payload/overlay/${entry.filename}`))) {
-        warnings.push(`"${entry.name}" has no source URL and no embedded file — it cannot be installed.`);
+      if (
+        !entry.sourceUrl &&
+        !(entry.filename && entryNames.has(`payload/overlay/${entry.filename}`))
+      ) {
+        warnings.push(
+          `"${entry.name}" has no source URL and no embedded file — it cannot be installed.`,
+        );
       }
       if (!entry.sha256) {
-        warnings.push(`"${entry.name}" carries no hash — its download will not be verified.`);
+        warnings.push(
+          `"${entry.name}" carries no hash — its download will not be verified.`,
+        );
       }
     }
-    if (manifest.world && !entries.some((e) => e.name.startsWith('payload/world/'))) {
-      warnings.push('The manifest claims a world is included but the archive has no world payload.');
+    if (
+      manifest.world &&
+      !entries.some((e) => e.name.startsWith('payload/world/'))
+    ) {
+      warnings.push(
+        'The manifest claims a world is included but the archive has no world payload.',
+      );
     }
     if (manifest.pack && manifest.pack.platform === 'curseforge') {
-      warnings.push('CurseForge pack — a CurseForge API key must be configured in Settings for the install to work.');
+      warnings.push(
+        'CurseForge pack — a CurseForge API key must be configured in Settings for the install to work.',
+      );
     }
 
     return {
@@ -114,7 +161,9 @@ export class BlueprintImportService {
       warnings,
       entries: {
         count: entries.length,
-        payloadBytes: entries.filter((e) => e.name.startsWith('payload/')).reduce((n, e) => n + e.size, 0),
+        payloadBytes: entries
+          .filter((e) => e.name.startsWith('payload/'))
+          .reduce((n, e) => n + e.size, 0),
       },
     };
   }
@@ -130,13 +179,17 @@ export class BlueprintImportService {
   async importBlueprint(
     zipRef: string,
     overrides: ImportOverrides = {},
-    { actor = 'system', onProgress = (_msg: string) => {} }: { actor?: string; onProgress?: (msg: string) => void } = {}
+    {
+      actor = 'system',
+      onProgress = (_msg: string) => {},
+    }: { actor?: string; onProgress?: (msg: string) => void } = {},
   ): Promise<{ server: Server | null; report: ImportReportItem[] }> {
     let zipPath = zipRef;
     if (/^bp_/.test(zipRef)) {
       zipPath = await this.getBlueprintPath(zipRef);
     }
-    if (!fs.existsSync(zipPath)) throw new NotFoundException('Blueprint archive not found');
+    if (!fs.existsSync(zipPath))
+      throw new NotFoundException('Blueprint archive not found');
 
     const { manifest, entries } = await this.importPreview(zipPath);
     const o = overrides || {};
@@ -144,7 +197,10 @@ export class BlueprintImportService {
     onProgress('Creating server…');
     const createInput: CreateServerInput = {
       name: o.name || manifest.identity.name || manifest.name,
-      description: o.description !== undefined ? o.description : manifest.identity.description,
+      description:
+        o.description !== undefined
+          ? o.description
+          : manifest.identity.description,
       icon: o.icon || manifest.identity.icon,
       accent: o.accent || manifest.identity.accent,
       tags: o.tags || manifest.identity.tags,
@@ -153,7 +209,8 @@ export class BlueprintImportService {
       javaTag: manifest.config.javaTag,
       env: this.exportService.sanitizeEnv(manifest.config.env),
       heapMb: o.heapMb ?? manifest.resources.heapMb,
-      containerMemoryMb: o.containerMemoryMb ?? manifest.resources.containerMemoryMb,
+      containerMemoryMb:
+        o.containerMemoryMb ?? manifest.resources.containerMemoryMb,
       cpus: o.cpus ?? manifest.resources.cpus,
       diskQuotaGb: o.diskQuotaGb ?? manifest.resources.diskQuotaGb,
       updatePolicy: manifest.resources.updatePolicy,
@@ -162,9 +219,17 @@ export class BlueprintImportService {
       extraPorts: o.extraPorts as CreateServerInput['extraPorts'],
       extraBinds: o.extraBinds as CreateServerInput['extraBinds'],
     };
-    const server = await this.lifecycle.createServer(createInput, { actor, start: false, onProgress });
+    const server = await this.lifecycle.createServer(createInput, {
+      actor,
+      start: false,
+      onProgress,
+    });
     if (manifest.resources.quotaStrict) {
-      await this.lifecycle.updateServer(server.id, { quotaStrict: true }, { actor });
+      await this.lifecycle.updateServer(
+        server.id,
+        { quotaStrict: true },
+        { actor },
+      );
     }
 
     const report: ImportReportItem[] = [];
@@ -179,13 +244,22 @@ export class BlueprintImportService {
 
       // Pinned modpack
       if (manifest.pack) {
-        onProgress(`Installing pinned pack: ${manifest.pack.projectName || manifest.pack.projectRef}…`);
+        onProgress(
+          `Installing pinned pack: ${manifest.pack.projectName || manifest.pack.projectRef}…`,
+        );
         try {
-          const resolved = await this.packs.resolvePack(manifest.pack.platform, manifest.pack.projectRef, {
-            versionId: manifest.pack.versionId,
-          });
+          const resolved = await this.packs.resolvePack(
+            manifest.pack.platform,
+            manifest.pack.projectRef,
+            {
+              versionId: manifest.pack.versionId,
+            },
+          );
           await this.packs.applyPack(server.id, resolved, { actor });
-          report.push({ name: `Modpack: ${resolved.projectName} @ ${resolved.versionName}`, status: 'ok' });
+          report.push({
+            name: `Modpack: ${resolved.projectName} @ ${resolved.versionName}`,
+            status: 'ok',
+          });
         } catch (err) {
           report.push({
             name: `Modpack: ${manifest.pack.projectName || manifest.pack.projectRef}`,
@@ -200,15 +274,22 @@ export class BlueprintImportService {
       for (let i = 0; i < manifest.overlay.length; i += 1) {
         const entry = manifest.overlay[i];
         if (!entry) continue;
-        onProgress(`Overlay ${i + 1}/${manifest.overlay.length}: ${entry.name}…`);
-        report.push(await this.installOverlayItem(entry, freshServer, tmpDir, { actor }));
+        onProgress(
+          `Overlay ${i + 1}/${manifest.overlay.length}: ${entry.name}…`,
+        );
+        report.push(
+          await this.installOverlayItem(entry, freshServer, tmpDir, { actor }),
+        );
       }
 
       // Config files payload → server dir (paths re-guarded against the server dir).
       for (const rel of manifest.configFiles) {
         const src = path.join(tmpDir, 'payload', 'config', rel);
         if (!fs.existsSync(src)) continue;
-        const dest = this.pathGuard.safeJoin(this.pathGuard.dataPath('servers', server.id), rel);
+        const dest = this.pathGuard.safeJoin(
+          this.pathGuard.dataPath('servers', server.id),
+          rel,
+        );
         await fsp.mkdir(path.dirname(dest), { recursive: true });
         await fsp.copyFile(src, dest);
       }
@@ -217,7 +298,11 @@ export class BlueprintImportService {
       const worldPayload = path.join(tmpDir, 'payload', 'world');
       if (manifest.world && fs.existsSync(worldPayload)) {
         onProgress('Installing world…');
-        await fsp.cp(worldPayload, this.pathGuard.dataPath('servers', server.id), { recursive: true, force: true });
+        await fsp.cp(
+          worldPayload,
+          this.pathGuard.dataPath('servers', server.id),
+          { recursive: true, force: true },
+        );
       }
     } finally {
       await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -236,26 +321,50 @@ export class BlueprintImportService {
   }
 
   /** One overlay item → {name, status: 'ok'|'hash-mismatch'|'failed', error?}. */
-  private async installOverlayItem(entry: OverlayEntry, server: Server, tmpDir: string, { actor }: { actor: string }): Promise<ImportReportItem> {
+  private async installOverlayItem(
+    entry: OverlayEntry,
+    server: Server,
+    tmpDir: string,
+    { actor }: { actor: string },
+  ): Promise<ImportReportItem> {
     const dirRel = this.mods.contentDir(server, entry.kind);
     try {
       let lib;
-      const embedded = entry.filename ? path.join(tmpDir, 'payload', 'overlay', entry.filename) : null;
+      const embedded = entry.filename
+        ? path.join(tmpDir, 'payload', 'overlay', entry.filename)
+        : null;
       if (embedded && fs.existsSync(embedded)) {
         const sha256 = await hashFile(embedded);
         if (entry.sha256 && sha256 !== entry.sha256) {
-          return { name: entry.name, status: 'hash-mismatch', error: `Embedded file hash ${sha256.slice(0, 12)}… does not match the manifest` };
+          return {
+            name: entry.name,
+            status: 'hash-mismatch',
+            error: `Embedded file hash ${sha256.slice(0, 12)}… does not match the manifest`,
+          };
         }
         lib = await this.ingestLocalFile(embedded, entry, sha256);
       } else {
         const { url, meta } = await this.resolveOverlaySource(entry, server);
-        lib = await this.library.downloadToLibrary(url, { ...meta, category: entry.kind, name: entry.name }, { actor });
+        lib = await this.library.downloadToLibrary(
+          url,
+          { ...meta, category: entry.kind, name: entry.name },
+          { actor },
+        );
         if (entry.sha256 && lib.sha256 !== entry.sha256) {
-          return { name: entry.name, status: 'hash-mismatch', error: `Downloaded file hash ${lib.sha256.slice(0, 12)}… does not match the manifest` };
+          return {
+            name: entry.name,
+            status: 'hash-mismatch',
+            error: `Downloaded file hash ${lib.sha256.slice(0, 12)}… does not match the manifest`,
+          };
         }
       }
-      if (!lib) throw new Error('Overlay item could not be resolved to a library file');
-      const { filename } = await this.library.installToServer(lib.id, server.id, dirRel);
+      if (!lib)
+        throw new Error('Overlay item could not be resolved to a library file');
+      const { filename } = await this.library.installToServer(
+        lib.id,
+        server.id,
+        dirRel,
+      );
       await this.db
         .insert(serverContent)
         .values({
@@ -275,14 +384,23 @@ export class BlueprintImportService {
         });
       return { name: entry.name, status: 'ok' };
     } catch (err) {
-      return { name: entry.name, status: 'failed', error: err instanceof Error ? err.message : String(err) };
+      return {
+        name: entry.name,
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
   /** Turn an overlay manifest entry into a direct download URL + library meta. */
-  private async resolveOverlaySource(entry: OverlayEntry, server: Server): Promise<{ url: string; meta: DownloadMeta }> {
+  private async resolveOverlaySource(
+    entry: OverlayEntry,
+    server: Server,
+  ): Promise<{ url: string; meta: DownloadMeta }> {
     const loader = this.mods.loaderOf(server);
-    const mcVersion = ['LATEST', 'SNAPSHOT'].includes(server.mc_version) ? undefined : server.mc_version;
+    const mcVersion = ['LATEST', 'SNAPSHOT'].includes(server.mc_version)
+      ? undefined
+      : server.mc_version;
 
     // Exact pinned file when the platform ids are recorded.
     if (entry.platform === 'modrinth' && entry.fileId) {
@@ -302,8 +420,14 @@ export class BlueprintImportService {
       };
     }
     if (entry.platform === 'curseforge' && entry.projectId && entry.fileId) {
-      const file = await this.curseforge.getFile(Number(entry.projectId), Number(entry.fileId));
-      if (!file || !file.downloadUrl) throw new ConflictException(`${entry.name} disallows automated downloads — install it manually`);
+      const file = await this.curseforge.getFile(
+        Number(entry.projectId),
+        Number(entry.fileId),
+      );
+      if (!file || !file.downloadUrl)
+        throw new ConflictException(
+          `${entry.name} disallows automated downloads — install it manually`,
+        );
       return {
         url: file.downloadUrl,
         meta: {
@@ -320,8 +444,14 @@ export class BlueprintImportService {
     // this server's loader + MC version at import time.
     if (entry.sourceUrl && /modrinth\.com\//.test(entry.sourceUrl)) {
       const project = await this.modrinth.resolveUrl(entry.sourceUrl);
-      const versions = await this.modrinth.getVersions(project.projectId, { loader: loader ?? undefined, mcVersion });
-      if (!versions.length) throw new NotFoundException(`No ${project.title} build matches ${loader || 'this loader'} ${mcVersion || 'this version'}`);
+      const versions = await this.modrinth.getVersions(project.projectId, {
+        loader: loader ?? undefined,
+        mcVersion,
+      });
+      if (!versions.length)
+        throw new NotFoundException(
+          `No ${project.title} build matches ${loader || 'this loader'} ${mcVersion || 'this version'}`,
+        );
       const version = versions[0]!;
       const file = this.modrinth.primaryFile(version);
       return {
@@ -339,19 +469,43 @@ export class BlueprintImportService {
       };
     }
     if (entry.sourceUrl) {
-      return { url: entry.sourceUrl, meta: { platform: 'url', filename: entry.filename || undefined, version: entry.version || undefined } };
+      return {
+        url: entry.sourceUrl,
+        meta: {
+          platform: 'url',
+          filename: entry.filename || undefined,
+          version: entry.version || undefined,
+        },
+      };
     }
-    throw new BadRequestException('No embedded file and no source URL — nothing to install from');
+    throw new BadRequestException(
+      'No embedded file and no source URL — nothing to install from',
+    );
   }
 
   /** Register an extracted payload file in the shared library (dedupe by hash). */
-  private async ingestLocalFile(absFile: string, entry: OverlayEntry, sha256: string) {
+  private async ingestLocalFile(
+    absFile: string,
+    entry: OverlayEntry,
+    sha256: string,
+  ) {
     const category = (entry.kind || 'mod') as LibraryCategory;
-    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    const [existing] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     if (existing) return existing;
     const filename = sanitizeFilename(entry.filename || path.basename(absFile));
     const relPath = `${CATEGORY_DIR[category]}/${sha256.slice(0, 8)}-${filename}`;
-    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), { recursive: true });
+    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), {
+      recursive: true,
+    });
     await fsp.copyFile(absFile, this.pathGuard.dataPath(relPath));
     const size = (await fsp.stat(this.pathGuard.dataPath(relPath))).size;
     const id = `lib_${nanoid(8)}`;
@@ -373,26 +527,57 @@ export class BlueprintImportService {
         fileId: entry.fileId,
         version: entry.version,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
-    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+      .onConflictDoNothing({
+        target: [libraryFiles.sha256, libraryFiles.category],
+      });
+    const [row] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     return row!;
   }
 
   /** One-click duplicate: full export (embedded files) + immediate import. */
   async cloneServer(
     serverId: string,
-    { includeWorld = false, actor = 'system', onProgress = (_msg: string) => {} }: { includeWorld?: boolean; actor?: string; onProgress?: (msg: string) => void } = {}
+    {
+      includeWorld = false,
+      actor = 'system',
+      onProgress = (_msg: string) => {},
+    }: {
+      includeWorld?: boolean;
+      actor?: string;
+      onProgress?: (msg: string) => void;
+    } = {},
   ) {
     const original = await this.serverQuery.getServer(serverId);
     if (!original) throw new NotFoundException('Server not found');
     onProgress('Exporting blueprint…');
-    const blueprint = await this.exportService.exportBlueprint(serverId, { includeConfig: true, embedFiles: true, includeWorld }, { actor });
-    const { server, report } = await this.importBlueprint(blueprint.id, { name: `${original.display_name} (copy)` }, { actor, onProgress });
+    const blueprint = await this.exportService.exportBlueprint(
+      serverId,
+      { includeConfig: true, embedFiles: true, includeWorld },
+      { actor },
+    );
+    const { server, report } = await this.importBlueprint(
+      blueprint.id,
+      { name: `${original.display_name} (copy)` },
+      { actor, onProgress },
+    );
     return { server, report, blueprint };
   }
 
   async getBlueprintPath(id: string): Promise<string> {
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     if (!row) throw new NotFoundException('Blueprint not found');
     return this.pathGuard.dataPath(row.relPath);
   }

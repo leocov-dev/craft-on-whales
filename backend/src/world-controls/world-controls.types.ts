@@ -28,7 +28,8 @@ export interface QuickActionProp {
   value: boolean;
   label: string;
 }
-export type QuickAction = QuickActionCmd | QuickActionRule | QuickActionVariants | QuickActionProp;
+export type QuickAction =
+  QuickActionCmd | QuickActionRule | QuickActionVariants | QuickActionProp;
 
 export interface TimeInfo {
   ticks: number;

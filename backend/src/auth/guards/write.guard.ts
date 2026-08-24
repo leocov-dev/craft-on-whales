@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { ALLOW_VIEWER_WRITE_KEY } from '../allow-viewer-write.decorator';
@@ -18,11 +23,16 @@ export class WriteGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
-    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return true;
-    const allowViewer = this.reflector.getAllAndOverride<boolean>(ALLOW_VIEWER_WRITE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
+    if (
+      req.method === 'GET' ||
+      req.method === 'HEAD' ||
+      req.method === 'OPTIONS'
+    )
+      return true;
+    const allowViewer = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_VIEWER_WRITE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
     if (allowViewer) return true;
     if (req.user && req.user.role === 'viewer') {
       throw new ForbiddenException('Your role (viewer) is read-only.');

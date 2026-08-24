@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { OnGatewayConnection, OnGatewayDisconnect, WebSocketGateway } from '@nestjs/websockets';
+import {
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  WebSocketGateway,
+} from '@nestjs/websockets';
 import type { Socket } from 'socket.io';
 import { SessionService } from '../auth/session.service';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -12,12 +16,15 @@ import { DockerStatsService } from '../docker/docker-stats.service';
 @WebSocketGateway({ namespace: '/ws/stats' })
 export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(StatsGateway.name);
-  private readonly stoppers = new WeakMap<Socket, { stop: (() => void) | null; closed: boolean }>();
+  private readonly stoppers = new WeakMap<
+    Socket,
+    { stop: (() => void) | null; closed: boolean }
+  >();
 
   constructor(
     private readonly sessions: SessionService,
     private readonly serverQuery: ServerQueryService,
-    private readonly stats: DockerStatsService
+    private readonly stats: DockerStatsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -28,7 +35,9 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.cleanup(client);
     });
 
-    const user = await this.sessions.authenticateFromCookieHeader(client.handshake.headers.cookie);
+    const user = await this.sessions.authenticateFromCookieHeader(
+      client.handshake.headers.cookie,
+    );
     if (!user) {
       client.disconnect(true);
       return;
@@ -44,13 +53,17 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       const stop = await this.stats.statsStream(serverId, (sample) => {
-        if (client.connected) client.emit('message', { kind: 'stats', ...sample });
+        if (client.connected)
+          client.emit('message', { kind: 'stats', ...sample });
       });
       entry.stop = stop;
       if (entry.closed) stop(); // client left during the await
     } catch (err) {
       if (client.connected) {
-        client.emit('message', { kind: 'error', message: err instanceof Error ? err.message : String(err) });
+        client.emit('message', {
+          kind: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
   }

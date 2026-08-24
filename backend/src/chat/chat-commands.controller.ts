@@ -1,4 +1,16 @@
-import { BadRequestException, ConflictException, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z, ZodError } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -40,7 +52,10 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -80,7 +95,9 @@ const patchSchema = z
     msgSuccess: messageSchema.optional(),
     msgFailure: messageSchema.optional(),
   })
-  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to change' });
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Nothing to change',
+  });
 
 /** Custom chat commands API. Ports `src/web/routes/chatCommands.ts` (mounted at /api/servers/:id/chat-commands). */
 @Controller('api/servers/:id/chat-commands')
@@ -88,11 +105,12 @@ export class ChatCommandsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly chatCommands: ChatCommandsService,
-    private readonly containers: ContainerService
+    private readonly containers: ContainerService,
   ) {}
 
   private async requireServer(id: string): Promise<void> {
-    if (!(await this.serverQuery.getServer(id))) throw new NotFoundException('Server not found');
+    if (!(await this.serverQuery.getServer(id)))
+      throw new NotFoundException('Server not found');
   }
 
   private async isRunning(serverId: string): Promise<boolean> {
@@ -111,7 +129,9 @@ export class ChatCommandsController {
     return {
       ok: true,
       prefix: await this.chatCommands.getPrefix(id),
-      commands: commands.map((c) => publicCommand(c, this.chatCommands.actionSummary(c))),
+      commands: commands.map((c) =>
+        publicCommand(c, this.chatCommands.actionSummary(c)),
+      ),
       stats: {
         total: commands.length,
         enabled: commands.filter((c) => c.enabled).length,
@@ -124,48 +144,91 @@ export class ChatCommandsController {
   async create(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
     const input = parse(createSchema, req.body);
-    const command = await this.chatCommands.createCommand(id, input, { actor: req.user!.username });
-    return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
+    const command = await this.chatCommands.createCommand(id, input, {
+      actor: req.user!.username,
+    });
+    return {
+      ok: true,
+      command:
+        command &&
+        publicCommand(command, this.chatCommands.actionSummary(command)),
+    };
   }
 
   @Patch(':cmdId')
-  async update(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+  async update(
+    @Param('id') id: string,
+    @Param('cmdId') cmdId: string,
+    @Req() req: Request,
+  ) {
     await this.requireServer(id);
     const changes = parse(patchSchema, req.body);
-    const command = await this.chatCommands.updateCommand(id, cmdId, changes, { actor: req.user!.username });
-    return { ok: true, command: command && publicCommand(command, this.chatCommands.actionSummary(command)) };
+    const command = await this.chatCommands.updateCommand(id, cmdId, changes, {
+      actor: req.user!.username,
+    });
+    return {
+      ok: true,
+      command:
+        command &&
+        publicCommand(command, this.chatCommands.actionSummary(command)),
+    };
   }
 
   @Delete(':cmdId')
-  async remove(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+  async remove(
+    @Param('id') id: string,
+    @Param('cmdId') cmdId: string,
+    @Req() req: Request,
+  ) {
     await this.requireServer(id);
-    await this.chatCommands.deleteCommand(id, cmdId, { actor: req.user!.username });
+    await this.chatCommands.deleteCommand(id, cmdId, {
+      actor: req.user!.username,
+    });
     return { ok: true };
   }
 
   @Post(':cmdId/test')
-  async test(@Param('id') id: string, @Param('cmdId') cmdId: string, @Req() req: Request) {
+  async test(
+    @Param('id') id: string,
+    @Param('cmdId') cmdId: string,
+    @Req() req: Request,
+  ) {
     await this.requireServer(id);
     const { player } = parse(
       z.object({
         player: z
           .string()
           .trim()
-          .regex(PLAYER_NAME_RE, 'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)'),
+          .regex(
+            PLAYER_NAME_RE,
+            'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
+          ),
       }),
-      req.body
+      req.body,
     );
     if (!(await this.isRunning(id))) {
-      throw new ConflictException('The server must be running to test a chat command');
+      throw new ConflictException(
+        'The server must be running to test a chat command',
+      );
     }
-    const result = await this.chatCommands.testCommand(id, cmdId, player, { actor: req.user!.username });
+    const result = await this.chatCommands.testCommand(id, cmdId, player, {
+      actor: req.user!.username,
+    });
     return { ok: true, ...result };
   }
 
   @Put('prefix')
   async setPrefix(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
-    const { prefix } = parse(z.object({ prefix: z.string().trim().min(1).max(2) }), req.body);
-    return { ok: true, ...(await this.chatCommands.setPrefix(id, prefix, { actor: req.user!.username })) };
+    const { prefix } = parse(
+      z.object({ prefix: z.string().trim().min(1).max(2) }),
+      req.body,
+    );
+    return {
+      ok: true,
+      ...(await this.chatCommands.setPrefix(id, prefix, {
+        actor: req.user!.username,
+      })),
+    };
   }
 }

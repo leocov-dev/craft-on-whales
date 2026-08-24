@@ -5,7 +5,8 @@ import yauzl = require('yauzl');
 import type { LangEntry, McDataItem } from './item-registry.types';
 
 export const LANG_RE = /^assets\/([a-z0-9_.-]+)\/lang\/en_us\.json$/i;
-export const META_RE = /^(META-INF\/(neoforge\.)?mods\.toml|fabric\.mod\.json|quilt\.mod\.json)$/;
+export const META_RE =
+  /^(META-INF\/(neoforge\.)?mods\.toml|fabric\.mod\.json|quilt\.mod\.json)$/;
 export const NESTED_SERVER_RE = /^META-INF\/versions\/[^/]+\/server[^/]*\.jar$/;
 const KEY_RE = /^(item|block)\.([a-z0-9_-]+)\.([a-z0-9_-]+)$/;
 
@@ -14,8 +15,10 @@ const KEY_RE = /^(item|block)\.([a-z0-9_-]+)\.([a-z0-9_-]+)$/;
 
 export function openZip(target: Buffer | string): Promise<yauzl.ZipFile> {
   return new Promise((resolve, reject) => {
-    const cb = (err: Error | null, zip: yauzl.ZipFile) => (err ? reject(err) : resolve(zip));
-    if (Buffer.isBuffer(target)) yauzl.fromBuffer(target, { lazyEntries: true }, cb);
+    const cb = (err: Error | null, zip: yauzl.ZipFile) =>
+      err ? reject(err) : resolve(zip);
+    if (Buffer.isBuffer(target))
+      yauzl.fromBuffer(target, { lazyEntries: true }, cb);
     else yauzl.open(target, { lazyEntries: true }, cb);
   });
 }
@@ -28,7 +31,7 @@ const MAX_ZIP_ENTRY_BYTES = 16 * 1024 * 1024;
 export function readZipEntry(
   zip: yauzl.ZipFile,
   entry: yauzl.Entry,
-  { maxBytes = MAX_ZIP_ENTRY_BYTES }: { maxBytes?: number } = {}
+  { maxBytes = MAX_ZIP_ENTRY_BYTES }: { maxBytes?: number } = {},
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zip.openReadStream(entry, (err, stream) => {
@@ -39,7 +42,11 @@ export function readZipEntry(
         total += c.length;
         if (total > maxBytes) {
           stream.destroy();
-          reject(new Error(`zip entry exceeds ${Math.round(maxBytes / 1024 / 1024)}MB: ${entry.fileName}`));
+          reject(
+            new Error(
+              `zip entry exceeds ${Math.round(maxBytes / 1024 / 1024)}MB: ${entry.fileName}`,
+            ),
+          );
           return;
         }
         chunks.push(c);
@@ -57,7 +64,7 @@ export function readZipEntry(
 export function pickZipEntries(
   target: Buffer | string,
   want: (name: string) => boolean,
-  stopWhen: ((found: Map<string, Buffer>) => boolean) | null = null
+  stopWhen: ((found: Map<string, Buffer>) => boolean) | null = null,
 ): Promise<Map<string, Buffer>> {
   return new Promise((resolve, reject) => {
     const found = new Map<string, Buffer>();
@@ -138,7 +145,8 @@ export function parseFabricModJson(text: unknown): Map<string, string | null> {
       name?: unknown;
       quilt_loader?: { id?: unknown; metadata?: { name?: unknown } };
     };
-    if (data.id) names.set(String(data.id), data.name ? String(data.name) : null);
+    if (data.id)
+      names.set(String(data.id), data.name ? String(data.name) : null);
     const quilt = data.quilt_loader;
     if (quilt && quilt.id) {
       const meta = quilt.metadata || {};
@@ -166,7 +174,12 @@ export function parseLang(buf: unknown): LangEntry[] {
     if (typeof value !== 'string' || !value.trim()) continue;
     const m = KEY_RE.exec(key); // exact 3 segments — sub-entries never match
     if (!m) continue;
-    out.push({ id: `${m[2]}:${m[3]}`, name: value.trim(), kind: m[1] as 'item' | 'block', ns: m[2]! });
+    out.push({
+      id: `${m[2]}:${m[3]}`,
+      name: value.trim(),
+      kind: m[1] as 'item' | 'block',
+      ns: m[2]!,
+    });
   }
   return out;
 }
@@ -188,7 +201,10 @@ export function cmpVer(a: VerTuple, b: VerTuple): number {
 /** Closest available minecraft-data version to `requested` — exact, else the
  *  newest one at or below it, else (requested is older than everything we
  *  have) the oldest available. An unparsable/empty request just gets newest. */
-export function nearestVersion(requested: string | null | undefined, available: string[]): string | null {
+export function nearestVersion(
+  requested: string | null | undefined,
+  available: string[],
+): string | null {
   const parsed = available
     .map((v) => ({ v, p: parseVer(v) }))
     .filter((x): x is { v: string; p: VerTuple } => x.p !== null);
@@ -206,7 +222,10 @@ export function blockNamesFrom(blocks: { name: string }[]): Set<string> {
   return new Set((blocks || []).map((b) => b.name));
 }
 
-export function mcDataItemsToLangEntries(items: McDataItem[], blockNames: Set<string>): LangEntry[] {
+export function mcDataItemsToLangEntries(
+  items: McDataItem[],
+  blockNames: Set<string>,
+): LangEntry[] {
   return (items || [])
     .filter((it) => it && it.name && it.displayName)
     .map((it) => ({

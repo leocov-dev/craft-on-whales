@@ -69,7 +69,9 @@ export class CrashParserService {
       }
     } else {
       // No Description header — fall back to the first line that looks like a throwable.
-      const m = lines.find((l) => /^[a-zA-Z_$][\w.$]*(Exception|Error)(:|$)/.test(l));
+      const m = lines.find((l) =>
+        /^[a-zA-Z_$][\w.$]*(Exception|Error)(:|$)/.test(l),
+      );
       if (m) exception = m.trim();
     }
 
@@ -91,7 +93,12 @@ export class CrashParserService {
           if (l === undefined) continue;
           if (/^--\s.+\s--$/.test(l.trim())) break; // next section
           if (!l.trim()) continue;
-          if (/^\s*(Details:\s*$|Mod File:|Stacktrace:|Failure message:|Version:)/i.test(l)) continue;
+          if (
+            /^\s*(Details:\s*$|Mod File:|Stacktrace:|Failure message:|Version:)/i.test(
+              l,
+            )
+          )
+            continue;
           // "Mod: NameOfMod (modid), Version: x" — drop the label before parsing.
           this.collectSuspectNames(l.replace(/^\s*Mods?:\s*/i, ''), suspects);
         }
@@ -111,7 +118,9 @@ export class CrashParserService {
       if (parts.length >= 3 && parts[1]) suspects.add(parts[1]);
     }
 
-    const summary = exception ? exception + (description ? ` — ${description}` : '') : description || 'Crash report';
+    const summary = exception
+      ? exception + (description ? ` — ${description}` : '')
+      : description || 'Crash report';
     return { description, exception, summary, suspects: [...suspects] };
   }
 
@@ -136,7 +145,7 @@ export class CrashParserService {
       const body = (m[1] ?? '').trim();
       if (
         /fatal error has been detected|Java Runtime Environment|please submit|bug report|http|see problematic frame|if you would like/i.test(
-          body
+          body,
         )
       )
         continue;

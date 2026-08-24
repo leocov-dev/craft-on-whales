@@ -11,7 +11,14 @@ import type {
   StorageData,
 } from '../../../shared/types/storage';
 
-export type { CleanupAction, StorageCategory, StorageBreakdownSegment, CleanupPreview, LargestFile, StorageData };
+export type {
+  CleanupAction,
+  StorageCategory,
+  StorageBreakdownSegment,
+  CleanupPreview,
+  LargestFile,
+  StorageData,
+};
 
 interface StorageResponse {
   ok: true;

@@ -9,20 +9,28 @@ import type { MapConfig } from '../../../shared/types/map';
 export class MapController {
   constructor(
     private readonly serverQuery: ServerQueryService,
-    private readonly map: MapService
+    private readonly map: MapService,
   ) {}
 
   @Get()
   async get(@Param('id') id: string): Promise<{ ok: true } & MapConfig> {
     const server = await this.serverQuery.mustGet(id);
     const cfg = await this.map.getMapConfig(server.id);
-    return { ok: true, enabled: cfg.enabled, hostPort: cfg.hostPort, supported: this.map.supportsMap(server) };
+    return {
+      ok: true,
+      enabled: cfg.enabled,
+      hostPort: cfg.hostPort,
+      supported: this.map.supportsMap(server),
+    };
   }
 
   @Post('enable')
   async enable(@Param('id') id: string, @Req() req: Request) {
     await this.serverQuery.mustGet(id);
-    return { ok: true, ...(await this.map.enableMap(id, { actor: req.user!.username })) };
+    return {
+      ok: true,
+      ...(await this.map.enableMap(id, { actor: req.user!.username })),
+    };
   }
 
   @Post('disable')

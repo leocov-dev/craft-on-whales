@@ -27,20 +27,27 @@ interface Target {
 @Controller('map')
 export class MapProxyController {
   // serverId -> { target: {host, port}, expiresAt }
-  private readonly targetCache = new Map<string, { target: Target; expiresAt: number }>();
+  private readonly targetCache = new Map<
+    string,
+    { target: Target; expiresAt: number }
+  >();
 
   constructor(
     private readonly config: ConfigService,
     private readonly dockerConnection: DockerConnectionService,
     private readonly containers: ContainerService,
     private readonly serverQuery: ServerQueryService,
-    private readonly map: MapService
+    private readonly map: MapService,
   ) {}
 
   private async containerNetworkTargets(server: Server): Promise<Target[]> {
-    const name = server.containerName || this.containers.containerName(server.id);
+    const name =
+      server.containerName || this.containers.containerName(server.id);
     try {
-      const info = await this.dockerConnection.getDocker().getContainer(name).inspect();
+      const info = await this.dockerConnection
+        .getDocker()
+        .getContainer(name)
+        .inspect();
       const nets = info.NetworkSettings?.Networks || {};
       return Object.values(nets)
         .map((n) => n.IPAddress)
@@ -51,7 +58,10 @@ export class MapProxyController {
     }
   }
 
-  private probeConnect(target: Target, timeoutMs: number = PROBE_TIMEOUT_MS): Promise<boolean> {
+  private probeConnect(
+    target: Target,
+    timeoutMs: number = PROBE_TIMEOUT_MS,
+  ): Promise<boolean> {
     const port = target.port;
     if (port === null) return Promise.resolve(false);
     return new Promise((resolve) => {
@@ -72,14 +82,23 @@ export class MapProxyController {
     });
   }
 
-  private async resolveTarget(server: Server, cfg: { enabled: boolean; hostPort: number | null }): Promise<Target> {
+  private async resolveTarget(
+    server: Server,
+    cfg: { enabled: boolean; hostPort: number | null },
+  ): Promise<Target> {
     const cached = this.targetCache.get(server.id);
     if (cached && cached.expiresAt > Date.now()) return cached.target;
 
-    const candidates: Target[] = [...(await this.containerNetworkTargets(server)), { host: this.config.mapProxyHost, port: cfg.hostPort }];
+    const candidates: Target[] = [
+      ...(await this.containerNetworkTargets(server)),
+      { host: this.config.mapProxyHost, port: cfg.hostPort },
+    ];
     for (const target of candidates) {
       if (await this.probeConnect(target)) {
-        this.targetCache.set(server.id, { target, expiresAt: Date.now() + CACHE_TTL_MS });
+        this.targetCache.set(server.id, {
+          target,
+          expiresAt: Date.now() + CACHE_TTL_MS,
+        });
         return target;
       }
     }
@@ -93,13 +112,19 @@ export class MapProxyController {
   // one route (stacking two @All() decorators here silently drops one —
   // confirmed live, only the last-registered survived).
   @All(':id{/*path}')
-  async proxy(@Param('id') id: string, @Req() req: Request, @Res() res: Response) {
+  async proxy(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.status(405).send('Method not allowed');
       return;
     }
     const server = await this.serverQuery.getServer(id);
-    const cfg = server ? await this.map.getMapConfig(server.id) : { enabled: false, hostPort: null };
+    const cfg = server
+      ? await this.map.getMapConfig(server.id)
+      : { enabled: false, hostPort: null };
     if (!server || !cfg.enabled || !cfg.hostPort) {
       res.status(404).send('Live map is not enabled for this server');
       return;
@@ -111,7 +136,11 @@ export class MapProxyController {
     // the proxied target — it's just BlueMap's static web UI and doesn't
     // need it, and the target may be reachable by other containers on a
     // shared Docker network.
-    const { cookie: _cookie, authorization: _authorization, ...forwardHeaders } = req.headers;
+    const {
+      cookie: _cookie,
+      authorization: _authorization,
+      ...forwardHeaders
+    } = req.headers;
 
     const upstreamPath = req.url.replace(new RegExp(`^/map/${id}`), '') || '/';
     const upstream = http.request(
@@ -126,10 +155,14 @@ export class MapProxyController {
       (up: http.IncomingMessage) => {
         res.status(up.statusCode || 502);
         for (const [k, v] of Object.entries(up.headers)) {
-          if (v !== undefined && !['transfer-encoding', 'connection'].includes(k.toLowerCase())) res.setHeader(k, v);
+          if (
+            v !== undefined &&
+            !['transfer-encoding', 'connection'].includes(k.toLowerCase())
+          )
+            res.setHeader(k, v);
         }
         up.pipe(res);
-      }
+      },
     );
     upstream.on('timeout', () => upstream.destroy(new Error('timeout')));
     upstream.on('error', (err: NodeJS.ErrnoException) => {
@@ -143,11 +176,15 @@ export class MapProxyController {
           .status(502)
           .send(
             `Cannot resolve map-proxy host "${target.host}" — if the panel runs in its own container, ` +
-              'add `extra_hosts: ["host.docker.internal:host-gateway"]` to its compose service, or set MAP_PROXY_HOST explicitly.'
+              'add `extra_hosts: ["host.docker.internal:host-gateway"]` to its compose service, or set MAP_PROXY_HOST explicitly.',
           );
         return;
       }
-      res.status(502).send('The map server is not responding — is the Minecraft server running? BlueMap needs a minute after startup to come up.');
+      res
+        .status(502)
+        .send(
+          'The map server is not responding — is the Minecraft server running? BlueMap needs a minute after startup to come up.',
+        );
     });
     req.pipe(upstream);
   }

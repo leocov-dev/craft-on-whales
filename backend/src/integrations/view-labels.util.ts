@@ -1,11 +1,17 @@
 import type { MojangService } from '../players/mojang.service';
 
 /** Concrete MC version label ("LATEST (1.21.4)"), resolved via Mojang's manifest. */
-export async function displayVersion(mojang: MojangService, mcVersion: string): Promise<string> {
+export async function displayVersion(
+  mojang: MojangService,
+  mcVersion: string,
+): Promise<string> {
   if (mcVersion !== 'LATEST' && mcVersion !== 'SNAPSHOT') return mcVersion;
   try {
     const manifest = await mojang.getVersionManifest();
-    const resolved = mcVersion === 'LATEST' ? manifest.latest.release : manifest.latest.snapshot;
+    const resolved =
+      mcVersion === 'LATEST'
+        ? manifest.latest.release
+        : manifest.latest.snapshot;
     return `${mcVersion} (${resolved})`;
   } catch {
     return mcVersion;

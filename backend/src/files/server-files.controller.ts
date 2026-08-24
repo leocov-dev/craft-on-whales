@@ -33,7 +33,10 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -43,11 +46,12 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
 export class ServerFilesController {
   constructor(
     private readonly files: FilesService,
-    private readonly serverQuery: ServerQueryService
+    private readonly serverQuery: ServerQueryService,
   ) {}
 
   private async mustExist(id: string): Promise<void> {
-    if (!(await this.serverQuery.getServer(id))) throw new NotFoundException('Server not found');
+    if (!(await this.serverQuery.getServer(id)))
+      throw new NotFoundException('Server not found');
   }
 
   @Get('list')
@@ -65,7 +69,11 @@ export class ServerFilesController {
   }
 
   @Get('download')
-  async download(@Param('id') id: string, @Query('path') path: string | undefined, @Res() res: Response) {
+  async download(
+    @Param('id') id: string,
+    @Query('path') path: string | undefined,
+    @Res() res: Response,
+  ) {
     await this.mustExist(id);
     const rel = parse(pathSchema, path ?? '');
     const file = await this.files.statFile(id, rel);
@@ -76,45 +84,99 @@ export class ServerFilesController {
   async write(@Param('id') id: string, @Body() body: unknown) {
     await this.mustExist(id);
     const { path: rel, content } = parse(
-      z.object({ path: pathSchema, content: z.string().max(2 * 1024 * 1024, 'Content exceeds the 2 MB editor limit') }),
-      body
+      z.object({
+        path: pathSchema,
+        content: z
+          .string()
+          .max(2 * 1024 * 1024, 'Content exceeds the 2 MB editor limit'),
+      }),
+      body,
     );
-    return { ok: true, ...(await this.files.writeText(id, rel, content, { actor: 'system' })) };
+    return {
+      ok: true,
+      ...(await this.files.writeText(id, rel, content, { actor: 'system' })),
+    };
   }
 
   @Post('mkdir')
-  async mkdir(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async mkdir(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.mustExist(id);
     const { path: rel } = parse(z.object({ path: pathSchema }), body);
-    return { ok: true, ...(await this.files.mkdir(id, rel, { actor: req.user!.username })) };
+    return {
+      ok: true,
+      ...(await this.files.mkdir(id, rel, { actor: req.user!.username })),
+    };
   }
 
   @Post('rename')
-  async rename(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async rename(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.mustExist(id);
-    const { path: rel, newName } = parse(z.object({ path: pathSchema, newName: nameSchema }), body);
-    return { ok: true, ...(await this.files.rename(id, rel, newName, { actor: req.user!.username })) };
+    const { path: rel, newName } = parse(
+      z.object({ path: pathSchema, newName: nameSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.rename(id, rel, newName, {
+        actor: req.user!.username,
+      })),
+    };
   }
 
   @Post('move')
-  async move(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async move(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.mustExist(id);
-    const { path: rel, dest } = parse(z.object({ path: pathSchema, dest: pathSchema }), body);
-    return { ok: true, ...(await this.files.move(id, rel, dest, { actor: req.user!.username })) };
+    const { path: rel, dest } = parse(
+      z.object({ path: pathSchema, dest: pathSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.move(id, rel, dest, { actor: req.user!.username })),
+    };
   }
 
   @Post('copy')
-  async copy(@Param('id') id: string, @Body() body: unknown, @Req() req: Request) {
+  async copy(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ) {
     await this.mustExist(id);
-    const { path: rel, dest } = parse(z.object({ path: pathSchema, dest: pathSchema }), body);
-    return { ok: true, ...(await this.files.copy(id, rel, dest, { actor: req.user!.username })) };
+    const { path: rel, dest } = parse(
+      z.object({ path: pathSchema, dest: pathSchema }),
+      body,
+    );
+    return {
+      ok: true,
+      ...(await this.files.copy(id, rel, dest, { actor: req.user!.username })),
+    };
   }
 
   @Delete()
-  async remove(@Param('id') id: string, @Query('path') path: string | undefined, @Req() req: Request) {
+  async remove(
+    @Param('id') id: string,
+    @Query('path') path: string | undefined,
+    @Req() req: Request,
+  ) {
     await this.mustExist(id);
     const rel = parse(pathSchema, path ?? '');
-    return { ok: true, ...(await this.files.remove(id, rel, { actor: req.user!.username })) };
+    return {
+      ok: true,
+      ...(await this.files.remove(id, rel, { actor: req.user!.username })),
+    };
   }
 
   @Post('upload')
@@ -123,20 +185,26 @@ export class ServerFilesController {
     @Param('id') id: string,
     @Query('path') path: string | undefined,
     @UploadedFiles() uploadedFiles: Express.Multer.File[] | undefined,
-    @Req() req: Request
+    @Req() req: Request,
   ) {
     await this.mustExist(id);
     try {
       const rel = parse(pathSchema, path ?? '');
-      if (!uploadedFiles || !uploadedFiles.length) throw new BadRequestException('No files attached');
+      if (!uploadedFiles || !uploadedFiles.length)
+        throw new BadRequestException('No files attached');
       const uploaded = [];
       for (const f of uploadedFiles) {
-        uploaded.push(await this.files.acceptUpload(id, rel, f.path, f.originalname, { actor: req.user!.username }));
+        uploaded.push(
+          await this.files.acceptUpload(id, rel, f.path, f.originalname, {
+            actor: req.user!.username,
+          }),
+        );
       }
       return { ok: true, uploaded };
     } catch (err) {
       if (uploadedFiles) {
-        for (const f of uploadedFiles) await fsp.rm(f.path, { force: true }).catch(() => {});
+        for (const f of uploadedFiles)
+          await fsp.rm(f.path, { force: true }).catch(() => {});
       }
       throw err;
     }

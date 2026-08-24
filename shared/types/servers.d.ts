@@ -1,11 +1,4 @@
-export type ServerStatus =
-  | 'running'
-  | 'unhealthy'
-  | 'starting'
-  | 'updating'
-  | 'crashed'
-  | 'over-quota'
-  | 'stopped';
+export type ServerStatus = 'running' | 'unhealthy' | 'starting' | 'updating' | 'crashed' | 'over-quota' | 'stopped';
 
 export interface PackViewModel {
   platform: string;

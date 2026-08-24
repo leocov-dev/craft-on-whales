@@ -13,7 +13,7 @@ mistaken for oversights:
    once `drizzle-kit generate` produces the initial migration, before this
    schema is used against real data.
 2. **`CHECK` constraints are not expressed** (e.g. `servers.update_policy IN
-   ('manual','notify','auto')`, `chat_commands.action IN (...)`). These are
+('manual','notify','auto')`, `chat_commands.action IN (...)`). These are
    enforced by zod validation at the API boundary instead, matching how
    every other input already gets validated in this codebase — not a
    regression in practice, just not enforced a second time at the DB layer.
@@ -27,7 +27,7 @@ reintroduce a native dependency this codebase deliberately avoids (see
 **Driver gotcha**: `drizzle-orm/node-sqlite`'s `drizzle()` only picks up an
 existing `node:sqlite` `DatabaseSync` instance when passed as
 `drizzle({ client: sqlite })`. Passing the instance directly
-(`drizzle(sqlite)`) silently opens a *second*, separate `:memory:` database
+(`drizzle(sqlite)`) silently opens a _second_, separate `:memory:` database
 instead of erroring — confirmed by a manual smoke test before this schema
 was written. `DbModule`'s provider must use the `{ client }` form.
 
@@ -50,7 +50,7 @@ surface this driver needs in Node ≥24 (matches `package.json`'s
 repo's pinned older runtime) — a stray Node 22 `node`/`npx` earlier on
 `$PATH` produces this exact confusing error.
 
-**`app.init()` gotcha**: `NestFactory.create()` does *not* run
+**`app.init()` gotcha**: `NestFactory.create()` does _not_ run
 `onModuleInit` lifecycle hooks — those only fire on an explicit
 `app.init()` (or the `app.listen()` call, which calls it internally).
 Migrations invoked from `main.ts` between `create()` and `listen()` (per

@@ -48,11 +48,22 @@ import type { Server } from '../servers/types';
 import type { CreatedServerSummary } from '../../../shared/types/wizard';
 
 const ICON_MAX_BYTES = 512 * 1024;
-const ICON_EXTS: Record<string, string> = { 'image/png': '.png', 'image/svg+xml': '.svg', 'image/jpeg': '.jpg' };
+const ICON_EXTS: Record<string, string> = {
+  'image/png': '.png',
+  'image/svg+xml': '.svg',
+  'image/jpeg': '.jpg',
+};
 
 const dockerOverridesSchema = {
   containerName: z
-    .union([z.literal(''), z.string().trim().max(63).regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/)])
+    .union([
+      z.literal(''),
+      z
+        .string()
+        .trim()
+        .max(63)
+        .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/),
+    ])
     .optional(),
   networkName: z.string().trim().max(128).optional(),
   extraPorts: z
@@ -62,7 +73,7 @@ const dockerOverridesSchema = {
         containerPort: z.coerce.number().int().min(1).max(65535),
         protocol: z.enum(['tcp', 'udp']),
         label: z.string().trim().max(40).optional(),
-      })
+      }),
     )
     .max(20)
     .optional(),
@@ -72,7 +83,7 @@ const dockerOverridesSchema = {
         hostPath: z.string().trim().min(1).max(500),
         containerPath: z.string().trim().min(1).max(300),
         mode: z.enum(['rw', 'ro']).optional(),
-      })
+      }),
     )
     .max(20)
     .optional(),
@@ -87,9 +98,14 @@ interface OverridesInput {
 
 function requireAdminForOverrides(req: Request, input: OverridesInput): void {
   const present =
-    input.containerName !== undefined || input.networkName !== undefined || input.extraPorts !== undefined || input.extraBinds !== undefined;
+    input.containerName !== undefined ||
+    input.networkName !== undefined ||
+    input.extraPorts !== undefined ||
+    input.extraBinds !== undefined;
   if (present && req.user?.role !== 'admin') {
-    throw new ForbiddenException('Advanced Docker settings (container name, network, extra ports/binds) require the admin role.');
+    throw new ForbiddenException(
+      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
+    );
   }
 }
 
@@ -97,13 +113,18 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
 
 /** Strips secrets before a Server row goes out over the API — ports legacy publicServer(). */
-function publicServer(s: Server | null): Omit<Server, 'rcon_password_cipher' | 'notes'> | null {
+function publicServer(
+  s: Server | null,
+): Omit<Server, 'rcon_password_cipher' | 'notes'> | null {
   if (!s) return null;
   const { rcon_password_cipher, notes, ...rest } = s;
   return rest;
@@ -114,7 +135,10 @@ const createSchema = z
     name: z.string().trim().min(1).max(80),
     description: z.string().max(4000).optional(),
     icon: z.string().max(64).optional(),
-    accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    accent: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
     tags: z.array(z.string().trim().min(1).max(24)).max(16).optional(),
     type: z.string().trim().min(1).max(32),
     mcVersion: z.string().trim().max(32).optional(),
@@ -133,16 +157,23 @@ const createSchema = z
     start: z.coerce.boolean().optional(),
     ...dockerOverridesSchema,
   })
-  .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-    message: 'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
-  });
+  .refine(
+    (v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+    {
+      message:
+        'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
+    },
+  );
 
 const patchSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
     description: z.string().max(4000).optional(),
     icon: z.string().max(64).optional(),
-    accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    accent: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
     tags: z.array(z.string().trim().min(1).max(24)).max(16).optional(),
     notes: z.string().max(8000).optional(),
     mcVersion: z.string().trim().max(32).optional(),
@@ -160,9 +191,12 @@ const patchSchema = z
     routerAutoScale: z.enum(['on', 'off']).nullable().optional(),
     ...dockerOverridesSchema,
   })
-  .refine((v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb, {
-    message: 'Container memory limit must be higher than the Java heap',
-  });
+  .refine(
+    (v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
+    {
+      message: 'Container memory limit must be higher than the Java heap',
+    },
+  );
 
 const previewSchema = z.object({
   type: z.string().trim().max(32).optional(),
@@ -180,7 +214,11 @@ const previewSchema = z.object({
   ...dockerOverridesSchema,
 });
 
-const LIVE_EMPTY = { stats: null as { cpuPct: number; memUsedBytes: number } | null, players: null as string[] | null, startedAt: null as string | null };
+const LIVE_EMPTY = {
+  stats: null as { cpuPct: number; memUsedBytes: number } | null,
+  players: null as string[] | null,
+  startedAt: null as string | null,
+};
 
 /**
  * Ports the `servers`/`docker`/`ports`/`versions` sections of legacy
@@ -206,7 +244,7 @@ export class ServersController {
     private readonly settings: SettingsService,
     private readonly vm: ServerViewModelService,
     private readonly config: ConfigService,
-    private readonly events: EventsService
+    private readonly events: EventsService,
   ) {}
 
   private get db() {
@@ -223,7 +261,9 @@ export class ServersController {
   @Get('servers/live')
   async live() {
     const out: Record<string, unknown> = {};
-    for (const row of await this.db.select({ id: servers.id, status: servers.status }).from(servers)) {
+    for (const row of await this.db
+      .select({ id: servers.id, status: servers.status })
+      .from(servers)) {
       out[row.id] = { status: row.status, ...LIVE_EMPTY, phase: null };
     }
     return { ok: true, servers: out };
@@ -233,7 +273,10 @@ export class ServersController {
   async create(@Req() req: Request, @Body() body: unknown) {
     const input = parseBody(createSchema, body);
     requireAdminForOverrides(req, input);
-    const server = await this.lifecycle.createServer(input as never, { actor: req.user!.username, start: input.start !== false });
+    const server = await this.lifecycle.createServer(input as never, {
+      actor: req.user!.username,
+      start: input.start !== false,
+    });
     return { ok: true, server: publicServer(server) };
   }
 
@@ -268,10 +311,19 @@ export class ServersController {
   }
 
   @Patch('servers/:id')
-  async patch(@Req() req: Request, @Param('id') id: string, @Body() body: unknown) {
+  async patch(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
     const changes = parseBody(patchSchema, body);
     requireAdminForOverrides(req, changes);
-    if (changes.containerName !== undefined || changes.networkName !== undefined || changes.extraPorts !== undefined || changes.extraBinds !== undefined) {
+    if (
+      changes.containerName !== undefined ||
+      changes.networkName !== undefined ||
+      changes.extraPorts !== undefined ||
+      changes.extraBinds !== undefined
+    ) {
       const before = await this.query.mustGet(id);
       await this.dockerSpec.validateOverrides(
         {
@@ -280,16 +332,27 @@ export class ServersController {
           extraPorts: changes.extraPorts ?? before.extraPorts,
           extraBinds: changes.extraBinds ?? before.extraBinds,
         },
-        { previousExtraPorts: before.extraPorts }
+        { previousExtraPorts: before.extraPorts },
       );
     }
-    const { server, needsRecreate } = await this.lifecycle.updateServer(id, changes as never, { actor: req.user!.username });
+    const { server, needsRecreate } = await this.lifecycle.updateServer(
+      id,
+      changes as never,
+      { actor: req.user!.username },
+    );
     return { ok: true, needsRecreate, server: publicServer(server) };
   }
 
   @Delete('servers/:id')
-  async remove(@Req() req: Request, @Param('id') id: string, @Query('keepWorld') keepWorld?: string) {
-    const { freedBytes } = await this.lifecycle.deleteServer(id, { actor: req.user!.username, keepWorld: keepWorld === 'true' });
+  async remove(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('keepWorld') keepWorld?: string,
+  ) {
+    const { freedBytes } = await this.lifecycle.deleteServer(id, {
+      actor: req.user!.username,
+      keepWorld: keepWorld === 'true',
+    });
     return { ok: true, freedBytes };
   }
 
@@ -302,8 +365,14 @@ export class ServersController {
   @Put('servers/:id/console-label')
   async consoleLabel(@Param('id') id: string, @Body() body: unknown) {
     await this.query.mustGet(id);
-    const { label } = parseBody(z.object({ label: z.string().max(48).optional() }), body);
-    return { ok: true, label: await this.environment.setConsoleLabel(id, label) };
+    const { label } = parseBody(
+      z.object({ label: z.string().max(48).optional() }),
+      body,
+    );
+    return {
+      ok: true,
+      label: await this.environment.setConsoleLabel(id, label),
+    };
   }
 
   @Get('servers/:id/stats')
@@ -320,7 +389,8 @@ export class ServersController {
     if (publicAddr) addrs.push(publicAddr);
     for (const nics of Object.values(os.networkInterfaces())) {
       for (const nic of nics || []) {
-        if (nic.family === 'IPv4' && !nic.internal) addrs.push(`${nic.address}:${row.port_game}`);
+        if (nic.family === 'IPv4' && !nic.internal)
+          addrs.push(`${nic.address}:${row.port_game}`);
       }
     }
     addrs.push(`localhost:${row.port_game}`);
@@ -346,12 +416,20 @@ export class ServersController {
 
   @Get('ports/suggest')
   async portSuggest(@Query('bedrock') bedrock?: string) {
-    return { ok: true, ports: await this.ports.suggestPorts({ withBedrock: bedrock === 'true' }) };
+    return {
+      ok: true,
+      ports: await this.ports.suggestPorts({ withBedrock: bedrock === 'true' }),
+    };
   }
 
   @Get('versions')
   async versions(@Query('snapshots') snapshots?: string) {
-    return { ok: true, versions: await this.mojang.listVersions({ includeSnapshots: snapshots === 'true' }) };
+    return {
+      ok: true,
+      versions: await this.mojang.listVersions({
+        includeSnapshots: snapshots === 'true',
+      }),
+    };
   }
 
   @Get('docker/status')
@@ -371,14 +449,22 @@ export class ServersController {
   @Roles('admin')
   dockerPreview(@Body() body: unknown) {
     const input = parseBody(previewSchema, body);
-    return { ok: true, yaml: this.dockerSpec.toYaml(this.preview.previewCreateSpec(input as never) as never) };
+    return {
+      ok: true,
+      yaml: this.dockerSpec.toYaml(
+        this.preview.previewCreateSpec(input as never) as never,
+      ),
+    };
   }
 
   @Post('docker/preview/parse')
   @UseGuards(RolesGuard)
   @Roles('admin')
   dockerPreviewParse(@Body() body: unknown) {
-    const { yaml: text } = parseBody(z.object({ yaml: z.string().max(20000) }), body);
+    const { yaml: text } = parseBody(
+      z.object({ yaml: z.string().max(20000) }),
+      body,
+    );
     return { ok: true, spec: this.dockerSpec.fromYaml(text) };
   }
 
@@ -387,39 +473,73 @@ export class ServersController {
   @Roles('admin')
   async serverDockerSpec(@Param('id') id: string) {
     await this.query.mustGet(id);
-    return { ok: true, yaml: this.dockerSpec.toYaml((await this.preview.previewServerSpec(id)) as never) };
+    return {
+      ok: true,
+      yaml: this.dockerSpec.toYaml(
+        (await this.preview.previewServerSpec(id)) as never,
+      ),
+    };
   }
 
   // multipart field: 'icon'. Stores <dataDir>/library/icons/custom/<serverId><ext>
   // and sets servers.icon = 'custom:<filename>' (served via GET /api/icons/custom/:file).
   @Post('servers/:id/icon')
-  @UseInterceptors(FileInterceptor('icon', { limits: { fileSize: ICON_MAX_BYTES, files: 1 } }))
-  async uploadIcon(@Req() req: Request, @Param('id') id: string, @UploadedFile() file?: Express.Multer.File) {
+  @UseInterceptors(
+    FileInterceptor('icon', { limits: { fileSize: ICON_MAX_BYTES, files: 1 } }),
+  )
+  async uploadIcon(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
     const server = await this.query.mustGet(id);
     try {
-      if (!file) throw new BadRequestException('Attach an image (field "icon")');
+      if (!file)
+        throw new BadRequestException('Attach an image (field "icon")');
       const ext = ICON_EXTS[file.mimetype];
-      if (!ext) throw new BadRequestException('Icons must be PNG, SVG or JPEG (max 512 KB)');
+      if (!ext)
+        throw new BadRequestException(
+          'Icons must be PNG, SVG or JPEG (max 512 KB)',
+        );
       const filename = `${server.id}${ext}`;
-      const destDir = path.join(this.config.dataDir, 'library', 'icons', 'custom');
+      const destDir = path.join(
+        this.config.dataDir,
+        'library',
+        'icons',
+        'custom',
+      );
       await fsp.mkdir(destDir, { recursive: true });
       // Drop stale variants with a different extension.
       for (const other of Object.values(ICON_EXTS)) {
-        if (other !== ext) await fsp.rm(path.join(destDir, `${server.id}${other}`), { force: true }).catch(() => {});
+        if (other !== ext)
+          await fsp
+            .rm(path.join(destDir, `${server.id}${other}`), { force: true })
+            .catch(() => {});
       }
-      await fsp.rm(path.join(destDir, filename), { force: true }).catch(() => {});
-      await fsp.rename(file.path, path.join(destDir, filename)).catch(async () => {
-        await fsp.copyFile(file.path, path.join(destDir, filename));
-        await fsp.rm(file.path, { force: true });
-      });
-      await this.db.update(servers).set({ icon: `custom:${filename}` }).where(eq(servers.id, server.id));
+      await fsp
+        .rm(path.join(destDir, filename), { force: true })
+        .catch(() => {});
+      await fsp
+        .rename(file.path, path.join(destDir, filename))
+        .catch(async () => {
+          await fsp.copyFile(file.path, path.join(destDir, filename));
+          await fsp.rm(file.path, { force: true });
+        });
+      await this.db
+        .update(servers)
+        .set({ icon: `custom:${filename}` })
+        .where(eq(servers.id, server.id));
       this.events.recordEvent({
         serverId: server.id,
         actor: req.user!.username,
         type: 'config-changed',
         summary: 'Custom server icon uploaded',
       });
-      return { ok: true, icon: `custom:${filename}`, url: `/api/icons/custom/${filename}` };
+      return {
+        ok: true,
+        icon: `custom:${filename}`,
+        url: `/api/icons/custom/${filename}`,
+      };
     } catch (err) {
       if (file) await fsp.rm(file.path, { force: true }).catch(() => {});
       throw err;
@@ -432,12 +552,21 @@ export class ServersController {
       .string()
       .regex(/^srv_[\w-]+\.(png|svg|jpg)$/, 'Invalid icon file')
       .parse(fileParam);
-    const abs = path.join(this.config.dataDir, 'library', 'icons', 'custom', file);
+    const abs = path.join(
+      this.config.dataDir,
+      'library',
+      'icons',
+      'custom',
+      file,
+    );
     if (!fs.existsSync(abs)) throw new NotFoundException('Icon not found');
     // Custom icons may be user-uploaded SVGs (not sanitized). Serve them under a
     // locked-down, sandboxed CSP so a <script> embedded in the SVG can't execute
     // if the file is opened directly, and block content-type sniffing.
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(abs);
   }

@@ -14,7 +14,14 @@ import { UpdateUpgradeService } from './update-upgrade.service';
 // requiring ServersModule here mid-load (while it's still evaluating its own
 // SchedulerModule import) returns an undefined export.
 @Module({
-  imports: [EventsModule, forwardRef(() => ServersModule), PacksModule, ModsModule, WorldsModule, DockerModule],
+  imports: [
+    EventsModule,
+    forwardRef(() => ServersModule),
+    PacksModule,
+    ModsModule,
+    WorldsModule,
+    DockerModule,
+  ],
   providers: [UpdateCheckerService, UpdateUpgradeService],
   exports: [UpdateCheckerService, UpdateUpgradeService],
 })

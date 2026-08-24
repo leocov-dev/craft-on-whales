@@ -2,7 +2,11 @@
 // DELETE /api/schedules/:id, and GET /api/schedules/preview.
 
 import { http } from './http';
-import type { ScheduleViewModel, TaskTypeOption, CreateScheduleInput } from '../../../shared/types/schedules';
+import type {
+  ScheduleViewModel,
+  TaskTypeOption,
+  CreateScheduleInput,
+} from '../../../shared/types/schedules';
 
 export type { ScheduleViewModel, TaskTypeOption, CreateScheduleInput };
 

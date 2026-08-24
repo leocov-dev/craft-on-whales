@@ -9,7 +9,12 @@ import { PacksService } from './packs.service';
 // UpdatesModule -> PacksModule -> ServersModule cycle created once
 // SchedulerModule (forwardRef'd from ServersModule) pulled UpdatesModule in.
 @Module({
-  imports: [forwardRef(() => ServersModule), ModsModule, PathGuardModule, WorldsModule],
+  imports: [
+    forwardRef(() => ServersModule),
+    ModsModule,
+    PathGuardModule,
+    WorldsModule,
+  ],
   providers: [PacksService],
   exports: [PacksService],
 })

@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import type { Request } from 'express';
 
 /**
@@ -14,7 +19,9 @@ export class OriginGuard implements CanActivate {
 
     let originHost: string;
     try {
-      const rawOrigin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+      const rawOrigin =
+        req.headers.origin ||
+        (req.headers.referer ? new URL(req.headers.referer).origin : null);
       if (!rawOrigin) return true; // same-origin fetches may omit both; SameSite covers browsers
       originHost = new URL(rawOrigin).host;
     } catch {

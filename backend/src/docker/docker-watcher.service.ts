@@ -54,12 +54,14 @@ export class DockerWatcherService implements OnModuleInit {
     private readonly containers: ContainerService,
     private readonly logs: DockerLogsService,
     private readonly eventsService: EventsService,
-    private readonly dbService: DbService
+    private readonly dbService: DbService,
   ) {}
 
   onModuleInit(): void {
     this.startWatcher().catch((err: Error) => {
-      this.logger.error(`initial connect failed, retrying in 5s: ${err.message}`);
+      this.logger.error(
+        `initial connect failed, retrying in 5s: ${err.message}`,
+      );
       this.retryLater();
     });
   }
@@ -80,7 +82,9 @@ export class DockerWatcherService implements OnModuleInit {
         buffer = buffer.slice(idx + 1);
         if (!line) continue;
         try {
-          this.handleEvent(JSON.parse(line)).catch((err: Error) => this.logger.error(`[watcher] ${err.message}`));
+          this.handleEvent(JSON.parse(line)).catch((err: Error) =>
+            this.logger.error(`[watcher] ${err.message}`),
+          );
         } catch {
           /* partial frame */
         }
@@ -110,9 +114,14 @@ export class DockerWatcherService implements OnModuleInit {
   }
 
   private async handleEvent(evt: DockerEvent): Promise<void> {
-    const serverId = evt.Actor && evt.Actor.Attributes && evt.Actor.Attributes[LABEL];
+    const serverId =
+      evt.Actor && evt.Actor.Attributes && evt.Actor.Attributes[LABEL];
     if (!serverId) return;
-    const [server] = await this.dbService.db.select().from(servers).where(eq(servers.id, serverId)).limit(1);
+    const [server] = await this.dbService.db
+      .select()
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
     if (!server) return;
 
     if (evt.status === 'start') {
@@ -123,14 +132,18 @@ export class DockerWatcherService implements OnModuleInit {
       return;
     }
     if (evt.status === 'health_status: healthy') {
-      await this.dbService.db.update(servers).set({ status: 'running' }).where(eq(servers.id, serverId));
+      await this.dbService.db
+        .update(servers)
+        .set({ status: 'running' })
+        .where(eq(servers.id, serverId));
       return;
     }
     if (evt.status === 'oom') {
       this.eventsService.recordEvent({
         serverId,
         type: 'oom',
-        summary: 'Container hit its memory limit (OOM). Raise the container memory limit or lower the Java heap.',
+        summary:
+          'Container hit its memory limit (OOM). Raise the container memory limit or lower the Java heap.',
       });
       return;
     }
@@ -143,9 +156,13 @@ export class DockerWatcherService implements OnModuleInit {
       .where(
         and(
           eq(eventsTable.serverId, serverId),
-          inArray(eventsTable.type, ['stop-requested', 'restart-requested', 'kill-requested']),
-          gt(eventsTable.createdAt, sql`datetime('now', '-3 minutes')`)
-        )
+          inArray(eventsTable.type, [
+            'stop-requested',
+            'restart-requested',
+            'kill-requested',
+          ]),
+          gt(eventsTable.createdAt, sql`datetime('now', '-3 minutes')`),
+        ),
       )
       .limit(1);
     // Clean exits are judged by the exit code, not just the request window:
@@ -158,17 +175,29 @@ export class DockerWatcherService implements OnModuleInit {
     const killedBySignal = exitCode === 137;
 
     if (cleanExit || (killedBySignal && stopRequested)) {
-      await this.dbService.db.update(servers).set({ status: 'stopped' }).where(eq(servers.id, serverId));
+      await this.dbService.db
+        .update(servers)
+        .set({ status: 'stopped' })
+        .where(eq(servers.id, serverId));
       if (!stopRequested) {
-        this.eventsService.recordEvent({ serverId, type: 'stopped', summary: `Server stopped (exit code ${exitCode})` });
+        this.eventsService.recordEvent({
+          serverId,
+          type: 'stopped',
+          summary: `Server stopped (exit code ${exitCode})`,
+        });
       }
       return;
     }
 
     // Crash path — even inside a stop/restart window a non-zero, non-signal
     // exit is a crash and must be recorded as one.
-    await this.dbService.db.update(servers).set({ status: 'crashed' }).where(eq(servers.id, serverId));
-    const excerpt: string = await this.logs.fetchLogs(serverId, { tail: 300 }).catch(() => '');
+    await this.dbService.db
+      .update(servers)
+      .set({ status: 'crashed' })
+      .where(eq(servers.id, serverId));
+    const excerpt: string = await this.logs
+      .fetchLogs(serverId, { tail: 300 })
+      .catch(() => '');
 
     // Config errors never fix themselves — diagnose them so the crash event
     // says WHAT to do, and skip auto-restarts that would just burn cycles.
@@ -179,7 +208,11 @@ export class DockerWatcherService implements OnModuleInit {
       summary: diagnosis
         ? `Server crashed: ${diagnosis.summary}`
         : `Server crashed (exit code ${exitCode})${stopRequested ? ' while a stop/restart was in progress' : ''}`,
-      details: { exitCode, duringStopWindow: Boolean(stopRequested), diagnosis: diagnosis ? diagnosis.key : null },
+      details: {
+        exitCode,
+        duringStopWindow: Boolean(stopRequested),
+        diagnosis: diagnosis ? diagnosis.key : null,
+      },
       logExcerpt: excerpt || null,
     });
     if (diagnosis) return; // auto-restart cannot help a config error
@@ -193,7 +226,9 @@ export class DockerWatcherService implements OnModuleInit {
     if (killedBySignal) return;
     if (!server.autoRestart) return;
     const now = Date.now();
-    const window = (this.crashWindows.get(serverId) || []).filter((t) => now - t < CRASH_WINDOW_MS);
+    const window = (this.crashWindows.get(serverId) || []).filter(
+      (t) => now - t < CRASH_WINDOW_MS,
+    );
     window.push(now);
     this.crashWindows.set(serverId, window);
     if (window.length > MAX_RAPID_CRASHES) {
@@ -216,7 +251,7 @@ export class DockerWatcherService implements OnModuleInit {
           // starting a stale container. Wire via forwardRef() once
           // ServersModule exists — see this file's class doc comment.
           this.logger.warn(
-            `auto-restart for ${serverId} skipped: ServersModule not wired yet (TODO — see DockerWatcherService doc comment)`
+            `auto-restart for ${serverId} skipped: ServersModule not wired yet (TODO — see DockerWatcherService doc comment)`,
           );
         }
       } catch (err: unknown) {
@@ -239,7 +274,8 @@ export class DockerWatcherService implements OnModuleInit {
       {
         key: 'eula',
         re: /You need to agree to the EULA/i,
-        summary: 'The Minecraft EULA was not accepted — recreate the server from the panel (it sets EULA automatically).',
+        summary:
+          'The Minecraft EULA was not accepted — recreate the server from the panel (it sets EULA automatically).',
       },
       {
         key: 'java-version',
@@ -256,12 +292,14 @@ export class DockerWatcherService implements OnModuleInit {
       {
         key: 'port-bind',
         re: /Failed to bind to port|Address already in use/i,
-        summary: 'The game port is already in use on this machine — change the port in Settings and Recreate.',
+        summary:
+          'The game port is already in use on this machine — change the port in Settings and Recreate.',
       },
       {
         key: 'oom',
         re: /OutOfMemoryError/i,
-        summary: 'Java ran out of heap — raise RAM in Settings → Resources (packs usually need 4–8 GB) and Recreate.',
+        summary:
+          'Java ran out of heap — raise RAM in Settings → Resources (packs usually need 4–8 GB) and Recreate.',
       },
     ];
     for (const k of KNOWN) if (k.re.test(logText)) return k;

@@ -1,7 +1,13 @@
 // Postgres mirror of ../schema/library.ts — see ./PG_SCHEMA_NOTES.md.
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, integer, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  integer,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 export const libraryFiles = pgTable(
   'library_files',
@@ -24,11 +30,13 @@ export const libraryFiles = pgTable(
     iconRelPath: text('icon_rel_path'),
     worldSource: text('world_source'), // 'upload' | 'extract:<server_id>' | 'import'
     worldFlavor: text('world_flavor'),
-    createdAt: text('created_at').notNull().default(sql`now()::text`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`now()::text`),
   },
   (t) => [
     index('idx_library_cat').on(t.category),
     index('idx_library_sha').on(t.sha256),
     uniqueIndex('uniq_library_sha_cat').on(t.sha256, t.category),
-  ]
+  ],
 );

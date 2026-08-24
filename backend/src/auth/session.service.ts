@@ -25,7 +25,10 @@ export class SqliteSessionStore extends Store {
     super();
   }
 
-  override get(sid: string, cb: (err: unknown, session?: SessionData | null) => void): void {
+  override get(
+    sid: string,
+    cb: (err: unknown, session?: SessionData | null) => void,
+  ): void {
     this.db.db
       .select()
       .from(sessions)
@@ -42,12 +45,21 @@ export class SqliteSessionStore extends Store {
       .catch((err: unknown) => cb(err));
   }
 
-  override set(sid: string, session: SessionData, cb?: (err?: unknown) => void): void {
-    const expires = session.cookie?.expires ? new Date(session.cookie.expires).toISOString() : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+  override set(
+    sid: string,
+    session: SessionData,
+    cb?: (err?: unknown) => void,
+  ): void {
+    const expires = session.cookie?.expires
+      ? new Date(session.cookie.expires).toISOString()
+      : new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
     this.db.db
       .insert(sessions)
       .values({ sid, dataJson: JSON.stringify(session), expiresAt: expires })
-      .onConflictDoUpdate({ target: sessions.sid, set: { dataJson: JSON.stringify(session), expiresAt: expires } })
+      .onConflictDoUpdate({
+        target: sessions.sid,
+        set: { dataJson: JSON.stringify(session), expiresAt: expires },
+      })
       .then(() => cb?.(null))
       .catch((err: unknown) => cb?.(err));
   }
@@ -60,7 +72,11 @@ export class SqliteSessionStore extends Store {
       .catch((err: unknown) => cb?.(err));
   }
 
-  override touch(sid: string, session: SessionData, cb?: (err?: unknown) => void): void {
+  override touch(
+    sid: string,
+    session: SessionData,
+    cb?: (err?: unknown) => void,
+  ): void {
     this.set(sid, session, cb);
   }
 }
@@ -77,7 +93,7 @@ export class SessionService {
   constructor(
     private readonly config: ConfigService,
     private readonly dbService: DbService,
-    private readonly authService: AuthService
+    private readonly authService: AuthService,
   ) {
     this.store = new SqliteSessionStore(dbService);
   }
@@ -91,7 +107,9 @@ export class SessionService {
   async pruneExpiredSessions(): Promise<void> {
     // expires_at is ISO-8601 ('…T…Z'); the cutoff must be too — a naive
     // space-separated 'now' would always sort as less-than because 'T' > ' '.
-    await this.dbService.db.delete(sessions).where(lt(sessions.expiresAt, new Date().toISOString()));
+    await this.dbService.db
+      .delete(sessions)
+      .where(lt(sessions.expiresAt, new Date().toISOString()));
   }
 
   /**
@@ -102,19 +120,25 @@ export class SessionService {
    * both the HTTP guard (via express-session itself) and future WS gateways
    * share one implementation of "what counts as a valid session."
    */
-  async authenticateFromCookieHeader(cookieHeader: string | undefined): Promise<PublicUser | null> {
+  async authenticateFromCookieHeader(
+    cookieHeader: string | undefined,
+  ): Promise<PublicUser | null> {
     try {
       const cookies = Object.fromEntries(
         (cookieHeader || '').split(';').map((c) => {
           const idx = c.indexOf('=');
           return [c.slice(0, idx).trim(), decodeURIComponent(c.slice(idx + 1))];
-        })
+        }),
       );
       const raw = cookies[SESSION_COOKIE_NAME];
       if (!raw || !raw.startsWith('s:')) return null;
       const sid = signature.unsign(raw.slice(2), this.config.sessionSecret);
       if (!sid) return null;
-      const [row] = await this.dbService.db.select().from(sessions).where(eqSid(sid)).limit(1);
+      const [row] = await this.dbService.db
+        .select()
+        .from(sessions)
+        .where(eqSid(sid))
+        .limit(1);
       if (!row || Date.parse(row.expiresAt) < Date.now()) return null;
       const data: { userId?: string } = JSON.parse(row.dataJson);
       if (!data.userId) return null;

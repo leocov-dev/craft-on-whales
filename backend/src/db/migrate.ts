@@ -19,14 +19,19 @@ export async function runMigrations(dbService: DbService): Promise<void> {
     // dbService.db is typed as the SQLite drizzle shape unconditionally
     // (see schema/DUAL_DIALECT_NOTES.md) but is genuinely a NodePgDatabase
     // at runtime here — cast back to call the Postgres migrator.
-    await migratePg(dbService.db as unknown as Parameters<typeof migratePg>[0], { migrationsFolder: PG_MIGRATIONS_FOLDER });
+    await migratePg(
+      dbService.db as unknown as Parameters<typeof migratePg>[0],
+      { migrationsFolder: PG_MIGRATIONS_FOLDER },
+    );
     return;
   }
 
   const db = dbService.db;
 
   const migrationsTableExists =
-    db.all(sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ${MIGRATIONS_TABLE}`).length > 0;
+    db.all(
+      sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ${MIGRATIONS_TABLE}`,
+    ).length > 0;
 
   // The "copy $DATA_DIR to migrate the panel" guarantee: an existing install's
   // data dir has a `servers` table (created by the LEGACY hand-written
@@ -49,7 +54,10 @@ export async function runMigrations(dbService: DbService): Promise<void> {
   // a freshly-migrated legacy DB — see DRIZZLE_NOTES.md). A genuinely fresh
   // install (no `servers` table either) falls through to a normal migrate().
   if (!migrationsTableExists) {
-    const preexistingSchema = db.all(sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'servers'`).length > 0;
+    const preexistingSchema =
+      db.all(
+        sql`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'servers'`,
+      ).length > 0;
     if (preexistingSchema) {
       baselineExistingSchema(dbService);
       return;
@@ -61,7 +69,9 @@ export async function runMigrations(dbService: DbService): Promise<void> {
 
 function baselineExistingSchema(dbService: DbService): void {
   const db = dbService.db;
-  const migrations = readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER });
+  const migrations = readMigrationFiles({
+    migrationsFolder: MIGRATIONS_FOLDER,
+  });
 
   db.run(sql`
     CREATE TABLE IF NOT EXISTS ${sql.identifier(MIGRATIONS_TABLE)} (
@@ -75,9 +85,11 @@ function baselineExistingSchema(dbService: DbService): void {
   const appliedAt = new Date().toISOString();
   for (const m of migrations) {
     db.run(
-      sql`INSERT INTO ${sql.identifier(MIGRATIONS_TABLE)} ("hash", "created_at", "name", "applied_at") VALUES (${m.hash}, ${m.folderMillis}, ${m.name}, ${appliedAt})`
+      sql`INSERT INTO ${sql.identifier(MIGRATIONS_TABLE)} ("hash", "created_at", "name", "applied_at") VALUES (${m.hash}, ${m.folderMillis}, ${m.name}, ${appliedAt})`,
     );
   }
   // eslint-disable-next-line no-console
-  console.log(`[migrate] adopted existing schema — baselined ${migrations.length} migration(s) without re-running them`);
+  console.log(
+    `[migrate] adopted existing schema — baselined ${migrations.length} migration(s) without re-running them`,
+  );
 }

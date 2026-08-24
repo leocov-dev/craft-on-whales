@@ -1,4 +1,12 @@
-import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z, ZodError } from 'zod';
 import { ApiKeysService } from '../api-keys/api-keys.service';
@@ -9,7 +17,10 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -21,14 +32,20 @@ export class ApiKeysController {
 
   @Get()
   async get() {
-    return { ok: true, curseforge: { masked: await this.apiKeys.maskedKey('curseforge') } };
+    return {
+      ok: true,
+      curseforge: { masked: await this.apiKeys.maskedKey('curseforge') },
+    };
   }
 
   @Post('curseforge')
   @UseGuards(RolesGuard)
   @Roles('admin')
   async set(@Req() req: Request, @Body() body: unknown) {
-    const { key } = parseBody(z.object({ key: z.string().trim().min(10).max(200) }), body);
+    const { key } = parseBody(
+      z.object({ key: z.string().trim().min(10).max(200) }),
+      body,
+    );
     const test = await this.apiKeys.testCurseForgeKey(key);
     if (!test.ok) return { ok: false, error: test.error };
     await this.apiKeys.setKey('curseforge', key, { actor: req.user!.username });

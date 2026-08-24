@@ -30,16 +30,23 @@ export class ServerLocksService {
     const result = this.createChain.then(fn, fn);
     this.createChain = result.then(
       () => {},
-      () => {}
+      () => {},
     ); // a failed create must not break the chain
     return result;
   }
 
-  async guard<T>(id: string, op: LifecycleOp, fn: (id: string) => Promise<T>): Promise<T> {
+  async guard<T>(
+    id: string,
+    op: LifecycleOp,
+    fn: (id: string) => Promise<T>,
+  ): Promise<T> {
     const existing = this.inFlightOps.get(id);
     if (existing) {
-      if (existing.op === op && op === 'start') return existing.promise as Promise<T>; // piggyback on the same start
-      throw new ConflictException(`Cannot ${op}: a ${existing.op} operation is already in progress for this server`);
+      if (existing.op === op && op === 'start')
+        return existing.promise as Promise<T>; // piggyback on the same start
+      throw new ConflictException(
+        `Cannot ${op}: a ${existing.op} operation is already in progress for this server`,
+      );
     }
     const promise = fn(id);
     const entry: InFlightEntry = { op, promise };

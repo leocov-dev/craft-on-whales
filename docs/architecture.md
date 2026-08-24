@@ -89,7 +89,7 @@ Cross-cutting, global modules:
 ## Circular module dependencies (`forwardRef()`)
 
 `ServersModule` is the hub nearly everything else depends on, but a handful of modules have a
-genuine *bidirectional* relationship with it — Nest's `forwardRef()` is used for exactly these
+genuine _bidirectional_ relationship with it — Nest's `forwardRef()` is used for exactly these
 cases, each with an inline comment citing the specific cycle:
 
 - **`ServersModule` ↔ `SchedulerModule`** — deleting a server needs to disarm its live cron jobs;
@@ -101,7 +101,7 @@ cases, each with an inline comment citing the specific cycle:
 - **`InventoryModule` ↔ `PlayersModule`** — inventory editing needs the online-player roster;
   player-facing roster/teleport features read inventory data.
 - A cascading case: once `UpdatesModule` (needed by `SchedulerModule` for scheduled update checks)
-  pulled in `ModsModule`/`PacksModule`, both of *those* needed their own `ServersModule` import
+  pulled in `ModsModule`/`PacksModule`, both of _those_ needed their own `ServersModule` import
   wrapped in `forwardRef()` too, since they now sat transitively on the same require cycle.
 
 Where a plain circular `import` would crash at file-load time (not just at Nest's DI-resolution

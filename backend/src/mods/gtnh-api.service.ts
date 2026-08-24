@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadGatewayException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadGatewayException,
+} from '@nestjs/common';
 import { ApiCacheService } from './api-cache.service';
 
 // GT New Horizons release-index client.
@@ -48,7 +52,11 @@ export class GtnhApiService {
     try {
       const url = new URL(match[1]!);
       if (url.protocol !== 'https:') return null;
-      if (url.hostname !== 'github.com' && !url.hostname.endsWith('.github.com')) return null;
+      if (
+        url.hostname !== 'github.com' &&
+        !url.hostname.endsWith('.github.com')
+      )
+        return null;
       return url.href;
     } catch {
       return null;
@@ -63,30 +71,44 @@ export class GtnhApiService {
     if (!raw || typeof raw !== 'object') return [];
     // No serverUrl here on purpose: the itzg image downloads the pack itself,
     // keyed by GTNH_PACK_VERSION — the panel never fetches the archive.
-    return Object.entries(raw as Record<string, RawGtnhEntry>).map(([version, entry]) => {
-      const e = entry || {};
-      return {
-        version,
-        channel: (/beta/i.test(String(e.title || '')) ? 'beta' : 'stable') as 'beta' | 'stable',
-        releaseDate: (e.releaseDate as string | undefined) || null,
-        maxJavaVersion: Number.isInteger(e.maxJavaVersion) ? (e.maxJavaVersion as number) : null,
-        changelogUrl: this.safeChangelogUrl(e.description),
-      };
-    });
+    return Object.entries(raw as Record<string, RawGtnhEntry>).map(
+      ([version, entry]) => {
+        const e = entry || {};
+        return {
+          version,
+          channel: (/beta/i.test(String(e.title || '')) ? 'beta' : 'stable') as
+            'beta' | 'stable',
+          releaseDate: (e.releaseDate as string | undefined) || null,
+          maxJavaVersion: Number.isInteger(e.maxJavaVersion)
+            ? (e.maxJavaVersion as number)
+            : null,
+          changelogUrl: this.safeChangelogUrl(e.description),
+        };
+      },
+    );
   }
 
-  filterVersions(entries: GtnhVersionEntry[], { includeBeta = false }: { includeBeta?: boolean } = {}): GtnhVersionEntry[] {
-    return includeBeta ? entries : entries.filter((e) => e.channel === 'stable');
+  filterVersions(
+    entries: GtnhVersionEntry[],
+    { includeBeta = false }: { includeBeta?: boolean } = {},
+  ): GtnhVersionEntry[] {
+    return includeBeta
+      ? entries
+      : entries.filter((e) => e.channel === 'stable');
   }
 
-  pickLatest(entries: GtnhVersionEntry[], { includeBeta = false }: { includeBeta?: boolean } = {}): GtnhVersionEntry | null {
+  pickLatest(
+    entries: GtnhVersionEntry[],
+    { includeBeta = false }: { includeBeta?: boolean } = {},
+  ): GtnhVersionEntry | null {
     return this.filterVersions(entries, { includeBeta })[0] || null;
   }
 
   /** Fetch + cache the index. Serves the stale copy rather than failing. */
   async fetchIndex(): Promise<GtnhVersionEntry[]> {
     const cached = await this.cache.get(CACHE_KEY);
-    const stale = (): GtnhVersionEntry[] | null => (cached ? this.normalizeIndex(cached.value) : null);
+    const stale = (): GtnhVersionEntry[] | null =>
+      cached ? this.normalizeIndex(cached.value) : null;
     if (cached && cached.ageMs < TTL_MS) return stale() as GtnhVersionEntry[];
 
     let res: Response;
@@ -98,12 +120,16 @@ export class GtnhApiService {
     } catch (err) {
       const stalePart = stale();
       if (stalePart) return stalePart;
-      throw new BadGatewayException(`Could not reach the GTNH download server (${(err as Error).message})`);
+      throw new BadGatewayException(
+        `Could not reach the GTNH download server (${(err as Error).message})`,
+      );
     }
     if (!res.ok) {
       const stalePart = stale();
       if (stalePart) return stalePart;
-      throw new BadGatewayException(`GTNH download server answered HTTP ${res.status}`);
+      throw new BadGatewayException(
+        `GTNH download server answered HTTP ${res.status}`,
+      );
     }
     let raw: unknown;
     try {
@@ -111,24 +137,31 @@ export class GtnhApiService {
     } catch (err) {
       const stalePart = stale();
       if (stalePart) return stalePart;
-      throw new BadGatewayException(`GTNH index is malformed JSON (${(err as Error).message})`);
+      throw new BadGatewayException(
+        `GTNH index is malformed JSON (${(err as Error).message})`,
+      );
     }
     this.cache.set(CACHE_KEY, raw);
     return this.normalizeIndex(raw);
   }
 
-  async listVersions({ includeBeta = false }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry[]> {
+  async listVersions({
+    includeBeta = false,
+  }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry[]> {
     return this.filterVersions(await this.fetchIndex(), { includeBeta });
   }
 
   /** One version by exact key. Unknown keys are a 404 — never passed to container env. */
   async getVersion(version: string): Promise<GtnhVersionEntry> {
     const entry = (await this.fetchIndex()).find((e) => e.version === version);
-    if (!entry) throw new NotFoundException(`Unknown GTNH pack version: ${version}`);
+    if (!entry)
+      throw new NotFoundException(`Unknown GTNH pack version: ${version}`);
     return entry;
   }
 
-  async latest({ includeBeta = false }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry | null> {
+  async latest({
+    includeBeta = false,
+  }: { includeBeta?: boolean } = {}): Promise<GtnhVersionEntry | null> {
     return this.pickLatest(await this.fetchIndex(), { includeBeta });
   }
 }

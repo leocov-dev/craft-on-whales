@@ -15,7 +15,13 @@ import { MapProxyController } from './map-proxy.controller';
 // ServerEnvironmentService/WorldPropsService inject MapService in turn (see
 // their own forwardRef'd MapModule imports).
 @Module({
-  imports: [PathGuardModule, ModsModule, DockerModule, forwardRef(() => ServersModule), forwardRef(() => WorldsModule)],
+  imports: [
+    PathGuardModule,
+    ModsModule,
+    DockerModule,
+    forwardRef(() => ServersModule),
+    forwardRef(() => WorldsModule),
+  ],
   controllers: [MapController, MapProxyController],
   providers: [MapService],
   exports: [MapService],

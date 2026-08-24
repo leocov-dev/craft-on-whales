@@ -22,7 +22,7 @@ export interface FollowLogsResult {
 export class DockerLogsService {
   constructor(
     private readonly connection: DockerConnectionService,
-    private readonly containers: ContainerService
+    private readonly containers: ContainerService,
   ) {}
 
   /**
@@ -30,9 +30,14 @@ export class DockerLogsService {
    * prefix each line with Docker's RFC3339 receive time (used by analytics
    * ingest to timestamp events independently of the container's TZ).
    */
-  async fetchLogs(serverId: string, { tail = 500, timestamps = false }: FetchLogsOptions = {}): Promise<string> {
+  async fetchLogs(
+    serverId: string,
+    { tail = 500, timestamps = false }: FetchLogsOptions = {},
+  ): Promise<string> {
     try {
-      const buf = await (await this.containers.getContainer(serverId)).logs({
+      const buf = await (
+        await this.containers.getContainer(serverId)
+      ).logs({
         stdout: true,
         stderr: true,
         tail,
@@ -49,7 +54,10 @@ export class DockerLogsService {
    * Follow logs from now on. Returns { stream, stop } where stream emits
    * utf8 lines-ish chunks. Caller must stop() on WebSocket close.
    */
-  async followLogs(serverId: string, { tail = 200, timestamps = false }: FetchLogsOptions = {}): Promise<FollowLogsResult> {
+  async followLogs(
+    serverId: string,
+    { tail = 200, timestamps = false }: FetchLogsOptions = {},
+  ): Promise<FollowLogsResult> {
     const container = await this.containers.getContainer(serverId);
     const raw = (await container.logs({
       stdout: true,

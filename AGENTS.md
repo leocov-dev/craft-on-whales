@@ -92,7 +92,7 @@ Node/service-module sense, not a Java-style class hierarchy:
   plain functions and modules, not class hierarchies — don't introduce inheritance there. `backend/`
   uses NestJS's `@Injectable()` classes, which is the framework's own idiom, not an exception to
   this rule — keep those classes' public methods narrow too.
-- **Dependency inversion** — the layering rule *is* this principle. In `src/`: `services/` depend on
+- **Dependency inversion** — the layering rule _is_ this principle. In `src/`: `services/` depend on
   `docker/`, `db/`, `storage/` through their existing module boundaries, never the reverse, and
   `web/routes/` never reaches into infrastructure directly; no DI container, the directory layering
   does the job. In `backend/`: this is Nest's constructor injection directly — services declare
@@ -106,7 +106,7 @@ existing house style — three similar lines beats a premature abstraction.
 ## Defense-in-depth
 
 Producing a genuinely secure application is a project goal — not just meeting a minimum bar at
-the trust boundary. Layer checks (e.g. validate at the route *and* re-validate the invariant
+the trust boundary. Layer checks (e.g. validate at the route _and_ re-validate the invariant
 inside the service that acts on it) where doing so meaningfully reduces blast radius if an earlier
 layer is ever bypassed or wrong.
 
@@ -125,7 +125,7 @@ A small, local, low-complexity hardening (an added bounds check, a narrowed type
 a boundary) doesn't need this — use judgment, but bias toward asking when in doubt. This applies
 on top of, not instead of, the existing documented invariants in "Other things to hold to" below:
 those are already-decided defense-in-depth and should be preserved as-is without re-litigating
-them; this rule is about *adding new* layers, not maintaining current ones.
+them; this rule is about _adding new_ layers, not maintaining current ones.
 
 ### Reverse proxy is the deployment boundary
 

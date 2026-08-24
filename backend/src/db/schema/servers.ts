@@ -4,7 +4,13 @@
 // hand-replayed from the migration sequence.
 
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  real,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 export const servers = sqliteTable('servers', {
   id: text('id').primaryKey(),
@@ -31,17 +37,27 @@ export const servers = sqliteTable('servers', {
   containerSwapMb: integer('container_swap_mb').notNull().default(0),
   cpus: real('cpus').notNull().default(0),
   diskQuotaBytes: integer('disk_quota_bytes').notNull().default(0),
-  quotaStrict: integer('quota_strict', { mode: 'boolean' }).notNull().default(false),
+  quotaStrict: integer('quota_strict', { mode: 'boolean' })
+    .notNull()
+    .default(false),
 
   updatePolicy: text('update_policy').notNull().default('manual'), // 'manual' | 'notify' | 'auto'
-  autoStart: integer('auto_start', { mode: 'boolean' }).notNull().default(false),
-  autoRestart: integer('auto_restart', { mode: 'boolean' }).notNull().default(true),
+  autoStart: integer('auto_start', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  autoRestart: integer('auto_restart', { mode: 'boolean' })
+    .notNull()
+    .default(true),
 
   containerId: text('container_id'),
-  pendingRecreate: integer('pending_recreate', { mode: 'boolean' }).notNull().default(false),
+  pendingRecreate: integer('pending_recreate', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   status: text('status').notNull().default('stopped'),
   lastStartedAt: text('last_started_at'),
-  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(datetime('now'))`),
   deletedAt: text('deleted_at'),
 
   consoleLabel: text('console_label'),
@@ -64,7 +80,9 @@ export const serverPacks = sqliteTable('server_packs', {
   pinnedVersionName: text('pinned_version_name').notNull(),
   previousVersionId: text('previous_version_id'),
   previousVersionName: text('previous_version_name'),
-  installedAt: text('installed_at').notNull().default(sql`(datetime('now'))`),
+  installedAt: text('installed_at')
+    .notNull()
+    .default(sql`(datetime('now'))`),
   maxJavaVersion: integer('max_java_version'),
   channel: text('channel'),
 });
@@ -85,7 +103,11 @@ export const serverContent = sqliteTable(
     iconUrl: text('icon_url'),
     iconRelPath: text('icon_rel_path'),
     enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    installedAt: text('installed_at').notNull().default(sql`(datetime('now'))`),
+    installedAt: text('installed_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
-  (t) => [uniqueIndex('server_content_server_filename').on(t.serverId, t.filename)]
+  (t) => [
+    uniqueIndex('server_content_server_filename').on(t.serverId, t.filename),
+  ],
 );

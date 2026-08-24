@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, BadGatewayException, PayloadTooLargeException, HttpException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  BadGatewayException,
+  PayloadTooLargeException,
+  HttpException,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -14,7 +20,8 @@ import { ServerEnvironmentService } from '../servers/server-environment.service'
 import { safeFetch } from '../utils/url-guard';
 import { libraryFiles, serverContent } from '../db/schema';
 
-export type LibraryCategory = 'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack' | 'world' | 'icon';
+export type LibraryCategory =
+  'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack' | 'world' | 'icon';
 
 export const CATEGORY_DIR: Record<LibraryCategory, string> = {
   mod: 'library/mods',
@@ -59,7 +66,7 @@ export class LibraryService {
     private readonly pathGuard: PathGuardService,
     private readonly events: EventsService,
     private readonly storageIndex: StorageIndexService,
-    private readonly serverEnv: ServerEnvironmentService
+    private readonly serverEnv: ServerEnvironmentService,
   ) {}
 
   private get db() {
@@ -67,7 +74,11 @@ export class LibraryService {
   }
 
   async getLibraryFile(libraryId: string): Promise<LibraryFileRow | undefined> {
-    const [row] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(eq(libraryFiles.id, libraryId))
+      .limit(1);
     return row;
   }
 
@@ -81,14 +92,25 @@ export class LibraryService {
 
   async deleteLibraryFile(
     libraryId: string,
-    { actor = 'system', force = false }: { actor?: string; force?: boolean } = {}
+    {
+      actor = 'system',
+      force = false,
+    }: { actor?: string; force?: boolean } = {},
   ): Promise<{ freedBytes: number }> {
-    const [lib] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
+    const [lib] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(eq(libraryFiles.id, libraryId))
+      .limit(1);
     if (!lib) return { freedBytes: 0 };
     const used = await this.usageCount(libraryId);
-    if (used > 0 && !force) throw new ConflictException(`Still installed on ${used} server(s) — remove it there first`);
+    if (used > 0 && !force)
+      throw new ConflictException(
+        `Still installed on ${used} server(s) — remove it there first`,
+      );
     await fsp.rm(this.pathGuard.dataPath(lib.relPath), { force: true });
-    if (lib.iconRelPath) await fsp.rm(this.pathGuard.dataPath(lib.iconRelPath), { force: true });
+    if (lib.iconRelPath)
+      await fsp.rm(this.pathGuard.dataPath(lib.iconRelPath), { force: true });
     await this.db.delete(libraryFiles).where(eq(libraryFiles.id, libraryId));
     this.events.recordEvent({
       actor,
@@ -107,8 +129,8 @@ export class LibraryService {
       .where(
         and(
           sql`${serverContent.id} IS NULL`,
-          sql`${libraryFiles.category} IN ('mod','plugin','datapack','resourcepack')`
-        )
+          sql`${libraryFiles.category} IN ('mod','plugin','datapack','resourcepack')`,
+        ),
       );
     return rows.map((r) => r.library_files);
   }
@@ -124,7 +146,13 @@ export class LibraryService {
     {
       onProgress = () => {},
       actor = 'system',
-    }: { onProgress?: (progress: { receivedBytes: number; totalBytes: number }) => void; actor?: string } = {}
+    }: {
+      onProgress?: (progress: {
+        receivedBytes: number;
+        totalBytes: number;
+      }) => void;
+      actor?: string;
+    } = {},
   ): Promise<LibraryFileRow> {
     const category = meta.category || 'mod';
     const tmpFile = this.pathGuard.dataPath('tmp', `dl-${nanoid(6)}`);
@@ -134,19 +162,25 @@ export class LibraryService {
       headers: { 'User-Agent': 'MinecraftServerManager/0.1' },
       signal: AbortSignal.timeout(10 * 60 * 1000),
     });
-    if (!res.ok) throw new BadGatewayException(`Download failed: HTTP ${res.status} from ${new URL(url).host}`);
+    if (!res.ok)
+      throw new BadGatewayException(
+        `Download failed: HTTP ${res.status} from ${new URL(url).host}`,
+      );
     const totalBytes = Number(res.headers.get('content-length')) || 0;
 
     // Disk preflight when the server declares a size (tmp copy + final copy).
     if (totalBytes > 0) {
       if (totalBytes > MAX_DOWNLOAD_BYTES) {
         throw new PayloadTooLargeException(
-          `Download is ${humanBytes(totalBytes)} — the ${humanBytes(MAX_DOWNLOAD_BYTES)} per-file limit blocks it`
+          `Download is ${humanBytes(totalBytes)} — the ${humanBytes(MAX_DOWNLOAD_BYTES)} per-file limit blocks it`,
         );
       }
       const { free } = await this.storageIndex.diskFree();
       if (free < totalBytes * 1.2) {
-        throw new HttpException(`Not enough disk space for this download (~${humanBytes(totalBytes)} needed)`, 507);
+        throw new HttpException(
+          `Not enough disk space for this download (~${humanBytes(totalBytes)} needed)`,
+          507,
+        );
       }
     }
 
@@ -154,34 +188,61 @@ export class LibraryService {
     let receivedBytes = 0;
     const { Transform } = await import('node:stream');
     const counter = new Transform({
-      transform(chunk: Buffer, _enc: string, cb: (err?: Error | null, chunk?: Buffer) => void) {
+      transform(
+        chunk: Buffer,
+        _enc: string,
+        cb: (err?: Error | null, chunk?: Buffer) => void,
+      ) {
         hash.update(chunk);
         receivedBytes += chunk.length;
         if (receivedBytes > MAX_DOWNLOAD_BYTES) {
           // Hard abort — content-length can lie or be absent entirely.
-          return cb(new PayloadTooLargeException(`Download aborted: stream exceeded the ${humanBytes(MAX_DOWNLOAD_BYTES)} per-file limit`));
+          return cb(
+            new PayloadTooLargeException(
+              `Download aborted: stream exceeded the ${humanBytes(MAX_DOWNLOAD_BYTES)} per-file limit`,
+            ),
+          );
         }
         onProgress({ receivedBytes, totalBytes });
         cb(null, chunk);
       },
     });
     try {
-      await pipeline(res.body as unknown as NodeJS.ReadableStream, counter, fs.createWriteStream(tmpFile));
+      await pipeline(
+        res.body as unknown as NodeJS.ReadableStream,
+        counter,
+        fs.createWriteStream(tmpFile),
+      );
     } catch (err) {
       await fsp.rm(tmpFile, { force: true }).catch(() => {});
       throw err;
     }
 
     const sha256 = hash.digest('hex');
-    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    const [existing] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     if (existing) {
       await fsp.rm(tmpFile, { force: true });
       return existing;
     }
 
-    const filename = sanitizeFilename(meta.filename || decodeURIComponent(path.basename(new URL(url).pathname)) || `file-${sha256.slice(0, 8)}`);
+    const filename = sanitizeFilename(
+      meta.filename ||
+        decodeURIComponent(path.basename(new URL(url).pathname)) ||
+        `file-${sha256.slice(0, 8)}`,
+    );
     const relPath = `${CATEGORY_DIR[category]}/${sha256.slice(0, 8)}-${filename}`;
-    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), { recursive: true });
+    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), {
+      recursive: true,
+    });
     await fsp.rename(tmpFile, this.pathGuard.dataPath(relPath));
     const size = (await fsp.stat(this.pathGuard.dataPath(relPath))).size;
 
@@ -210,8 +271,19 @@ export class LibraryService {
         worldSource: meta.worldSource || null,
         worldFlavor: meta.worldFlavor || null,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
-    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+      .onConflictDoNothing({
+        target: [libraryFiles.sha256, libraryFiles.category],
+      });
+    const [row] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     if (row!.id === id) {
       // We won the insert — do the one-time side effects.
       if (meta.iconUrl) this.cacheIcon(id, meta.iconUrl).catch(() => {});
@@ -228,13 +300,23 @@ export class LibraryService {
   /** Cache a mod's platform icon locally so the UI never hotlinks. */
   async cacheIcon(libraryId: string, iconUrl: string): Promise<void> {
     try {
-      const res = await safeFetch(iconUrl, { signal: AbortSignal.timeout(15000) });
+      const res = await safeFetch(iconUrl, {
+        signal: AbortSignal.timeout(15000),
+      });
       if (!res.ok) return;
       const ext = path.extname(new URL(iconUrl).pathname) || '.png';
       const rel = `library/icons/mods/${libraryId}${ext}`;
-      await fsp.mkdir(path.dirname(this.pathGuard.dataPath(rel)), { recursive: true });
-      await pipeline(res.body as unknown as NodeJS.ReadableStream, fs.createWriteStream(this.pathGuard.dataPath(rel)));
-      await this.db.update(libraryFiles).set({ iconRelPath: rel }).where(eq(libraryFiles.id, libraryId));
+      await fsp.mkdir(path.dirname(this.pathGuard.dataPath(rel)), {
+        recursive: true,
+      });
+      await pipeline(
+        res.body as unknown as NodeJS.ReadableStream,
+        fs.createWriteStream(this.pathGuard.dataPath(rel)),
+      );
+      await this.db
+        .update(libraryFiles)
+        .set({ iconRelPath: rel })
+        .where(eq(libraryFiles.id, libraryId));
     } catch {
       /* icons are best-effort */
     }
@@ -248,16 +330,23 @@ export class LibraryService {
     libraryId: string,
     serverId: string,
     destRel: string,
-    { filename }: { filename?: string } = {}
+    { filename }: { filename?: string } = {},
   ): Promise<{ installedPath: string; filename: string }> {
-    const [lib] = await this.db.select().from(libraryFiles).where(eq(libraryFiles.id, libraryId)).limit(1);
+    const [lib] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(eq(libraryFiles.id, libraryId))
+      .limit(1);
     if (!lib) throw new ConflictException('Library file not found');
     // The panel must own the server dir to write into it — a server created before
     // container-runs-as-panel-user has files owned by uid 1000.
     await this.serverEnv.ensureOwnership(serverId);
     const destDir = this.pathGuard.dataPath('servers', serverId, destRel);
     await fsp.mkdir(destDir, { recursive: true });
-    const target = path.join(destDir, sanitizeFilename(filename || lib.filename));
+    const target = path.join(
+      destDir,
+      sanitizeFilename(filename || lib.filename),
+    );
     await fsp.rm(target, { force: true });
     try {
       await fsp.link(this.pathGuard.dataPath(lib.relPath), target);
@@ -271,16 +360,34 @@ export class LibraryService {
    * Import a locally-uploaded file (e.g. a manually-downloaded mod jar) into the
    * library with sha256 dedupe. Mirrors downloadToLibrary but from a local path.
    */
-  async importFile(localPath: string, meta: DownloadMeta, { actor = 'system' }: { actor?: string } = {}): Promise<LibraryFileRow> {
+  async importFile(
+    localPath: string,
+    meta: DownloadMeta,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<LibraryFileRow> {
     const category = meta.category || 'mod';
     const buf = await fsp.readFile(localPath);
-    if (buf.length > MAX_DOWNLOAD_BYTES) throw new PayloadTooLargeException('File is too large');
+    if (buf.length > MAX_DOWNLOAD_BYTES)
+      throw new PayloadTooLargeException('File is too large');
     const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
-    const [existing] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+    const [existing] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     if (existing) return existing;
-    const filename = sanitizeFilename(meta.filename || path.basename(localPath));
+    const filename = sanitizeFilename(
+      meta.filename || path.basename(localPath),
+    );
     const relPath = `${CATEGORY_DIR[category]}/${sha256.slice(0, 8)}-${filename}`;
-    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), { recursive: true });
+    await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), {
+      recursive: true,
+    });
     await fsp.writeFile(this.pathGuard.dataPath(relPath), buf);
     const id = `lib_${nanoid(8)}`;
     await this.db
@@ -304,8 +411,19 @@ export class LibraryService {
         worldSource: null,
         worldFlavor: null,
       })
-      .onConflictDoNothing({ target: [libraryFiles.sha256, libraryFiles.category] });
-    const [row] = await this.db.select().from(libraryFiles).where(and(eq(libraryFiles.sha256, sha256), eq(libraryFiles.category, category))).limit(1);
+      .onConflictDoNothing({
+        target: [libraryFiles.sha256, libraryFiles.category],
+      });
+    const [row] = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(
+        and(
+          eq(libraryFiles.sha256, sha256),
+          eq(libraryFiles.category, category),
+        ),
+      )
+      .limit(1);
     if (row!.id === id) {
       this.events.recordEvent({
         actor,

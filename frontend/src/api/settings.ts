@@ -3,7 +3,12 @@
 
 import { http } from './http';
 import type { Role } from './auth';
-import type { ResourceDefaults, SettingsResponseData, Localization, PublicUser } from '../../../shared/types/settings';
+import type {
+  ResourceDefaults,
+  SettingsResponseData,
+  Localization,
+  PublicUser,
+} from '../../../shared/types/settings';
 
 export type { ResourceDefaults, SettingsResponseData, Localization, PublicUser };
 /** @deprecated use {@link PublicUser} — kept as an alias so existing imports don't break. */

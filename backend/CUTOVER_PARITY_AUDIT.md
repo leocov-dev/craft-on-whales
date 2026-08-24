@@ -13,6 +13,7 @@ controller-level path prefixes).
 
 Two extraction pitfalls hit and corrected during this audit, worth knowing
 about if this is re-run later:
+
 - `worlds.ts` and `files.ts` each export TWO distinct sub-routers from one
   file (`router`+`serverWorlds`, `serverFiles`+`globalFiles`) — a naive
   single-pass extraction double-counts or misses routes depending on which
@@ -40,9 +41,9 @@ about if this is re-run later:
 
 ## Missing endpoint
 
-| Method | Legacy path | File | What it does | Fix |
-|---|---|---|---|---|
-| GET | `/api/docker/status` | `src/web/routes/api.ts:459` | Returns `{ok:true, docker: await checkDocker()}` — the Docker daemon health/version/OS probe used by the dashboard/settings UI to show connection status. | Trivial — `DockerConnectionService.checkDocker()` already exists and is already used identically by `backend/src/auth/auth.controller.ts`'s `GET /setup/checks` (`this.docker.checkDocker()`). Just needs a one-method `@Get('docker/status')` added to an existing controller (`backend/src/api/servers.controller.ts` is the natural home — it already has the other `docker/*` endpoints: `docker/networks`, `docker/preview`, `docker/preview/parse`) injecting `DockerConnectionService` and returning `{ ok: true, docker: await this.docker.checkDocker() }`. |
+| Method | Legacy path          | File                        | What it does                                                                                                                                              | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | -------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/docker/status` | `src/web/routes/api.ts:459` | Returns `{ok:true, docker: await checkDocker()}` — the Docker daemon health/version/OS probe used by the dashboard/settings UI to show connection status. | Trivial — `DockerConnectionService.checkDocker()` already exists and is already used identically by `backend/src/auth/auth.controller.ts`'s `GET /setup/checks` (`this.docker.checkDocker()`). Just needs a one-method `@Get('docker/status')` added to an existing controller (`backend/src/api/servers.controller.ts` is the natural home — it already has the other `docker/*` endpoints: `docker/networks`, `docker/preview`, `docker/preview/parse`) injecting `DockerConnectionService` and returning `{ ok: true, docker: await this.docker.checkDocker() }`. |
 
 No other gaps found. **Fixed** (post-audit, by the coordinating session):
 `GET /api/docker/status` added to `servers.controller.ts`, exactly as
@@ -103,6 +104,7 @@ working (`DockerConnectionService`/`DockerWatcherService` both connected
 live, "docker events stream connected").
 
 **Verified working, live, against the real remote daemon**:
+
 - Server creation → container creation with correct naming (`msm-srv_<id>`),
   labels (`msm.id`, `msm.managed`), and port allocation (sequential
   game/RCON ports assigned correctly across multiple servers).

@@ -1,14 +1,25 @@
-import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common';
 import * as fs from 'node:fs';
 import { ContainerService } from '../docker/container.service';
 import { cleanText } from '../utils/ansi';
 import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { GAMERULES, QUICK_ACTIONS } from './world-controls.constants';
-import type { GameruleKey, RunQuickResult, TimeInfo, WorldState } from './world-controls.types';
+import type {
+  GameruleKey,
+  RunQuickResult,
+  TimeInfo,
+  WorldState,
+} from './world-controls.types';
 
 const looksLikeError = (out: string): boolean =>
-  /Incorrect argument|Unknown command|Can't find element|Expected|<--\[HERE\]/i.test(out);
+  /Incorrect argument|Unknown command|Can't find element|Expected|<--\[HERE\]/i.test(
+    out,
+  );
 
 /**
  * World quick-controls (time/weather/gamerules/difficulty) — version-tolerant:
@@ -28,15 +39,20 @@ export class WorldControlsService {
   constructor(
     private readonly containers: ContainerService,
     private readonly events: EventsService,
-    private readonly pathGuard: PathGuardService
+    private readonly pathGuard: PathGuardService,
   ) {}
 
   private async rcon(serverId: string, args: string[]): Promise<string> {
-    return cleanText(await this.containers.execCapture(serverId, ['rcon-cli', ...args]));
+    return cleanText(
+      await this.containers.execCapture(serverId, ['rcon-cli', ...args]),
+    );
   }
 
   /** Run modern args; fall back to legacy args when the syntax is rejected. */
-  private async tryVariants(serverId: string, variants: string[][]): Promise<string> {
+  private async tryVariants(
+    serverId: string,
+    variants: string[][],
+  ): Promise<string> {
     let out = '';
     for (const args of variants) {
       out = await this.rcon(serverId, args);
@@ -45,16 +61,25 @@ export class WorldControlsService {
     return out;
   }
 
-  private async queryGamerule(serverId: string, rule: GameruleKey): Promise<boolean | null> {
+  private async queryGamerule(
+    serverId: string,
+    rule: GameruleKey,
+  ): Promise<boolean | null> {
     const out = await this.tryVariants(serverId, [
       ['gamerule', GAMERULES[rule]], // 26.x snake_case
       ['gamerule', rule], // legacy camelCase
     ]);
-    const m = /(?:is currently set to|is):?\s*(true|false)/i.exec(out) || /\b(true|false)\s*$/i.exec(out.trim());
+    const m =
+      /(?:is currently set to|is):?\s*(true|false)/i.exec(out) ||
+      /\b(true|false)\s*$/i.exec(out.trim());
     return m ? m[1]?.toLowerCase() === 'true' : null;
   }
 
-  private async setGamerule(serverId: string, rule: GameruleKey, value: 'true' | 'false'): Promise<string> {
+  private async setGamerule(
+    serverId: string,
+    rule: GameruleKey,
+    value: 'true' | 'false',
+  ): Promise<string> {
     return this.tryVariants(serverId, [
       ['gamerule', GAMERULES[rule], value],
       ['gamerule', rule, value],
@@ -94,7 +119,9 @@ export class WorldControlsService {
   private async queryDay(serverId: string): Promise<number | null> {
     const out = await this.rcon(serverId, ['time', 'query', 'gametime']);
     // ≤1.21: "The time is N" · 26.x: "The game time is N tick(s)"
-    const m = /(?:game time is|The time is)\s*(\d+)/i.exec(out) || /is at (\d+) tick/i.exec(out);
+    const m =
+      /(?:game time is|The time is)\s*(\d+)/i.exec(out) ||
+      /is at (\d+) tick/i.exec(out);
     return m && m[1] ? Math.floor(Number(m[1]) / 24000) + 1 : null;
   }
 
@@ -107,7 +134,10 @@ export class WorldControlsService {
   // (e.g. Essential) with engine access.
   private readPvp(serverId: string): boolean {
     try {
-      const text = fs.readFileSync(this.pathGuard.dataPath('servers', serverId, 'server.properties'), 'utf8');
+      const text = fs.readFileSync(
+        this.pathGuard.dataPath('servers', serverId, 'server.properties'),
+        'utf8',
+      );
       const m = /^pvp=(.*)$/m.exec(text);
       return m && m[1] !== undefined ? m[1].trim() !== 'false' : true;
     } catch {
@@ -116,7 +146,11 @@ export class WorldControlsService {
   }
 
   private writePvp(serverId: string, on: boolean): void {
-    const file = this.pathGuard.dataPath('servers', serverId, 'server.properties');
+    const file = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'server.properties',
+    );
     let text = '';
     try {
       text = fs.readFileSync(file, 'utf8');
@@ -125,8 +159,14 @@ export class WorldControlsService {
     }
     if (/^pvp=.*$/m.test(text)) text = text.replace(/^pvp=.*$/m, `pvp=${on}`);
     else text += `${text && !text.endsWith('\n') ? '\n' : ''}pvp=${on}\n`;
-    const tmp = this.pathGuard.dataPath('servers', serverId, 'server.properties.tmp');
-    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), { recursive: true });
+    const tmp = this.pathGuard.dataPath(
+      'servers',
+      serverId,
+      'server.properties.tmp',
+    );
+    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), {
+      recursive: true,
+    });
     fs.writeFileSync(tmp, text);
     fs.renameSync(tmp, file);
   }
@@ -152,19 +192,28 @@ export class WorldControlsService {
     return state;
   }
 
-  async runQuick(serverId: string, action: string, { actor = 'system' }: { actor?: string } = {}): Promise<RunQuickResult> {
+  async runQuick(
+    serverId: string,
+    action: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<RunQuickResult> {
     const quick = QUICK_ACTIONS[action];
-    if (!quick) throw new BadRequestException(`Unknown quick action: ${action}`);
+    if (!quick)
+      throw new BadRequestException(`Unknown quick action: ${action}`);
     let out: string;
     if ('prop' in quick) {
       this.writePvp(serverId, quick.value); // server.properties edit — takes effect on next restart
       out = '';
-    } else if ('variants' in quick) out = await this.tryVariants(serverId, quick.variants);
-    else if ('rule' in quick) out = await this.setGamerule(serverId, quick.rule, quick.value);
+    } else if ('variants' in quick)
+      out = await this.tryVariants(serverId, quick.variants);
+    else if ('rule' in quick)
+      out = await this.setGamerule(serverId, quick.rule, quick.value);
     else out = await this.rcon(serverId, quick.cmd);
     // A server.properties edit isn't an RCON command — skip the RCON error gate.
     if (!('prop' in quick) && looksLikeError(out)) {
-      throw new BadGatewayException(`The server rejected the command: ${out.split('\n')[0]}`);
+      throw new BadGatewayException(
+        `The server rejected the command: ${out.split('\n')[0]}`,
+      );
     }
     this.events.recordEvent({
       serverId,

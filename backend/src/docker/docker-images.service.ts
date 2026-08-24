@@ -32,13 +32,15 @@ export class DockerImagesService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly connection: DockerConnectionService
+    private readonly connection: DockerConnectionService,
   ) {
     this.imageRepo = this.config.mcImageRepo;
   }
 
   imageRef(javaTag?: string | null): string {
-    return javaTag ? `${this.imageRepo}:${javaTag}` : `${this.imageRepo}:latest`;
+    return javaTag
+      ? `${this.imageRepo}:${javaTag}`
+      : `${this.imageRepo}:latest`;
   }
 
   async imageExists(ref: string): Promise<boolean> {
@@ -58,24 +60,29 @@ export class DockerImagesService {
   pullImage(ref: string, onProgress: OnProgress = () => {}): Promise<void> {
     const docker = this.connection.getDocker();
     return new Promise((resolve, reject) => {
-      docker.pull(ref, {}, (err: Error | null, stream?: NodeJS.ReadableStream) => {
-        if (err || !stream) return reject(err);
-        const layers = new Map<string, ProgressLayerDetail>();
-        docker.modem.followProgress(
-          stream,
-          (doneErr: Error | null) => (doneErr ? reject(doneErr) : resolve()),
-          (evt: ProgressEvent) => {
-            if (evt.id && evt.progressDetail) layers.set(evt.id, evt.progressDetail);
-            let current = 0;
-            let total = 0;
-            for (const d of layers.values()) {
-              current += d.current || 0;
-              total += d.total || 0;
-            }
-            onProgress({ status: evt.status || '', current, total });
-          }
-        );
-      });
+      docker.pull(
+        ref,
+        {},
+        (err: Error | null, stream?: NodeJS.ReadableStream) => {
+          if (err || !stream) return reject(err);
+          const layers = new Map<string, ProgressLayerDetail>();
+          docker.modem.followProgress(
+            stream,
+            (doneErr: Error | null) => (doneErr ? reject(doneErr) : resolve()),
+            (evt: ProgressEvent) => {
+              if (evt.id && evt.progressDetail)
+                layers.set(evt.id, evt.progressDetail);
+              let current = 0;
+              let total = 0;
+              for (const d of layers.values()) {
+                current += d.current || 0;
+                total += d.total || 0;
+              }
+              onProgress({ status: evt.status || '', current, total });
+            },
+          );
+        },
+      );
     });
   }
 

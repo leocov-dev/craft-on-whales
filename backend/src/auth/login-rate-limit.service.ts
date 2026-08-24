@@ -18,19 +18,31 @@ const MAX_TRACKED = 5000;
 export class LoginRateLimitService {
   private readonly attempts = new Map<string, LoginAttemptEntry>();
 
-  private key(username: string | undefined | null, ip: string | undefined | null): string {
+  private key(
+    username: string | undefined | null,
+    ip: string | undefined | null,
+  ): string {
     return `${(username || '').toLowerCase()}|${ip || ''}`;
   }
 
-  checkLoginAllowed(username: string | undefined | null, ip: string | undefined | null): void {
+  checkLoginAllowed(
+    username: string | undefined | null,
+    ip: string | undefined | null,
+  ): void {
     const entry = this.attempts.get(this.key(username, ip));
     if (entry && entry.count >= MAX_ATTEMPTS && Date.now() < entry.until) {
       const mins = Math.ceil((entry.until - Date.now()) / 60000);
-      throw new HttpException(`Too many failed attempts — try again in ${mins} min`, HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        `Too many failed attempts — try again in ${mins} min`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
   }
 
-  recordLoginFailure(username: string | undefined | null, ip: string | undefined | null): void {
+  recordLoginFailure(
+    username: string | undefined | null,
+    ip: string | undefined | null,
+  ): void {
     // Bound memory: evict the oldest quarter if the map grows past the cap.
     if (this.attempts.size >= MAX_TRACKED) {
       let toEvict = Math.floor(MAX_TRACKED / 4);
@@ -48,7 +60,10 @@ export class LoginRateLimitService {
     this.attempts.set(key, entry);
   }
 
-  clearLoginFailures(username: string | undefined | null, ip: string | undefined | null): void {
+  clearLoginFailures(
+    username: string | undefined | null,
+    ip: string | undefined | null,
+  ): void {
     this.attempts.delete(this.key(username, ip));
   }
 }

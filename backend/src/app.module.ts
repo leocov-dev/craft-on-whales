@@ -51,7 +51,12 @@ const SPA_ROOT = path.join(__dirname, '..', '..', 'frontend', 'dist', 'spa');
   imports: [
     ServeStaticModule.forRoot({
       rootPath: SPA_ROOT,
-      exclude: ['/api/{*path}', '/setup/checks', '/healthz', '/socket.io/{*path}'],
+      exclude: [
+        '/api/{*path}',
+        '/setup/checks',
+        '/healthz',
+        '/socket.io/{*path}',
+      ],
     }),
     ConfigModule,
     DbModule,

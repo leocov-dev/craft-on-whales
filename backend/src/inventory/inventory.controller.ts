@@ -1,4 +1,13 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z, ZodError } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -8,19 +17,65 @@ import { InventoryService } from './inventory.service';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
-const uuidSchema = z.string().trim().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, 'Invalid player UUID');
-const nameSchema = z.string().trim().regex(/^[.*A-Za-z0-9_]{1,16}$/, 'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)');
-const itemSchema = z.string().trim().regex(/^([a-z0-9_.-]+:)?[a-z0-9_./-]{1,120}$/, 'Enter a valid item id (e.g. minecraft:diamond_sword)');
+const uuidSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+    'Invalid player UUID',
+  );
+const nameSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[.*A-Za-z0-9_]{1,16}$/,
+    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
+  );
+const itemSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^([a-z0-9_.-]+:)?[a-z0-9_./-]{1,120}$/,
+    'Enter a valid item id (e.g. minecraft:diamond_sword)',
+  );
 const snapshotFileSchema = z.string().trim().min(1).max(300);
-const querySchema = z.string().trim().min(1, 'Enter something to search for').max(100);
+const querySchema = z
+  .string()
+  .trim()
+  .min(1, 'Enter something to search for')
+  .max(100);
 
-const giveSchema = z.object({ player: nameSchema, item: itemSchema, count: z.coerce.number().int().min(1).max(6400).optional() });
-const clearSchema = z.object({ player: nameSchema, item: itemSchema.optional() });
+const giveSchema = z.object({
+  player: nameSchema,
+  item: itemSchema,
+  count: z.coerce.number().int().min(1).max(6400).optional(),
+});
+const clearSchema = z.object({
+  player: nameSchema,
+  item: itemSchema.optional(),
+});
 
-const containerSchema = z.enum(['hotbar', 'inventory', 'enderchest', 'armor', 'offhand']);
-const slotRefSchema = z.object({ container: containerSchema, slot: z.coerce.number().int().min(0).max(26) });
+const containerSchema = z.enum([
+  'hotbar',
+  'inventory',
+  'enderchest',
+  'armor',
+  'offhand',
+]);
+const slotRefSchema = z.object({
+  container: containerSchema,
+  slot: z.coerce.number().int().min(0).max(26),
+});
 const nestedSchema = z.object({
-  path: z.array(z.union([z.string().regex(/^[A-Za-z0-9_:./ -]{1,80}$/, 'Invalid nested path'), z.number().int().min(0).max(255)])).min(1).max(10),
+  path: z
+    .array(
+      z.union([
+        z.string().regex(/^[A-Za-z0-9_:./ -]{1,80}$/, 'Invalid nested path'),
+        z.number().int().min(0).max(255),
+      ]),
+    )
+    .min(1)
+    .max(10),
   index: z.number().int().min(0).max(255),
 });
 const slotEditSchema = z
@@ -33,25 +88,39 @@ const slotEditSchema = z
     nested: nestedSchema.optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.op === 'set' && !v.item) ctx.addIssue({ code: 'custom', message: 'op "set" needs an item id' });
-    if (v.op === 'count' && v.count === undefined) ctx.addIssue({ code: 'custom', message: 'op "count" needs a count' });
+    if (v.op === 'set' && !v.item)
+      ctx.addIssue({ code: 'custom', message: 'op "set" needs an item id' });
+    if (v.op === 'count' && v.count === undefined)
+      ctx.addIssue({ code: 'custom', message: 'op "count" needs a count' });
   });
 const moveSchema = z.object({ from: slotRefSchema, to: slotRefSchema });
-const addSchema = z.object({ item: itemSchema, count: z.coerce.number().int().min(1).max(99).optional() });
+const addSchema = z.object({
+  item: itemSchema,
+  count: z.coerce.number().int().min(1).max(99).optional(),
+});
 
 function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   try {
     return schema.parse(body);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
-function parseValue<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
+function parseValue<T extends z.ZodType>(
+  schema: T,
+  value: unknown,
+): z.infer<T> {
   try {
     return schema.parse(value);
   } catch (err) {
-    if (err instanceof ZodError) throw new BadRequestException(err.issues[0]?.message || 'Invalid request');
+    if (err instanceof ZodError)
+      throw new BadRequestException(
+        err.issues[0]?.message || 'Invalid request',
+      );
     throw err;
   }
 }
@@ -67,7 +136,7 @@ export class InventoryController {
     private readonly serverQuery: ServerQueryService,
     private readonly containers: ContainerService,
     private readonly inventory: InventoryService,
-    private readonly itemRegistry: ItemRegistryService
+    private readonly itemRegistry: ItemRegistryService,
   ) {}
 
   private async loadContext(id: string) {
@@ -86,14 +155,23 @@ export class InventoryController {
   @Get('players')
   async players(@Param('id') id: string) {
     const { server, running } = await this.loadContext(id);
-    return { ok: true, running, players: await this.inventory.listPlayersWithData(server.id) };
+    return {
+      ok: true,
+      running,
+      players: await this.inventory.listPlayersWithData(server.id),
+    };
   }
 
   @Get('player/:uuid')
-  async player(@Param('id') id: string, @Param('uuid') uuidRaw: string, @Query('fresh') fresh?: string) {
+  async player(
+    @Param('id') id: string,
+    @Param('uuid') uuidRaw: string,
+    @Query('fresh') fresh?: string,
+  ) {
     const uuid = parseValue(uuidSchema, uuidRaw);
     const { server, running } = await this.loadContext(id);
-    if (running && fresh === '1') await this.inventory.flushPlayerData(server.id);
+    if (running && fresh === '1')
+      await this.inventory.flushPlayerData(server.id);
     const player = await this.inventory.readPlayerData(server.id, uuid);
     const ctx = await this.inventory.editContext(server.id, uuid);
     return {
@@ -101,39 +179,73 @@ export class InventoryController {
       running,
       player,
       iconBase: this.itemRegistry.iconBaseUrl(),
-      edit: { online: ctx.online, mechanism: ctx.mechanism, nestedEditable: ctx.mechanism === 'file' },
+      edit: {
+        online: ctx.online,
+        mechanism: ctx.mechanism,
+        nestedEditable: ctx.mechanism === 'file',
+      },
     };
   }
 
   @Post('player/:uuid/slot')
-  async slot(@Param('id') id: string, @Param('uuid') uuidRaw: string, @Req() req: Request) {
+  async slot(
+    @Param('id') id: string,
+    @Param('uuid') uuidRaw: string,
+    @Req() req: Request,
+  ) {
     const uuid = parseValue(uuidSchema, uuidRaw);
     const body = parseBody(slotEditSchema, req.body);
     const { server } = await this.loadContext(id);
-    return { ok: true, result: await this.inventory.editSlot(server.id, uuid, body, { actor: actorOf(req) }) };
+    return {
+      ok: true,
+      result: await this.inventory.editSlot(server.id, uuid, body, {
+        actor: actorOf(req),
+      }),
+    };
   }
 
   @Post('player/:uuid/move')
-  async move(@Param('id') id: string, @Param('uuid') uuidRaw: string, @Req() req: Request) {
+  async move(
+    @Param('id') id: string,
+    @Param('uuid') uuidRaw: string,
+    @Req() req: Request,
+  ) {
     const uuid = parseValue(uuidSchema, uuidRaw);
     const { from, to } = parseBody(moveSchema, req.body);
     const { server } = await this.loadContext(id);
-    return { ok: true, result: await this.inventory.moveItem(server.id, uuid, from, to, { actor: actorOf(req) }) };
+    return {
+      ok: true,
+      result: await this.inventory.moveItem(server.id, uuid, from, to, {
+        actor: actorOf(req),
+      }),
+    };
   }
 
   @Post('player/:uuid/add')
-  async add(@Param('id') id: string, @Param('uuid') uuidRaw: string, @Req() req: Request) {
+  async add(
+    @Param('id') id: string,
+    @Param('uuid') uuidRaw: string,
+    @Req() req: Request,
+  ) {
     const uuid = parseValue(uuidSchema, uuidRaw);
     const { item, count } = parseBody(addSchema, req.body);
     const { server } = await this.loadContext(id);
-    return { ok: true, result: await this.inventory.addItem(server.id, uuid, item, count ?? 1, { actor: actorOf(req) }) };
+    return {
+      ok: true,
+      result: await this.inventory.addItem(server.id, uuid, item, count ?? 1, {
+        actor: actorOf(req),
+      }),
+    };
   }
 
   @Get('player/:uuid/snapshots')
   async snapshots(@Param('id') id: string, @Param('uuid') uuidRaw: string) {
     const uuid = parseValue(uuidSchema, uuidRaw);
     const { server } = await this.loadContext(id);
-    return { ok: true, snapshots: await this.inventory.listSnapshots(server.id, uuid) };
+    return {
+      ok: true,
+      snapshots: await this.inventory.listSnapshots(server.id, uuid),
+    };
   }
 
   @Post('player/:uuid/snapshot')
@@ -153,7 +265,11 @@ export class InventoryController {
   }
 
   @Get('diff')
-  async diff(@Param('id') id: string, @Query('a') a: string, @Query('b') b: string) {
+  async diff(
+    @Param('id') id: string,
+    @Query('a') a: string,
+    @Query('b') b: string,
+  ) {
     const av = parseValue(snapshotFileSchema, a);
     const bv = parseValue(snapshotFileSchema, b);
     await this.loadContext(id);
@@ -164,21 +280,38 @@ export class InventoryController {
   async search(@Param('id') id: string, @Query('q') q: string) {
     const query = parseValue(querySchema, q);
     const { server } = await this.loadContext(id);
-    return { ok: true, results: await this.inventory.searchItems(server.id, query) };
+    return {
+      ok: true,
+      results: await this.inventory.searchItems(server.id, query),
+    };
   }
 
   @Post('give')
   async give(@Param('id') id: string, @Req() req: Request) {
     const { player, item, count } = parseBody(giveSchema, req.body);
     const { server } = await this.loadContext(id);
-    return { ok: true, result: await this.inventory.giveItem(server.id, player, item, count ?? 1, { actor: actorOf(req) }) };
+    return {
+      ok: true,
+      result: await this.inventory.giveItem(
+        server.id,
+        player,
+        item,
+        count ?? 1,
+        { actor: actorOf(req) },
+      ),
+    };
   }
 
   @Post('clear')
   async clear(@Param('id') id: string, @Req() req: Request) {
     const { player, item } = parseBody(clearSchema, req.body);
     const { server } = await this.loadContext(id);
-    return { ok: true, result: await this.inventory.clearItem(server.id, player, item || null, { actor: actorOf(req) }) };
+    return {
+      ok: true,
+      result: await this.inventory.clearItem(server.id, player, item || null, {
+        actor: actorOf(req),
+      }),
+    };
   }
 }
 

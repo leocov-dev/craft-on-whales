@@ -52,7 +52,7 @@ export class StorageCleanupService {
     private readonly pathGuard: PathGuardService,
     private readonly indexer: StorageIndexService,
     private readonly library: LibraryService,
-    private readonly crashes: CrashesService
+    private readonly crashes: CrashesService,
   ) {}
 
   private get db() {
@@ -65,12 +65,18 @@ export class StorageCleanupService {
     if (st.isFile()) return st.size;
     if (!st.isDirectory()) return 0;
     let total = 0;
-    const entries = await fsp.readdir(abs, { withFileTypes: true }).catch(() => []);
-    for (const e of entries) total += await this.entrySize(path.join(abs, e.name));
+    const entries = await fsp
+      .readdir(abs, { withFileTypes: true })
+      .catch(() => []);
+    for (const e of entries)
+      total += await this.entrySize(path.join(abs, e.name));
     return total;
   }
 
-  async runCleanup(action: CleanupAction, { olderThanDays, dryRun = false, actor = 'system' }: RunCleanupOptions = {}): Promise<CleanupResult> {
+  async runCleanup(
+    action: CleanupAction,
+    { olderThanDays, dryRun = false, actor = 'system' }: RunCleanupOptions = {},
+  ): Promise<CleanupResult> {
     const days = olderThanDays || DEFAULT_DAYS;
     let freedBytes = 0;
     let removed = 0;
@@ -84,23 +90,34 @@ export class StorageCleanupService {
         if (!st || Date.now() - st.mtimeMs < TMP_MIN_AGE_MS) continue;
         freedBytes += st.isDirectory() ? await this.entrySize(abs) : st.size;
         removed += 1;
-        if (!dryRun) await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
+        if (!dryRun)
+          await fsp.rm(abs, { recursive: true, force: true }).catch(() => {});
       }
     } else if (action === 'orphans') {
       for (const row of await this.library.orphans()) {
         freedBytes += row.sizeBytes || 0;
         removed += 1;
-        if (!dryRun) await this.library.deleteLibraryFile(row.id, { actor, force: true }).catch(() => {});
+        if (!dryRun)
+          await this.library
+            .deleteLibraryFile(row.id, { actor, force: true })
+            .catch(() => {});
       }
     } else if (action === 'old-logs') {
       const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
       const logsRoot = this.pathGuard.dataPath('logs');
-      const owners = await fsp.readdir(logsRoot, { withFileTypes: true }).catch(() => []);
+      const owners = await fsp
+        .readdir(logsRoot, { withFileTypes: true })
+        .catch(() => []);
       for (const owner of owners) {
         if (!owner.isDirectory()) continue;
-        const candidates = [path.join(logsRoot, owner.name), path.join(logsRoot, owner.name, 'events')];
+        const candidates = [
+          path.join(logsRoot, owner.name),
+          path.join(logsRoot, owner.name, 'events'),
+        ];
         for (const dir of candidates) {
-          const files = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
+          const files = await fsp
+            .readdir(dir, { withFileTypes: true })
+            .catch(() => []);
           for (const f of files) {
             if (!f.isFile()) continue;
             const abs = path.join(dir, f.name);
@@ -113,10 +130,15 @@ export class StorageCleanupService {
         }
       }
     } else if (action === 'old-crashes') {
-      const cutoffIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const cutoffIso = new Date(
+        Date.now() - days * 24 * 60 * 60 * 1000,
+      ).toISOString();
       if (dryRun) {
         const [row] = await this.db
-          .select({ n: sql<number>`count(*)`, s: sql<number>`coalesce(sum(size_bytes), 0)` })
+          .select({
+            n: sql<number>`count(*)`,
+            s: sql<number>`coalesce(sum(size_bytes), 0)`,
+          })
           .from(crashReports)
           .where(lt(crashReports.fileMtime, cutoffIso))
           .limit(1);
@@ -128,7 +150,9 @@ export class StorageCleanupService {
           .from(crashReports)
           .where(lt(crashReports.fileMtime, cutoffIso));
         for (const { serverId } of owners) {
-          const result = await this.crashes.deleteOlderThan(serverId, days, { actor });
+          const result = await this.crashes.deleteOlderThan(serverId, days, {
+            actor,
+          });
           removed += result.deleted;
           freedBytes += result.freedBytes;
         }
@@ -151,13 +175,18 @@ export class StorageCleanupService {
 
   /** Breadth-first walk of ./data collecting the largest files. Bounded by a
    *  file-scan cap so a huge tree can never stall a page render. */
-  async largestFiles({ top = 15, maxScan = 3000 }: LargestFilesOptions = {}): Promise<LargestFileEntry[]> {
+  async largestFiles({
+    top = 15,
+    maxScan = 3000,
+  }: LargestFilesOptions = {}): Promise<LargestFileEntry[]> {
     const best: LargestFileEntry[] = [];
     const queue: string[] = [''];
     let scanned = 0;
     while (queue.length && scanned < maxScan) {
       const rel = queue.shift() as string;
-      const entries = await fsp.readdir(this.pathGuard.dataPath(rel || '.'), { withFileTypes: true }).catch(() => []);
+      const entries = await fsp
+        .readdir(this.pathGuard.dataPath(rel || '.'), { withFileTypes: true })
+        .catch(() => []);
       for (const e of entries) {
         if (e.isSymbolicLink()) continue;
         const childRel = rel ? `${rel}/${e.name}` : e.name;
@@ -165,7 +194,9 @@ export class StorageCleanupService {
           queue.push(childRel);
         } else if (e.isFile()) {
           scanned += 1;
-          const st = await fsp.stat(this.pathGuard.dataPath(childRel)).catch(() => null);
+          const st = await fsp
+            .stat(this.pathGuard.dataPath(childRel))
+            .catch(() => null);
           if (!st) continue;
           best.push({ path: childRel, size: st.size });
           if (best.length > top * 3) {

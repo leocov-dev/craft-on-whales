@@ -27,6 +27,12 @@ import { WriteGuard } from './guards/write.guard';
     { provide: APP_GUARD, useClass: SessionAuthGuard },
     { provide: APP_GUARD, useClass: WriteGuard },
   ],
-  exports: [AuthService, TotpService, SecretsService, SessionService, LoginRateLimitService],
+  exports: [
+    AuthService,
+    TotpService,
+    SecretsService,
+    SessionService,
+    LoginRateLimitService,
+  ],
 })
 export class AuthModule {}

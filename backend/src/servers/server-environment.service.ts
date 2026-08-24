@@ -46,7 +46,7 @@ export class ServerEnvironmentService {
     private readonly javaMatrix: JavaMatrixService,
     private readonly query: ServerQueryService,
     @Inject(forwardRef(() => require('../map/map.service').MapService))
-    private readonly map: MapService
+    private readonly map: MapService,
   ) {}
 
   private get db() {
@@ -57,8 +57,12 @@ export class ServerEnvironmentService {
    *  apply (Windows / macOS Docker Desktop don't have this bind-mount
    *  ownership problem). */
   panelUidGid(): { uid: number; gid: number } | null {
-    if (process.platform === 'win32' || typeof process.getuid !== 'function') return null;
-    return { uid: process.getuid(), gid: process.getgid ? process.getgid() : 0 };
+    if (process.platform === 'win32' || typeof process.getuid !== 'function')
+      return null;
+    return {
+      uid: process.getuid(),
+      gid: process.getgid ? process.getgid() : 0,
+    };
   }
 
   /**
@@ -70,18 +74,25 @@ export class ServerEnvironmentService {
     const env: Record<string, string> = { ...server.env };
     env.EULA = 'TRUE';
     env.TYPE = server.type;
-    if (server.mc_version && server.mc_version !== 'LATEST') env.VERSION = server.mc_version;
+    if (server.mc_version && server.mc_version !== 'LATEST')
+      env.VERSION = server.mc_version;
     env.MEMORY = `${server.heap_mb}M`;
     env.ENABLE_RCON = 'true';
-    let rconPassword: string | null = this.secrets.tryDecrypt(server.rcon_password_cipher);
+    let rconPassword: string | null = this.secrets.tryDecrypt(
+      server.rcon_password_cipher,
+    );
     if (!rconPassword) {
       // SESSION_SECRET changed — self-heal: mint a fresh password and persist it.
       rconPassword = this.secrets.generatePassword();
-      await this.db.update(servers).set({ rconPasswordCipher: this.secrets.encrypt(rconPassword) }).where(eq(servers.id, server.id));
+      await this.db
+        .update(servers)
+        .set({ rconPasswordCipher: this.secrets.encrypt(rconPassword) })
+        .where(eq(servers.id, server.id));
       this.events.recordEvent({
         serverId: server.id,
         type: 'rcon-password-regenerated',
-        summary: 'Stored RCON password could not be decrypted (SESSION_SECRET changed) — a new one was generated automatically',
+        summary:
+          'Stored RCON password could not be decrypted (SESSION_SECRET changed) — a new one was generated automatically',
       });
     }
     env.RCON_PASSWORD = rconPassword;
@@ -136,17 +147,31 @@ export class ServerEnvironmentService {
    * never overrides an explicit `server.java_tag` (that column means "the
    * user overrode auto" and must keep winning).
    */
-  async resolveImage(server: Server, { javaTagHint }: ResolveImageOptions = {}): Promise<string> {
+  async resolveImage(
+    server: Server,
+    { javaTagHint }: ResolveImageOptions = {},
+  ): Promise<string> {
     // GTNH's Java support is a property of the pinned pack version, not of
     // the Minecraft version — read it straight from server_packs.
     const maxJavaVersion = await this.gtnhMaxJavaVersion(server);
-    const tag = server.java_tag || (maxJavaVersion == null && javaTagHint) || this.javaMatrix.pickJavaTag(server.mc_version, server.type, { maxJavaVersion });
+    const tag =
+      server.java_tag ||
+      (maxJavaVersion == null && javaTagHint) ||
+      this.javaMatrix.pickJavaTag(server.mc_version, server.type, {
+        maxJavaVersion,
+      });
     return this.images.imageRef(tag);
   }
 
-  private async gtnhMaxJavaVersion(server: Server): Promise<number | undefined> {
+  private async gtnhMaxJavaVersion(
+    server: Server,
+  ): Promise<number | undefined> {
     if (server.type !== 'GTNH') return undefined;
-    const [row] = await this.db.select({ maxJavaVersion: serverPacks.maxJavaVersion }).from(serverPacks).where(eq(serverPacks.serverId, server.id)).limit(1);
+    const [row] = await this.db
+      .select({ maxJavaVersion: serverPacks.maxJavaVersion })
+      .from(serverPacks)
+      .where(eq(serverPacks.serverId, server.id))
+      .limit(1);
     return row?.maxJavaVersion == null ? undefined : Number(row.maxJavaVersion);
   }
 
@@ -155,8 +180,11 @@ export class ServerEnvironmentService {
    * server's user-defined extra ports into the single array
    * `ContainerService.createContainer` expects.
    */
-  async mergeExtraPorts(server: Server): Promise<{ container: string; host: number | string }[]> {
-    const bluemapPorts: { container: string; host: number | string }[] = await this.map.extraPortsFor(server.id);
+  async mergeExtraPorts(
+    server: Server,
+  ): Promise<{ container: string; host: number | string }[]> {
+    const bluemapPorts: { container: string; host: number | string }[] =
+      await this.map.extraPortsFor(server.id);
     const userPorts = (server.extraPorts || []).map((p) => ({
       container: `${p.containerPort}/${p.protocol}`,
       host: p.hostPort,
@@ -182,7 +210,12 @@ export class ServerEnvironmentService {
       return; // no data dir yet
     }
     if (st.uid === ids.uid && st.gid === ids.gid) return; // already ours — fast path
-    await this.containers.chownDataDir(dir, await this.resolveImage(await this.query.mustGet(id)), ids.uid, ids.gid);
+    await this.containers.chownDataDir(
+      dir,
+      await this.resolveImage(await this.query.mustGet(id)),
+      ids.uid,
+      ids.gid,
+    );
   }
 
   /**
@@ -195,7 +228,10 @@ export class ServerEnvironmentService {
       .replace(/[\r\n\x00-\x1f\x7f§]/g, '')
       .trim()
       .slice(0, 48);
-    await this.dbService.db.update(servers).set({ consoleLabel: clean || null }).where(eq(servers.id, id));
+    await this.dbService.db
+      .update(servers)
+      .set({ consoleLabel: clean || null })
+      .where(eq(servers.id, id));
     return clean;
   }
 }

@@ -15,7 +15,13 @@ import { WorldPropsService } from '../worlds/world-props.service';
 import type { Server } from '../servers/types';
 import { blueprints, serverContent, libraryFiles } from '../db/schema';
 import { archiver, slugify } from './zip.util';
-import { PANEL_VERSION, SECRET_ENV_RE, type BlueprintManifest, type ExportOptions, type OverlayEntry } from './blueprints.types';
+import {
+  PANEL_VERSION,
+  SECRET_ENV_RE,
+  type BlueprintManifest,
+  type ExportOptions,
+  type OverlayEntry,
+} from './blueprints.types';
 
 /** Export a server's full recipe as a portable `.mcserver.zip` blueprint. */
 @Injectable()
@@ -28,7 +34,7 @@ export class BlueprintExportService {
     private readonly serverQuery: ServerQueryService,
     private readonly lifecycle: ServerLifecycleService,
     private readonly packs: PacksService,
-    private readonly worldProps: WorldPropsService
+    private readonly worldProps: WorldPropsService,
   ) {}
 
   private get db() {
@@ -40,7 +46,11 @@ export class BlueprintExportService {
    * options: { includeConfig (server.properties + config/), embedFiles (bundle
    * overlay jars for offline portability), includeWorld }.
    */
-  async exportBlueprint(serverId: string, options: ExportOptions = {}, { actor = 'system' }: { actor?: string } = {}) {
+  async exportBlueprint(
+    serverId: string,
+    options: ExportOptions = {},
+    { actor = 'system' }: { actor?: string } = {},
+  ) {
     const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     const includeConfig = options.includeConfig !== false;
@@ -65,15 +75,26 @@ export class BlueprintExportService {
       })
       .from(serverContent)
       .leftJoin(libraryFiles, eq(libraryFiles.id, serverContent.libraryId))
-      .where(and(eq(serverContent.serverId, serverId), eq(serverContent.managedBy, 'overlay')));
+      .where(
+        and(
+          eq(serverContent.serverId, serverId),
+          eq(serverContent.managedBy, 'overlay'),
+        ),
+      );
 
     const configFiles = includeConfig ? this.collectConfigFiles(serverDir) : [];
     const worldDirs = includeWorld ? this.worldDirsOf(server, serverDir) : [];
     if (includeWorld && worldDirs.length) {
-      const needed = worldDirs.reduce((n, d) => n + this.lifecycle.dirSize(d.abs), 0);
+      const needed = worldDirs.reduce(
+        (n, d) => n + this.lifecycle.dirSize(d.abs),
+        0,
+      );
       const { free } = await this.storageIndex.diskFree();
       if (free < needed * 1.1) {
-        throw new HttpException(`Not enough disk space to embed the world (~${(needed / 1024 ** 3).toFixed(1)} GB needed)`, 507);
+        throw new HttpException(
+          `Not enough disk space to embed the world (~${(needed / 1024 ** 3).toFixed(1)} GB needed)`,
+          507,
+        );
       }
     }
 
@@ -106,26 +127,26 @@ export class BlueprintExportService {
       },
       pack: pack
         ? {
-            platform: pack.platform as NonNullable<BlueprintManifest['pack']>['platform'],
+            platform: pack.platform as NonNullable<
+              BlueprintManifest['pack']
+            >['platform'],
             projectRef: pack.projectRef,
             projectName: pack.projectName,
             versionId: pack.pinnedVersionId,
             versionName: pack.pinnedVersionName,
           }
         : null,
-      overlay: overlayRows.map(
-        (r): OverlayEntry => ({
-          name: r.name,
-          kind: r.kind as OverlayEntry['kind'],
-          filename: r.filename,
-          sourceUrl: r.libSourceUrl || null,
-          platform: r.libPlatform || null,
-          projectId: r.libProjectId || null,
-          fileId: r.libFileId || null,
-          version: r.libVersion || r.version || null,
-          sha256: r.libSha256 || null,
-        })
-      ),
+      overlay: overlayRows.map((r): OverlayEntry => ({
+        name: r.name,
+        kind: r.kind as OverlayEntry['kind'],
+        filename: r.filename,
+        sourceUrl: r.libSourceUrl || null,
+        platform: r.libPlatform || null,
+        projectId: r.libProjectId || null,
+        fileId: r.libFileId || null,
+        version: r.libVersion || r.version || null,
+        sha256: r.libSha256 || null,
+      })),
       configFiles,
       embedFiles,
       world: includeWorld && worldDirs.length > 0,
@@ -143,18 +164,28 @@ export class BlueprintExportService {
       output.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(output);
-      archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+      archive.append(JSON.stringify(manifest, null, 2), {
+        name: 'manifest.json',
+      });
       for (const rel of configFiles) {
-        archive.file(this.pathGuard.safeJoin(serverDir, rel), { name: `payload/config/${rel}` });
+        archive.file(this.pathGuard.safeJoin(serverDir, rel), {
+          name: `payload/config/${rel}`,
+        });
       }
       if (embedFiles) {
         for (const row of overlayRows) {
-          if (row.libRelPath && fs.existsSync(this.pathGuard.dataPath(row.libRelPath))) {
-            archive.file(this.pathGuard.dataPath(row.libRelPath), { name: `payload/overlay/${row.filename}` });
+          if (
+            row.libRelPath &&
+            fs.existsSync(this.pathGuard.dataPath(row.libRelPath))
+          ) {
+            archive.file(this.pathGuard.dataPath(row.libRelPath), {
+              name: `payload/overlay/${row.filename}`,
+            });
           }
         }
       }
-      for (const dir of worldDirs) archive.directory(dir.abs, `payload/world/${dir.name}`);
+      for (const dir of worldDirs)
+        archive.directory(dir.abs, `payload/world/${dir.name}`);
       archive.finalize();
     });
 
@@ -162,22 +193,42 @@ export class BlueprintExportService {
     const id = `bp_${nanoid(8)}`;
     await this.db
       .insert(blueprints)
-      .values({ id, name: server.display_name, filename, relPath, sizeBytes: size, builtin: false, manifestJson: JSON.stringify(manifest) });
+      .values({
+        id,
+        name: server.display_name,
+        filename,
+        relPath,
+        sizeBytes: size,
+        builtin: false,
+        manifestJson: JSON.stringify(manifest),
+      });
     this.events.recordEvent({
       serverId,
       actor,
       type: 'blueprint-exported',
       summary: `Blueprint exported: ${server.display_name} (${filename}, ${(size / 1024 ** 2).toFixed(1)} MB)`,
-      details: { id, filename, includeConfig, embedFiles, includeWorld, overlayCount: manifest.overlay.length },
+      details: {
+        id,
+        filename,
+        includeConfig,
+        embedFiles,
+        includeWorld,
+        overlayCount: manifest.overlay.length,
+      },
     });
     this.storageIndex.scan().catch(() => {});
-    const [row] = await this.db.select().from(blueprints).where(eq(blueprints.id, id)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(blueprints)
+      .where(eq(blueprints.id, id))
+      .limit(1);
     return row!;
   }
 
   collectConfigFiles(serverDir: string): string[] {
     const rels: string[] = [];
-    if (fs.existsSync(path.join(serverDir, 'server.properties'))) rels.push('server.properties');
+    if (fs.existsSync(path.join(serverDir, 'server.properties')))
+      rels.push('server.properties');
     const walk = (abs: string, rel: string) => {
       let entries: fs.Dirent[] = [];
       try {
@@ -191,12 +242,16 @@ export class BlueprintExportService {
         else if (entry.isFile()) rels.push(childRel);
       }
     };
-    if (fs.existsSync(path.join(serverDir, 'config'))) walk(path.join(serverDir, 'config'), 'config');
+    if (fs.existsSync(path.join(serverDir, 'config')))
+      walk(path.join(serverDir, 'config'), 'config');
     return rels;
   }
 
   /** World dirs to embed: the active level dir plus its Bukkit-style split siblings. */
-  worldDirsOf(server: Server, serverDir: string): { name: string; abs: string }[] {
+  worldDirsOf(
+    server: Server,
+    serverDir: string,
+  ): { name: string; abs: string }[] {
     // activeLevelName honors LEVEL env AND server.properties level-name — a
     // renamed/activated world would otherwise be silently missing from exports.
     const level = this.worldProps.activeLevelName(server);
@@ -205,7 +260,11 @@ export class BlueprintExportService {
       .filter((d) => fs.existsSync(d.abs) && fs.statSync(d.abs).isDirectory());
   }
 
-  sanitizeEnv(env: Record<string, string> | null | undefined): Record<string, string> {
-    return Object.fromEntries(Object.entries(env || {}).filter(([k]) => !SECRET_ENV_RE.test(k)));
+  sanitizeEnv(
+    env: Record<string, string> | null | undefined,
+  ): Record<string, string> {
+    return Object.fromEntries(
+      Object.entries(env || {}).filter(([k]) => !SECRET_ENV_RE.test(k)),
+    );
   }
 }

@@ -61,7 +61,7 @@ export class ServerPreviewService {
     private readonly containers: ContainerService,
     private readonly javaMatrix: JavaMatrixService,
     private readonly query: ServerQueryService,
-    private readonly environment: ServerEnvironmentService
+    private readonly environment: ServerEnvironmentService,
   ) {}
 
   /**
@@ -71,13 +71,19 @@ export class ServerPreviewService {
    * creation).
    */
   previewCreateSpec(input: PreviewCreateSpecInput): PreviewSpec {
-    const javaTag = input.javaTag || this.javaMatrix.pickJavaTag(input.mcVersion || 'LATEST', input.type || 'VANILLA');
+    const javaTag =
+      input.javaTag ||
+      this.javaMatrix.pickJavaTag(
+        input.mcVersion || 'LATEST',
+        input.type || 'VANILLA',
+      );
     const image = this.images.imageRef(javaTag);
     const defaults = this.config.defaults;
     const env: Record<string, string> = { ...(input.env || {}) };
     env.EULA = 'TRUE';
     env.TYPE = input.type || 'VANILLA';
-    if (input.mcVersion && input.mcVersion !== 'LATEST') env.VERSION = input.mcVersion;
+    if (input.mcVersion && input.mcVersion !== 'LATEST')
+      env.VERSION = input.mcVersion;
     env.MEMORY = `${input.heapMb ?? defaults.heapMb}M`;
     env.ENABLE_RCON = 'true';
     env.RCON_PASSWORD = '(generated at creation)';
@@ -92,8 +98,14 @@ export class ServerPreviewService {
       },
       ports: {
         game: input.portGame || '(auto-assigned)',
-        rcon: input.portRcon || (input.portGame ? input.portGame + this.config.ports.rconOffset : '(auto-assigned)'),
-        bedrock: input.withBedrock ? input.portBedrock || '(auto-assigned)' : null,
+        rcon:
+          input.portRcon ||
+          (input.portGame
+            ? input.portGame + this.config.ports.rconOffset
+            : '(auto-assigned)'),
+        bedrock: input.withBedrock
+          ? input.portBedrock || '(auto-assigned)'
+          : null,
         extra: input.extraPorts || [],
       },
       volumes: {
@@ -111,10 +123,15 @@ export class ServerPreviewService {
     env.RCON_PASSWORD = '(hidden)';
     if (env.CF_API_KEY) env.CF_API_KEY = '(hidden)';
     return {
-      containerName: server.containerName || this.containers.containerName(server.id),
+      containerName:
+        server.containerName || this.containers.containerName(server.id),
       network: server.networkName || null,
       image: await this.environment.resolveImage(server),
-      resources: { memoryMb: server.container_memory_mb, swapMb: server.container_swap_mb, cpus: server.cpus },
+      resources: {
+        memoryMb: server.container_memory_mb,
+        swapMb: server.container_swap_mb,
+        cpus: server.cpus,
+      },
       ports: {
         game: server.port_game,
         rcon: server.port_rcon,

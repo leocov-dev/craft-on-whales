@@ -2,7 +2,12 @@
 // server-from-pack creation in src/web/routes/api.ts.
 
 import { http } from './http';
-import type { PackSearchResult, PackPlatform, PackDetails, PackModInfo } from '../../../shared/types/packs';
+import type {
+  PackSearchResult,
+  PackPlatform,
+  PackDetails,
+  PackModInfo,
+} from '../../../shared/types/packs';
 
 export type { PackSearchResult, PackPlatform, PackDetails, PackModInfo };
 
@@ -62,14 +67,22 @@ export const packsApi = {
   search: (q: string, platform: 'modrinth' | 'curseforge' = 'modrinth') =>
     http.get<SearchResponse>(`/api/packs/search?q=${encodeURIComponent(q)}&platform=${platform}`),
   resolve: (platform: PackPlatform, ref: string, versionId?: string) =>
-    http.post<ResolveResponse>('/api/packs/resolve', { platform, ref, ...(versionId ? { versionId } : {}) }),
+    http.post<ResolveResponse>('/api/packs/resolve', {
+      platform,
+      ref,
+      ...(versionId ? { versionId } : {}),
+    }),
   details: (query: { platform: PackPlatform; ref: string } | { serverId: string }) => {
     const params = new URLSearchParams(query);
     return http.get<DetailsResponse>(`/api/packs/details?${params.toString()}`);
   },
   packMods: (serverId: string) => http.get<PackModsResponse>(`/api/servers/${serverId}/pack/mods`),
-  applyToServer: (serverId: string, platform: PackPlatform, ref: string, opts: { versionId?: string; force?: boolean } = {}) =>
-    http.post<ResolveResponse>(`/api/servers/${serverId}/pack`, { platform, ref, ...opts }),
+  applyToServer: (
+    serverId: string,
+    platform: PackPlatform,
+    ref: string,
+    opts: { versionId?: string; force?: boolean } = {},
+  ) => http.post<ResolveResponse>(`/api/servers/${serverId}/pack`, { platform, ref, ...opts }),
   fromPack: (input: FromPackInput) => http.post<TaskStartResponse>('/api/servers/from-pack', input),
   upgrade: (serverId: string, versionId?: string) =>
     http.post<TaskStartResponse>(

@@ -20,7 +20,10 @@ export class HostPathService {
     // managing a Windows Docker Desktop host, or vice versa) — so the
     // joined suffix must follow the host path's own convention, not
     // path.sep.
-    return /^[A-Za-z]:/.test(this.config.dataDirHost) || this.config.dataDirHost.includes('\\') ? '\\' : '/';
+    return /^[A-Za-z]:/.test(this.config.dataDirHost) ||
+      this.config.dataDirHost.includes('\\')
+      ? '\\'
+      : '/';
   }
 
   /**
@@ -34,7 +37,7 @@ export class HostPathService {
     const rel = path.relative(this.config.dataDir, path.resolve(abs));
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
       throw new Error(
-        `Cannot bind ${abs}: it is outside DATA_DIR (${this.config.dataDir}), so it has no host-side equivalent under DATA_DIR_HOST.`
+        `Cannot bind ${abs}: it is outside DATA_DIR (${this.config.dataDir}), so it has no host-side equivalent under DATA_DIR_HOST.`,
       );
     }
     if (rel === '') return this.config.dataDirHost;

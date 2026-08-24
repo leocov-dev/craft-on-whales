@@ -28,7 +28,7 @@ export class StatusController {
     private readonly status: StatusService,
     private readonly serverQuery: ServerQueryService,
     private readonly containers: ContainerService,
-    private readonly playerRoster: PlayerRosterService
+    private readonly playerRoster: PlayerRosterService,
   ) {}
 
   @Public()
@@ -46,13 +46,18 @@ export class StatusController {
 
     let online = 0;
     let uptime: string | null = null;
-    if (row.status === 'running' || row.status === 'starting' || row.status === 'unhealthy') {
+    if (
+      row.status === 'running' ||
+      row.status === 'starting' ||
+      row.status === 'unhealthy'
+    ) {
       const [onlineNames, info] = await Promise.all([
         this.playerRoster.listOnlineNames(row.id).catch(() => [] as string[]),
         this.containers.inspectStatus(row.id).catch(() => null),
       ]);
       online = onlineNames.length;
-      if (info?.startedAt) uptime = formatUptime(Date.now() - Date.parse(info.startedAt));
+      if (info?.startedAt)
+        uptime = formatUptime(Date.now() - Date.parse(info.startedAt));
     }
 
     return {

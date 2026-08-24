@@ -20,9 +20,14 @@ export class ApiCacheService {
 
   /** Cached value + age, or null if no row exists. */
   async get(key: string): Promise<{ value: unknown; ageMs: number } | null> {
-    const [row] = await this.db.select().from(apiCache).where(eq(apiCache.key, key)).limit(1);
+    const [row] = await this.db
+      .select()
+      .from(apiCache)
+      .where(eq(apiCache.key, key))
+      .limit(1);
     if (!row) return null;
-    const ageMs = Date.now() - Date.parse(row.fetchedAt.replace(' ', 'T') + 'Z');
+    const ageMs =
+      Date.now() - Date.parse(row.fetchedAt.replace(' ', 'T') + 'Z');
     return { value: JSON.parse(row.valueJson), ageMs };
   }
 
@@ -33,7 +38,10 @@ export class ApiCacheService {
       .values({ key, valueJson })
       .onConflictDoUpdate({
         target: apiCache.key,
-        set: { valueJson, fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' ') },
+        set: {
+          valueJson,
+          fetchedAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        },
       });
   }
 }

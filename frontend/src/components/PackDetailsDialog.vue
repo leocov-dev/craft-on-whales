@@ -9,14 +9,18 @@
 
       <template v-else-if="pack">
         <q-card-section class="row no-wrap items-start q-gutter-x-sm">
-          <q-avatar v-if="pack.iconUrl" square size="40px"><img :src="pack.iconUrl" :alt="pack.name" /></q-avatar>
+          <q-avatar v-if="pack.iconUrl" square size="40px"
+            ><img :src="pack.iconUrl" :alt="pack.name"
+          /></q-avatar>
           <q-icon v-else name="inventory_2" size="40px" />
           <div class="col min-width-0">
             <div class="text-subtitle1 ellipsis">{{ pack.name }}</div>
             <div class="text-caption text-ink-faint">
               {{ pack.mcVersion || '—' }}
               <template v-if="pack.loaders?.length"> · {{ pack.loaders.join(', ') }}</template>
-              <template v-if="pack.downloads != null"> · {{ pack.downloads.toLocaleString() }} downloads</template>
+              <template v-if="pack.downloads != null">
+                · {{ pack.downloads.toLocaleString() }} downloads</template
+              >
             </div>
           </div>
         </q-card-section>

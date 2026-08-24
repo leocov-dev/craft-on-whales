@@ -44,5 +44,5 @@ PANEL_PORT_HOST=8080 docker compose up --build
 - [Top-level README](../../README.md) — what the panel does
 - [`docs/getting-started.md`](../../docs/getting-started.md) — first-run walkthrough
 - The repo root's [`docker-compose.yml`](../../docker-compose.yml) is the
-  *production* compose file (pulls the published image instead of building
+  _production_ compose file (pulls the published image instead of building
   from source) — use that one for a real deployment.

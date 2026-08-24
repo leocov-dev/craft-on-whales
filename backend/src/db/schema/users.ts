@@ -1,5 +1,10 @@
 import { sql } from 'drizzle-orm';
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import {
+  sqliteTable,
+  text,
+  integer,
+  primaryKey,
+} from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -9,9 +14,13 @@ export const users = sqliteTable('users', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').notNull().default('admin'), // 'admin' | 'operator' | 'viewer'
-  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`(datetime('now'))`),
   totpSecret: text('totp_secret'),
-  totpEnabled: integer('totp_enabled', { mode: 'boolean' }).notNull().default(false),
+  totpEnabled: integer('totp_enabled', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   totpBackupCodesJson: text('totp_backup_codes_json'),
   totpLastStep: integer('totp_last_step'),
 });
@@ -31,5 +40,5 @@ export const userServerPermissions = sqliteTable(
     serverId: text('server_id').notNull(),
     perms: text('perms').notNull().default('view'),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.serverId] })]
+  (t) => [primaryKey({ columns: [t.userId, t.serverId] })],
 );

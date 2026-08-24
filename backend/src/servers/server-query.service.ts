@@ -71,8 +71,14 @@ export class ServerQueryService {
   }
 
   async listServers(): Promise<Server[]> {
-    const rows = await this.db.select().from(servers).where(isNull(servers.deletedAt)).orderBy(asc(servers.createdAt));
-    return rows.map((r) => this.rowToServer(r)).filter((s): s is Server => s !== null);
+    const rows = await this.db
+      .select()
+      .from(servers)
+      .where(isNull(servers.deletedAt))
+      .orderBy(asc(servers.createdAt));
+    return rows
+      .map((r) => this.rowToServer(r))
+      .filter((s): s is Server => s !== null);
   }
 
   async getServer(id: string): Promise<Server | null> {

@@ -3,7 +3,11 @@
 // original's ~1000-line MUST-USE widget) is a follow-up.
 
 import { http } from './http';
-import type { PlayerWithData, NormalizedItem, PlayerInventoryData } from '../../../shared/types/inventory';
+import type {
+  PlayerWithData,
+  NormalizedItem,
+  PlayerInventoryData,
+} from '../../../shared/types/inventory';
 
 export type { PlayerWithData, NormalizedItem, PlayerInventoryData };
 

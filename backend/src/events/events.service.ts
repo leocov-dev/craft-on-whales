@@ -2,7 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
-import { and, desc, eq, like, lt, or, type InferSelectModel } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  like,
+  lt,
+  or,
+  type InferSelectModel,
+} from 'drizzle-orm';
 import { ConfigService } from '../config/config.service';
 import { DbService } from '../db/db.service';
 import { events } from '../db/schema';
@@ -61,17 +69,26 @@ export class EventsService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly dbService: DbService
+    private readonly dbService: DbService,
   ) {}
 
   private dataPath(rel: string): string {
     return path.join(this.config.dataDir, rel);
   }
 
-  private writeExcerpt(serverId: string | null, type: string, logExcerpt: string): string {
+  private writeExcerpt(
+    serverId: string | null,
+    type: string,
+    logExcerpt: string,
+  ): string {
     // nanoid suffix: two events of the same type in the same millisecond
     // must not overwrite each other's captured logs.
-    const rel = path.posix.join('logs', serverId || '_panel', 'events', `${Date.now()}-${type}-${nanoid(4)}.log`);
+    const rel = path.posix.join(
+      'logs',
+      serverId || '_panel',
+      'events',
+      `${Date.now()}-${type}-${nanoid(4)}.log`,
+    );
     const abs = this.dataPath(rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     // Cap captures at 256 KB so a runaway log can't flood the data dir.
@@ -91,7 +108,9 @@ export class EventsService {
    */
   recordEvent(opts: RecordEventOptions): void {
     this.insertEvent(opts).catch((err: unknown) => {
-      this.logger.error(`failed to record event (type=${opts.type}): ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(
+        `failed to record event (type=${opts.type}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     });
   }
 
@@ -108,7 +127,9 @@ export class EventsService {
     details = {},
     logExcerpt = null,
   }: RecordEventOptions): Promise<number> {
-    const excerptRel = logExcerpt ? this.writeExcerpt(serverId, type, logExcerpt) : null;
+    const excerptRel = logExcerpt
+      ? this.writeExcerpt(serverId, type, logExcerpt)
+      : null;
     const [row] = await this.dbService.db
       .insert(events)
       .values({
@@ -123,7 +144,12 @@ export class EventsService {
     return row!.id;
   }
 
-  async listEvents({ serverId = null, type = null, limit = 50, offset = 0 }: ListEventsOptions = {}): Promise<HydratedEvent[]> {
+  async listEvents({
+    serverId = null,
+    type = null,
+    limit = 50,
+    offset = 0,
+  }: ListEventsOptions = {}): Promise<HydratedEvent[]> {
     const where = [
       ...(serverId ? [eq(events.serverId, serverId)] : []),
       ...(type ? [eq(events.type, type)] : []),
@@ -139,7 +165,11 @@ export class EventsService {
   }
 
   async getEvent(id: number): Promise<HydratedEvent | null> {
-    const [row] = await this.dbService.db.select().from(events).where(eq(events.id, id)).limit(1);
+    const [row] = await this.dbService.db
+      .select()
+      .from(events)
+      .where(eq(events.id, id))
+      .limit(1);
     return row ? this.hydrate(row) : null;
   }
 
@@ -165,7 +195,10 @@ export class EventsService {
   }
 
   /** Export events as a downloadable JSON or CSV string. */
-  async exportEvents(serverId: string | null | undefined, { format = 'json', q = '', type = '' }: ExportEventsOptions = {}): Promise<ExportedEvents> {
+  async exportEvents(
+    serverId: string | null | undefined,
+    { format = 'json', q = '', type = '' }: ExportEventsOptions = {},
+  ): Promise<ExportedEvents> {
     const fmt = format === 'csv' ? 'csv' : 'json';
     const rows = await this.dbService.db
       .select({
@@ -185,33 +218,59 @@ export class EventsService {
     const filename = `events-${serverId || 'all'}-${stamp}.${fmt}`;
     if (fmt === 'json') {
       const body = JSON.stringify(
-        rows.map((r) => ({ ...r, details: this.safeParse(r.detailsJson), detailsJson: undefined })),
+        rows.map((r) => ({
+          ...r,
+          details: this.safeParse(r.detailsJson),
+          detailsJson: undefined,
+        })),
         null,
-        2
+        2,
       );
       return { filename, contentType: 'application/json', body };
     }
     const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const body = ['id,created_at,server_id,actor,type,summary']
-      .concat(rows.map((r) => [r.id, r.createdAt, r.serverId || '', r.actor, r.type, r.summary].map(esc).join(',')))
+      .concat(
+        rows.map((r) =>
+          [r.id, r.createdAt, r.serverId || '', r.actor, r.type, r.summary]
+            .map(esc)
+            .join(','),
+        ),
+      )
       .join('\r\n');
     return { filename, contentType: 'text/csv', body };
   }
 
-  private buildExportWhere(serverId: string | null | undefined, type: string, q: string) {
+  private buildExportWhere(
+    serverId: string | null | undefined,
+    type: string,
+    q: string,
+  ) {
     const clauses = [
       ...(serverId ? [eq(events.serverId, serverId)] : []),
       ...(type ? [eq(events.type, type)] : []),
       ...(q
-        ? [or(like(events.summary, `%${q}%`), like(events.actor, `%${q}%`), like(events.type, `%${q}%`))!]
+        ? [
+            or(
+              like(events.summary, `%${q}%`),
+              like(events.actor, `%${q}%`),
+              like(events.type, `%${q}%`),
+            )!,
+          ]
         : []),
     ];
     return clauses.length ? and(...clauses) : undefined;
   }
 
   /** Delete events (and their captured log excerpts) older than `days`. */
-  async pruneEvents(days: number, { actor = 'system' }: { actor?: string } = {}): Promise<{ removed: number }> {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+  async pruneEvents(
+    days: number,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ removed: number }> {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
     const rows = await this.dbService.db
       .select({ id: events.id, logExcerptPath: events.logExcerptPath })
       .from(events)
