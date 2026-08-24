@@ -1,13 +1,16 @@
 name: Docker
 
-# Build and publish the panel image to GHCR when a GitHub Release is published
-# (see release.yml, which fires on version tag pushes). Multi-arch (amd64 servers,
-# arm64 Pi/ARM VPS) via native runners — each platform builds and pushes by
-# digest, then a merge job assembles the two digests into one multi-arch manifest
-# tagged :latest and :<tag>.
+# Build and publish the panel image to GHCR on the same version tag push that
+# fires release.yml — NOT chained off the release-published event, because a
+# release created by the default GITHUB_TOKEN (as release.yml's does) doesn't
+# trigger other workflows, by GitHub's design (avoids trigger loops). Multi-arch
+# (amd64 servers, arm64 Pi/ARM VPS) via native runners — each platform builds and
+# pushes by digest, then a merge job assembles the two digests into one
+# multi-arch manifest tagged :latest and :<tag>.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
 
 env:
   REGISTRY: ghcr.io
