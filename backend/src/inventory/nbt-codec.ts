@@ -2,6 +2,12 @@
 // item-stack normalization across the pre-1.20.5 'tag' and 1.20.5+ 'components'
 // formats, and generic nested-inventory (backpack/shulker) detection. Ported
 // verbatim from src/services/inventory/nbt.ts. No DI — plain functions.
+//
+// Raw NBT compounds here are genuinely dynamic (arbitrary modded item data),
+// so they're handled as `any` rather than forced through a rigid tag union —
+// same reasoning as inventory-slots.util.ts. That intentionally trades away
+// the type-checked-member-access lint rules for this file.
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
 
 import { BadRequestException } from '@nestjs/common';
 import { PLAYER_NAME_RE } from '../utils/player-name';

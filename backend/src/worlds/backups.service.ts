@@ -7,12 +7,7 @@ import {
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-// @types/archiver has no factory-function signature (only the Archiver class),
-// so — matching the legacy code's own untyped require() for this package —
-// this stays untyped rather than fighting the types for a call the package
-// genuinely supports at runtime.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
+import archiver from 'archiver';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DbService } from '../db/db.service';

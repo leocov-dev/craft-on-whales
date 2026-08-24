@@ -17,7 +17,7 @@ import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
-import multer = require('multer');
+import multer from 'multer';
 import { z, ZodError } from 'zod';
 import { nanoid } from 'nanoid';
 import { PathGuardService } from '../storage/path-guard.service';
@@ -205,7 +205,7 @@ export class BlueprintsController {
     return {
       ok: true,
       blueprint: publicBlueprint(
-        await this.library.getBlueprint(String(row!.id)),
+        await this.library.getBlueprint(String(row.id)),
       ),
     };
   }

@@ -244,7 +244,7 @@ function safeJsonParse(
   json: string | null | undefined,
 ): Record<string, unknown> {
   try {
-    return JSON.parse(json || '{}');
+    return JSON.parse(json || '{}') as Record<string, unknown>;
   } catch {
     return {};
   }

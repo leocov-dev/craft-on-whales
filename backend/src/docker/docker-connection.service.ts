@@ -87,14 +87,18 @@ export class DockerConnectionService {
       const docker = this.getDocker();
       const [version, info] = await Promise.all([
         docker.version(),
-        docker.info(),
+        docker.info() as Promise<{
+          OperatingSystem?: string;
+          NCPU?: number;
+          MemTotal?: number;
+        }>,
       ]);
       status.available = true;
       status.installed = true;
       status.version = version.Version;
       status.os = info.OperatingSystem || '';
-      status.ncpu = info.NCPU;
-      status.memTotal = info.MemTotal;
+      status.ncpu = info.NCPU ?? null;
+      status.memTotal = info.MemTotal ?? null;
       status.isDockerDesktop = /docker desktop/i.test(status.os || '');
     } catch (err: unknown) {
       const e = err as NodeJS.ErrnoException & { message?: string };

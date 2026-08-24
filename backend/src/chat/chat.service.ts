@@ -65,7 +65,7 @@ export class ChatService {
 
   /** Validate a tellraw target: @a/@p/@r/@s or a Java username. Blocks entity selectors. */
   normalizeTarget(target: unknown): string {
-    const t = String(target || '@a').trim();
+    const t = (typeof target === 'string' && target ? target : '@a').trim();
     if (['@a', '@p', '@r', '@s'].includes(t)) return t;
     if (PLAYER_NAME_RE.test(t)) return t;
     throw new BadRequestException(

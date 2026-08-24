@@ -40,7 +40,9 @@ export class SchedulesController {
 
   @Get('preview')
   async preview(@Req() req: Request) {
-    const expr = String(req.query.cron || '').trim();
+    const expr = (
+      typeof req.query.cron === 'string' ? req.query.cron : ''
+    ).trim();
     try {
       if (!expr) throw new Error('Empty expression');
       const runs = new Cron(expr, {

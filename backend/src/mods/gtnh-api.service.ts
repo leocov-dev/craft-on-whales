@@ -47,7 +47,9 @@ export class GtnhApiService {
    * content, so only an https github.com link is trusted enough to render.
    */
   private safeChangelogUrl(description: unknown): string | null {
-    const match = /href="([^"]+)"/i.exec(String(description || ''));
+    const match = /href="([^"]+)"/i.exec(
+      typeof description === 'string' ? description : '',
+    );
     if (!match) return null;
     try {
       const url = new URL(match[1]!);
@@ -76,8 +78,9 @@ export class GtnhApiService {
         const e = entry || {};
         return {
           version,
-          channel: (/beta/i.test(String(e.title || '')) ? 'beta' : 'stable') as
-            'beta' | 'stable',
+          channel: /beta/i.test(typeof e.title === 'string' ? e.title : '')
+            ? 'beta'
+            : 'stable',
           releaseDate: (e.releaseDate as string | undefined) || null,
           maxJavaVersion: Number.isInteger(e.maxJavaVersion)
             ? (e.maxJavaVersion as number)

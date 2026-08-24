@@ -79,6 +79,7 @@ export class PlayerTeleportService {
     private readonly roster: PlayerRosterService,
     @Inject(
       forwardRef(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
         () => require('../inventory/inventory.service').InventoryService,
       ),
     )
@@ -187,7 +188,6 @@ export class PlayerTeleportService {
       );
       const pm = POS_RE.exec(posOut);
       if (!pm) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[players] couldn't read position for ${player} on ${serverId}: ${posOut.slice(0, 160)}`,
         );
@@ -385,7 +385,7 @@ export class PlayerTeleportService {
 
   /** Best-effort home dimension for a structure id/#tag (defaults to Overworld). */
   private structureDim(ref: unknown): string {
-    const id = String(ref || '').replace(/^#/, '');
+    const id = (typeof ref === 'string' ? ref : '').replace(/^#/, '');
     if (this.STRUCTURE_DIMENSION.has(id))
       return this.STRUCTURE_DIMENSION.get(id)!;
     const short = id.split(':').pop() || '';

@@ -39,7 +39,7 @@ export class DataRootService {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(
         `Could not create the data directory at ${this.config.dataDir}: ${message}. ` +
-          `Check that DATA_DIR points somewhere this user can write, then start the panel again.`
+          `Check that DATA_DIR points somewhere this user can write, then start the panel again.`,
       );
     }
     this.cleanTmp();

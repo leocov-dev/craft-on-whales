@@ -2,13 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the established untyped-require pattern from
-// backend/src/worlds/world-archive.service.ts rather than fighting the
-// types for a call the package genuinely supports at runtime.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-export const archiver = require('archiver');
-import yauzl = require('yauzl');
+import archiver from 'archiver';
+import * as yauzl from 'yauzl';
+
+export { archiver };
 
 // ---- Zip helpers (all zip-slip-guarded) ----
 

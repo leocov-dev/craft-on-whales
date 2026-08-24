@@ -95,7 +95,7 @@ export class BlueprintsLibraryService {
   private decorate(row: BlueprintRow): DecoratedBlueprint {
     let manifest: Partial<BlueprintManifest> = {};
     try {
-      manifest = JSON.parse(row.manifestJson);
+      manifest = JSON.parse(row.manifestJson) as Partial<BlueprintManifest>;
     } catch {
       /* corrupt cache — show bare row */
     }

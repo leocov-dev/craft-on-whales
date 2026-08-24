@@ -374,12 +374,13 @@ export class ModBrowserController {
   @Get('modrinth/search')
   async modrinthSearch(@Req() req: Request) {
     const q = req.query;
+    const qStr = (v: unknown): string => (typeof v === 'string' ? v : '');
     const results = await this.modrinth.search({
-      query: String(q.q || ''),
-      kind: String(q.kind || 'mod') as
+      query: qStr(q.q),
+      kind: (qStr(q.kind) || 'mod') as
         'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack',
-      loader: q.loader ? String(q.loader) : undefined,
-      mcVersion: q.mc ? String(q.mc) : undefined,
+      loader: q.loader ? qStr(q.loader) : undefined,
+      mcVersion: q.mc ? qStr(q.mc) : undefined,
     });
     return { ok: true, results };
   }
@@ -540,8 +541,8 @@ export class ModBrowserController {
           portGame: input.portGame,
           containerName: input.containerName,
           networkName: input.networkName,
-          extraPorts: input.extraPorts as CreateServerInput['extraPorts'],
-          extraBinds: input.extraBinds as CreateServerInput['extraBinds'],
+          extraPorts: input.extraPorts,
+          extraBinds: input.extraBinds,
         };
         const server = await this.lifecycle.createServer(createInput, {
           actor,

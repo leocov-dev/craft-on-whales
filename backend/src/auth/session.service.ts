@@ -140,7 +140,7 @@ export class SessionService {
         .where(eqSid(sid))
         .limit(1);
       if (!row || Date.parse(row.expiresAt) < Date.now()) return null;
-      const data: { userId?: string } = JSON.parse(row.dataJson);
+      const data = JSON.parse(row.dataJson) as { userId?: string };
       if (!data.userId) return null;
       return this.authService.getUser(data.userId);
     } catch {

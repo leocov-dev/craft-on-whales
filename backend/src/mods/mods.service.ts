@@ -673,9 +673,15 @@ export class ModsService {
         /\.jar$/i.test(fname) &&
         (slug || pid != null)
       ) {
+        let projectId: string | null = null;
+        if (typeof pid === 'string' || typeof pid === 'number') {
+          projectId = String(pid);
+        } else if (pid != null) {
+          projectId = JSON.stringify(pid);
+        }
         map.set(fname, {
           slug: (slug as string) || null,
-          projectId: pid != null ? String(pid) : null,
+          projectId,
         });
       }
       for (const v of Object.values(obj)) visit(v);

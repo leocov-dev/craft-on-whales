@@ -144,7 +144,7 @@ export class ConfigService {
     try {
       fs.mkdirSync(this.dataDir, { recursive: true });
       fs.writeFileSync(secretFile, generated, { mode: 0o600 });
-      // eslint-disable-next-line no-console
+
       console.log(
         `No SESSION_SECRET set — generated one and saved it to ${secretFile} (keep it private; delete it to rotate).`,
       );

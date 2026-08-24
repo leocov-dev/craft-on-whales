@@ -14,6 +14,15 @@ export type { StatusPageConfig };
 const KIND = 'status-page';
 const SLUG_RE = /^[a-z0-9-]{3,40}$/;
 
+interface StoredStatusPageConfig {
+  slug?: string;
+}
+
+function parseConfig(json: string | null | undefined): StoredStatusPageConfig {
+  const parsed: unknown = JSON.parse(json || '{}');
+  return typeof parsed === 'object' && parsed !== null ? parsed : {};
+}
+
 export interface PublicStatusPage {
   name: string;
   icon: string;
@@ -55,7 +64,7 @@ export class StatusService {
         and(eq(integrations.serverId, serverId), eq(integrations.kind, KIND)),
       )
       .limit(1);
-    const cfg = row ? JSON.parse(row.configJson || '{}') : {};
+    const cfg = row ? parseConfig(row.configJson) : {};
     return {
       enabled: Boolean(row?.enabled),
       slug: cfg.slug || null,
@@ -87,9 +96,7 @@ export class StatusService {
       .from(integrations)
       .where(eq(integrations.kind, KIND));
     const clash = rows.find(
-      (r) =>
-        r.serverId !== serverId &&
-        JSON.parse(r.configJson || '{}').slug === slug,
+      (r) => r.serverId !== serverId && parseConfig(r.configJson).slug === slug,
     );
     if (clash)
       throw new ConflictException(
@@ -133,9 +140,7 @@ export class StatusService {
       })
       .from(integrations)
       .where(and(eq(integrations.kind, KIND), eq(integrations.enabled, true)));
-    const row = rows.find(
-      (r) => JSON.parse(r.configJson || '{}').slug === slug,
-    );
+    const row = rows.find((r) => parseConfig(r.configJson).slug === slug);
     return row ? row.serverId : null;
   }
 

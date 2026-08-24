@@ -43,7 +43,7 @@ export class MojangService {
         Date.parse(String(cached.fetchedAt).replace(' ', 'T') + 'Z') <
         TTL_MS
     ) {
-      return JSON.parse(cached.valueJson);
+      return JSON.parse(cached.valueJson) as MojangManifest;
     }
     try {
       const res = await fetch(MANIFEST_URL, {
@@ -74,7 +74,7 @@ export class MojangService {
         });
       return slim;
     } catch (err) {
-      if (cached) return JSON.parse(cached.valueJson); // stale beats nothing
+      if (cached) return JSON.parse(cached.valueJson) as MojangManifest; // stale beats nothing
       throw err;
     }
   }

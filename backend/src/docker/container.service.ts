@@ -415,7 +415,7 @@ export class ContainerService {
     });
     try {
       await container.start();
-      const res = await container.wait(); // rm exits 0 on success
+      const res = (await container.wait()) as { StatusCode?: number } | null; // rm exits 0 on success
       if (res && res.StatusCode !== 0) {
         throw new Error(
           `cleanup container exited ${res.StatusCode} while removing ${base}`,
@@ -456,7 +456,7 @@ export class ContainerService {
     });
     try {
       await container.start();
-      const res = await container.wait();
+      const res = (await container.wait()) as { StatusCode?: number } | null;
       if (res && res.StatusCode !== 0) {
         throw new Error(`chown container exited ${res.StatusCode} for ${base}`);
       }

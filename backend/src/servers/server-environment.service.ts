@@ -45,6 +45,7 @@ export class ServerEnvironmentService {
     private readonly containers: ContainerService,
     private readonly javaMatrix: JavaMatrixService,
     private readonly query: ServerQueryService,
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
     @Inject(forwardRef(() => require('../map/map.service').MapService))
     private readonly map: MapService,
   ) {}
@@ -224,7 +225,8 @@ export class ServerEnvironmentService {
    * @returns the sanitized label ('' when cleared)
    */
   async setConsoleLabel(id: string, label: unknown): Promise<string> {
-    const clean = String(label || '')
+    const clean = (typeof label === 'string' ? label : '')
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f§]/g, '')
       .trim()
       .slice(0, 48);

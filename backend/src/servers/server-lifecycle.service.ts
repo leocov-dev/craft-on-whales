@@ -146,9 +146,10 @@ export class ServerLifecycleService {
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+
     @Inject(
       forwardRef(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
         () => require('../scheduler/scheduler.service').SchedulerService,
       ),
     )
@@ -580,7 +581,9 @@ export class ServerLifecycleService {
     for (const [key, col] of Object.entries(columns)) {
       if (changesRec[key] === undefined) continue;
       const beforeVal = key === 'name' ? before.display_name : beforeRec[col];
-      if (String(beforeVal) === String(changesRec[key])) continue;
+      const strOf = (v: unknown): string =>
+        typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+      if (strOf(beforeVal) === strOf(changesRec[key])) continue;
       diff[key] = [beforeVal, changesRec[key]];
       set[col] = changesRec[key];
       if (RECREATE_FIELDS.has(key)) needsRecreate = true;
@@ -715,7 +718,6 @@ export class ServerLifecycleService {
       try {
         await this.scheduler.deleteSchedule(sched.id, { actor });
       } catch (err: unknown) {
-        // eslint-disable-next-line no-console
         console.error(`[delete] schedule ${sched.id}:`, (err as Error).message);
       }
     }

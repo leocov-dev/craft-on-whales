@@ -89,7 +89,8 @@ export class PlayerRosterService {
 
   /** Reasons/messages travel through RCON — strip control chars so they can't smuggle commands. */
   private cleanText(text: unknown, fallback: string): string {
-    const t = String(text || '')
+    const t = (typeof text === 'string' ? text : '')
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
       .trim();
     return t || fallback;
@@ -105,8 +106,8 @@ export class PlayerRosterService {
         this.pathGuard.dataPath('servers', serverId, file),
         'utf8',
       );
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? (parsed as PlayerFileEntry[]) : [];
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw new BadRequestException(

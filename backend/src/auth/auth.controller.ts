@@ -12,11 +12,9 @@ import {
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// qrcode ships no types of its own and none exist for it — matching the
-// legacy code's own untyped require() for this package (same reasoning as
-// archiver elsewhere in this backend).
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const QRCode = require('qrcode');
+// qrcode ships no types of its own — see backend/src/types/qrcode.d.ts for
+// the minimal hand-rolled declaration covering the surface area used here.
+import QRCode from 'qrcode';
 import { z, ZodError } from 'zod';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
@@ -380,6 +378,7 @@ function safeNext(next: unknown): string {
   if (typeof next !== 'string' || !next.startsWith('/')) return '';
   // Reject protocol-relative ("//host"), backslash tricks ("/\\host" — browsers
   // normalize \ to / making it "//host"), and any whitespace/control chars.
+  // eslint-disable-next-line no-control-regex -- intentionally rejects control chars
   if (next.startsWith('//') || /[\\\s\x00-\x1f]/.test(next)) return '';
   return next;
 }

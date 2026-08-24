@@ -91,12 +91,14 @@ export class MapService {
     private readonly mods: ModsService,
     @Inject(
       forwardRef(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
         () => require('../servers/server-query.service').ServerQueryService,
       ),
     )
     private readonly serverQuery: ServerQueryService,
     @Inject(
       forwardRef(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
         () => require('../worlds/world-props.service').WorldPropsService,
       ),
     )

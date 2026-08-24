@@ -136,11 +136,14 @@ export class MapProxyController {
     // the proxied target — it's just BlueMap's static web UI and doesn't
     // need it, and the target may be reachable by other containers on a
     // shared Docker network.
+
+    /* eslint-disable @typescript-eslint/no-unused-vars */
     const {
       cookie: _cookie,
       authorization: _authorization,
       ...forwardHeaders
     } = req.headers;
+    /* eslint-enable @typescript-eslint/no-unused-vars */
 
     const upstreamPath = req.url.replace(new RegExp(`^/map/${id}`), '') || '/';
     const upstream = http.request(

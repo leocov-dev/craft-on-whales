@@ -13,11 +13,7 @@ import {
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the untyped-require pattern established elsewhere in
-// this backend (e.g. backend/src/worlds/world-archive.service.ts).
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
+import archiver from 'archiver';
 import { z, ZodError } from 'zod';
 import { PathGuardService } from '../storage/path-guard.service';
 import { CrashesService, type DecoratedCrash } from './crashes.service';

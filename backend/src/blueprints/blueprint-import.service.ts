@@ -181,7 +181,7 @@ export class BlueprintImportService {
     overrides: ImportOverrides = {},
     {
       actor = 'system',
-      onProgress = (_msg: string) => {},
+      onProgress = () => {},
     }: { actor?: string; onProgress?: (msg: string) => void } = {},
   ): Promise<{ server: Server | null; report: ImportReportItem[] }> {
     let zipPath = zipRef;
@@ -549,7 +549,7 @@ export class BlueprintImportService {
     {
       includeWorld = false,
       actor = 'system',
-      onProgress = (_msg: string) => {},
+      onProgress = () => {},
     }: {
       includeWorld?: boolean;
       actor?: string;

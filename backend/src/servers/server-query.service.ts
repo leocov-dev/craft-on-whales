@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { asc, eq, isNull, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { servers } from '../db/schema';
-import type { Server } from './types';
+import type { Server, ServerExtraPort, ServerExtraBind } from './types';
 
 type ServerRow = typeof servers.$inferSelect;
 
@@ -30,12 +30,12 @@ export class ServerQueryService {
       description: row.description,
       icon: row.icon,
       accent: row.accent,
-      tags: JSON.parse(row.tagsJson || '[]'),
+      tags: JSON.parse(row.tagsJson || '[]') as string[],
       notes: row.notes,
       type: row.type,
       mc_version: row.mcVersion,
       java_tag: row.javaTag,
-      env: JSON.parse(row.envJson || '{}'),
+      env: JSON.parse(row.envJson || '{}') as Record<string, string>,
       port_game: row.portGame,
       port_rcon: row.portRcon,
       port_query: row.portQuery,
@@ -65,8 +65,8 @@ export class ServerQueryService {
       router_auto_scale: row.routerAutoScale,
       routerHostname: row.routerHostname,
       routerAutoScale: row.routerAutoScale,
-      extraPorts: JSON.parse(row.extraPortsJson || '[]'),
-      extraBinds: JSON.parse(row.extraBindsJson || '[]'),
+      extraPorts: JSON.parse(row.extraPortsJson || '[]') as ServerExtraPort[],
+      extraBinds: JSON.parse(row.extraBindsJson || '[]') as ServerExtraBind[],
     };
   }
 

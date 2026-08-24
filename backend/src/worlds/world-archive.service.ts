@@ -8,12 +8,8 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as zlib from 'node:zlib';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the legacy code's own untyped require() for this
-// package rather than fighting the types for a call it genuinely supports.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
-import yauzl = require('yauzl');
+import archiver from 'archiver';
+import * as yauzl from 'yauzl';
 import * as tar from 'tar';
 
 export const DIM_SUFFIXES = ['_nether', '_the_end'];
@@ -372,7 +368,7 @@ export class WorldArchiveService {
 
   /** World dir names: strip path separators & control chars, keep it friendly. */
   sanitizeWorldName(name: unknown): string {
-    const clean = String(name || '')
+    const clean = (typeof name === 'string' ? name : '')
       .replace(/[\\/:*?"<>|\0]/g, '_')
       .replace(/^\.+/, '')
       .trim()
@@ -383,12 +379,13 @@ export class WorldArchiveService {
 
   /** Reject world names that could traverse paths (route params are user input). */
   checkWorldName(name: unknown): void {
+    const s = typeof name === 'string' ? name : '';
     if (
       !name ||
-      /[\\/\0]/.test(String(name)) ||
+      /[\\/\0]/.test(s) ||
       name === '.' ||
       name === '..' ||
-      String(name).startsWith('.')
+      s.startsWith('.')
     ) {
       throw new BadRequestException('Invalid world name');
     }

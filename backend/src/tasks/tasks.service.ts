@@ -107,7 +107,6 @@ export class TasksService {
       .then(() => fn(t))
       .then((result) => t.done(result))
       .catch((err: Error) => {
-        // eslint-disable-next-line no-console
         console.error(`[task] ${title}:`, err.message);
         t.fail(err);
       });

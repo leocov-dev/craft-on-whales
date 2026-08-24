@@ -55,7 +55,7 @@ export class MojangProfilesService {
       cached &&
       Date.now() - Date.parse(String(cached.fetchedAt) + 'Z') < TTL_MS
     ) {
-      return JSON.parse(cached.valueJson);
+      return JSON.parse(cached.valueJson) as MojangProfile | null;
     }
 
     let profile: MojangProfile | null;
@@ -74,7 +74,7 @@ export class MojangProfilesService {
         profile = { uuid: uuidToDashed(body.id), name: body.name };
       }
     } catch (err) {
-      if (cached) return JSON.parse(cached.valueJson); // stale beats nothing
+      if (cached) return JSON.parse(cached.valueJson) as MojangProfile | null; // stale beats nothing
       throw err;
     }
 

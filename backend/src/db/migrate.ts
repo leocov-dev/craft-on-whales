@@ -88,7 +88,7 @@ function baselineExistingSchema(dbService: DbService): void {
       sql`INSERT INTO ${sql.identifier(MIGRATIONS_TABLE)} ("hash", "created_at", "name", "applied_at") VALUES (${m.hash}, ${m.folderMillis}, ${m.name}, ${appliedAt})`,
     );
   }
-  // eslint-disable-next-line no-console
+
   console.log(
     `[migrate] adopted existing schema — baselined ${migrations.length} migration(s) without re-running them`,
   );

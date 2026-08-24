@@ -43,7 +43,7 @@ export class DockerLogsService {
         tail,
         timestamps,
       });
-      return this.demuxBuffer(buf as unknown as Buffer);
+      return this.demuxBuffer(buf);
     } catch (err: unknown) {
       if ((err as { statusCode?: number }).statusCode === 404) return '';
       throw err;
@@ -59,13 +59,13 @@ export class DockerLogsService {
     { tail = 200, timestamps = false }: FetchLogsOptions = {},
   ): Promise<FollowLogsResult> {
     const container = await this.containers.getContainer(serverId);
-    const raw = (await container.logs({
+    const raw = await container.logs({
       stdout: true,
       stderr: true,
       follow: true,
       tail,
       timestamps,
-    })) as unknown as NodeJS.ReadableStream;
+    });
     const out = new PassThrough();
     this.connection.getDocker().modem.demuxStream(raw, out, out);
     raw.on('end', () => out.end());

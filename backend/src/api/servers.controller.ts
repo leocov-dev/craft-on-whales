@@ -45,7 +45,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { UseGuards } from '@nestjs/common';
 import { ServerViewModelService } from './server-view-model.service';
 import type { Server } from '../servers/types';
-import type { CreatedServerSummary } from '../../../shared/types/wizard';
 
 const ICON_MAX_BYTES = 512 * 1024;
 const ICON_EXTS: Record<string, string> = {
@@ -126,6 +125,7 @@ function publicServer(
   s: Server | null,
 ): Omit<Server, 'rcon_password_cipher' | 'notes'> | null {
   if (!s) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { rcon_password_cipher, notes, ...rest } = s;
   return rest;
 }
@@ -273,7 +273,7 @@ export class ServersController {
   async create(@Req() req: Request, @Body() body: unknown) {
     const input = parseBody(createSchema, body);
     requireAdminForOverrides(req, input);
-    const server = await this.lifecycle.createServer(input as never, {
+    const server = await this.lifecycle.createServer(input, {
       actor: req.user!.username,
       start: input.start !== false,
     });
@@ -337,7 +337,7 @@ export class ServersController {
     }
     const { server, needsRecreate } = await this.lifecycle.updateServer(
       id,
-      changes as never,
+      changes,
       { actor: req.user!.username },
     );
     return { ok: true, needsRecreate, server: publicServer(server) };
@@ -452,7 +452,7 @@ export class ServersController {
     return {
       ok: true,
       yaml: this.dockerSpec.toYaml(
-        this.preview.previewCreateSpec(input as never) as never,
+        this.preview.previewCreateSpec(input) as never,
       ),
     };
   }

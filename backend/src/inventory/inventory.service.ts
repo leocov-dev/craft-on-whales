@@ -42,9 +42,7 @@ export type { PlayerWithData, PlayerInventoryData };
 import {
   assertUuid,
   assertItemId,
-  normalizeItem,
   normalizeItemDeep,
-  detectNestedInventories,
   UUID_RE,
   NAME_RE,
 } from './nbt-codec';
@@ -64,6 +62,12 @@ import {
   type SlotEditResult,
   type MoveResult,
 } from './inventory-slots.util';
+
+// This service reads/manipulates raw prismarine-nbt trees and untyped
+// on-disk JSON (usercache.json etc.) — genuinely dynamic data, same
+// reasoning as nbt-codec.ts / inventory-slots.util.ts, so it trades away the
+// type-checked-member-access lint rules where it touches that data.
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
 
 const SNAPSHOT_FILE_RE =
   /^logs\/([A-Za-z0-9_-]{1,40})\/inventories\/([0-9a-f-]{36})\/(\d{10,16})-([a-z0-9_-]{1,32})\.json$/;
@@ -198,6 +202,7 @@ export class InventoryService implements OnModuleDestroy {
     private readonly worldProps: WorldPropsService,
     @Inject(
       forwardRef(
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         () => require('../players/player-roster.service').PlayerRosterService,
       ),
     )
@@ -698,7 +703,6 @@ export class InventoryService implements OnModuleDestroy {
         this.lastEventId = Number(row && row.maxId) || 0;
       })
       .catch((err: unknown) => {
-        // eslint-disable-next-line no-console
         console.error(
           '[inventory] snapshot watcher init failed:',
           err instanceof Error ? err.message : String(err),

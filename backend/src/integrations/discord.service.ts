@@ -10,7 +10,6 @@ import { SecretsService } from '../auth/secrets.service';
 import { integrations, events, servers } from '../db/schema';
 import type {
   DiscordConfig,
-  EmbedField,
   EmbedPayload,
   EventToggles,
   NotificationKind,
@@ -104,7 +103,11 @@ export class DiscordService implements OnModuleDestroy {
   /** Masked, UI-safe view of the config. Never returns the webhook URL. */
   async getConfig(serverId: string): Promise<DiscordConfig> {
     const r = await this.row(serverId);
-    const cfg = r ? JSON.parse(r.configJson || '{}') : {};
+    const cfg = r
+      ? (JSON.parse(r.configJson || '{}') as {
+          events?: Partial<EventToggles>;
+        })
+      : {};
     return {
       enabled: Boolean(r && r.enabled),
       hasWebhook: Boolean(r && r.configCipher),
@@ -121,9 +124,10 @@ export class DiscordService implements OnModuleDestroy {
     const r = await this.row(serverId);
     if (!r || !r.configCipher) return null;
     try {
-      return (
-        JSON.parse(this.secrets.decrypt(r.configCipher)).webhookUrl || null
-      );
+      const parsed = JSON.parse(this.secrets.decrypt(r.configCipher)) as {
+        webhookUrl?: string;
+      };
+      return parsed.webhookUrl || null;
     } catch {
       return null; // SESSION_SECRET changed — treat as unset
     }
@@ -148,7 +152,11 @@ export class DiscordService implements OnModuleDestroy {
     { enabled, webhookUrl: url, events: toggles }: SetDiscordConfigOptions = {},
   ): Promise<DiscordConfig> {
     const existing = await this.row(serverId);
-    const cfg = existing ? JSON.parse(existing.configJson || '{}') : {};
+    const cfg = existing
+      ? (JSON.parse(existing.configJson || '{}') as {
+          events?: Partial<EventToggles>;
+        })
+      : {};
     const nextEvents: EventToggles = {
       ...DEFAULT_EVENTS,
       ...(cfg.events || {}),
@@ -255,7 +263,7 @@ export class DiscordService implements OnModuleDestroy {
           title: title || 'Server event',
           description: description || undefined,
           color: COLORS[kind] || COLORS.stop,
-          fields: ((fields || []) as EmbedField[]).slice(0, 10).map((f) => ({
+          fields: (fields || []).slice(0, 10).map((f) => ({
             name: String(f.name).slice(0, 256),
             value: String(f.value).slice(0, 1024),
             inline: f.inline !== false,
@@ -281,9 +289,9 @@ export class DiscordService implements OnModuleDestroy {
     const last = this.lastErrorLog.get(serverId) || 0;
     if (Date.now() - last < 60 * 60 * 1000) return;
     this.lastErrorLog.set(serverId, Date.now());
-    // eslint-disable-next-line no-console
+
     console.warn(
-      `[discord] webhook delivery failed for ${serverId} (muted for 1h): ${err instanceof Error ? err.message : err}`,
+      `[discord] webhook delivery failed for ${serverId} (muted for 1h): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

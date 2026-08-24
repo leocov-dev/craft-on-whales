@@ -58,7 +58,7 @@ export class SettingsService {
   // Public host / domain: shown in connect addresses instead of the LAN IP.
 
   private normalizeHost(host: unknown): string {
-    let h = String(host || '').trim();
+    let h = (typeof host === 'string' ? host : '').trim();
     if (!h) return '';
     h = h
       .replace(/^https?:\/\//i, '')
@@ -145,7 +145,7 @@ export class SettingsService {
 
   /** Store (or clear, when blank/"auto") the time zone. Returns the effective value. */
   async setTimezone(tz: unknown): Promise<string> {
-    const clean = String(tz || '').trim();
+    const clean = (typeof tz === 'string' ? tz : '').trim();
     if (!clean || clean.toLowerCase() === 'auto') {
       await this.remove('timezone');
       return this.getTimezone();
@@ -167,9 +167,7 @@ export class SettingsService {
 
   /** Store (or clear, when blank/"auto") the country. Returns the effective value. */
   async setCountry(cc: unknown): Promise<string> {
-    const clean = String(cc || '')
-      .trim()
-      .toUpperCase();
+    const clean = (typeof cc === 'string' ? cc : '').trim().toUpperCase();
     if (!clean || clean === 'AUTO') {
       await this.remove('country');
       return this.getCountry();

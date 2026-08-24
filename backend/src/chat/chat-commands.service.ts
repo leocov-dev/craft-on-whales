@@ -38,6 +38,14 @@ const PREFIX_RE = /^[!.#+?$%&*~^=-]{1,2}$/;
 const PLAYER_RE = PLAYER_NAME_RE;
 // Chat args substituted into console commands: strict shape or dropped.
 const ARG_RE = /^[A-Za-z0-9_:\-.]{0,32}$/;
+
+/** Coerce an unknown (e.g. request-body) value to a display/comparison string. */
+function asString(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return '';
+}
 const ACTIONS = new Set(['rtp', 'structure', 'biome', 'console']);
 const PERMISSIONS = new Set(['everyone', 'whitelist', 'ops']);
 // Console commands that can wreck a server — ops-only triggers may use them.
@@ -122,9 +130,7 @@ export class ChatCommandsService {
     msgSuccess,
     msgFailure,
   }: ValidateSpecInput): CommandSpec {
-    const trigger = String(rawTrigger || '')
-      .trim()
-      .toLowerCase();
+    const trigger = asString(rawTrigger).trim().toLowerCase();
     if (!TRIGGER_RE.test(trigger)) {
       throw new BadRequestException(
         'Triggers are 1-24 letters, digits, - or _ (no spaces, no prefix)',
@@ -183,6 +189,7 @@ export class ChatCommandsService {
         ? p.commands
             .map((c) =>
               String(c)
+                // eslint-disable-next-line no-control-regex -- intentionally strips control chars
                 .replace(/[\r\x00-\x1f\x7f]/g, ' ')
                 .trim(),
             )
@@ -208,9 +215,7 @@ export class ChatCommandsService {
 
     return {
       trigger,
-      description: String(description || '')
-        .trim()
-        .slice(0, 200),
+      description: asString(description).trim().slice(0, 200),
       action,
       params: clean,
       permission,
@@ -223,7 +228,8 @@ export class ChatCommandsService {
 
   // Feedback templates: strip control chars, cap length, empty -> null (use default).
   private cleanMessage(v: unknown): string | null {
-    const s = String(v ?? '')
+    const s = asString(v)
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
       .trim()
       .slice(0, 200);
@@ -235,8 +241,8 @@ export class ChatCommandsService {
     template: unknown,
     vars: Record<string, unknown>,
   ): string {
-    return String(template).replace(/\{(\w+)\}/g, (m, key) =>
-      key in vars && vars[key] != null ? String(vars[key]) : m,
+    return asString(template).replace(/\{(\w+)\}/g, (m: string, key: string) =>
+      key in vars && vars[key] != null ? asString(vars[key]) : m,
     );
   }
 
@@ -263,7 +269,7 @@ export class ChatCommandsService {
   private hydrate(row: ChatCommandRow): HydratedCommand {
     let params: ActionParams = {};
     try {
-      params = JSON.parse(row.params || '{}');
+      params = JSON.parse(row.params || '{}') as ActionParams;
     } catch {
       /* corrupt row — empty params */
     }
@@ -313,7 +319,7 @@ export class ChatCommandsService {
     prefixInput: unknown,
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<{ prefix: string }> {
-    const prefix = String(prefixInput || '').trim();
+    const prefix = asString(prefixInput).trim();
     if (!PREFIX_RE.test(prefix)) {
       throw new BadRequestException(
         'Prefix must be 1-2 characters from ! . # + ? $ % & * ~ ^ = - (never /)',
@@ -522,7 +528,8 @@ export class ChatCommandsService {
     player: string,
     message: unknown,
   ): Promise<void> {
-    const text = String(message || '')
+    const text = asString(message)
+      // eslint-disable-next-line no-control-regex -- intentionally strips control chars
       .replace(/[\r\n\x00-\x1f\x7f]/g, ' ')
       .trim()
       .slice(0, WHISPER_MAX);
@@ -655,13 +662,13 @@ export class ChatCommandsService {
   }
 
   private sanitizeArg(value: unknown): string {
-    const v = String(value ?? '').trim();
+    const v = asString(value).trim();
     return ARG_RE.test(v) ? v : '';
   }
 
   private pretty(id: unknown): string {
     const base =
-      String(id || '')
+      asString(id)
         .replace(/^#/, '')
         .split(':')
         .pop()
@@ -694,7 +701,7 @@ export class ChatCommandsService {
     player: string,
     message: unknown,
   ): Promise<void> {
-    const text = String(message || '').trim();
+    const text = asString(message).trim();
     if (!text || !PLAYER_RE.test(String(player))) return;
 
     const runtime = await this.getRuntime(serverId);

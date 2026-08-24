@@ -9,6 +9,10 @@
 // InventoryService; this file only has the mutation primitives both paths
 // share (the offline path uses these directly, the online path uses
 // resolveSlot/clampCount for validation and rconSlot addressing).
+//
+// That intentional `any` typing trades away the type-checked-member-access
+// lint rules for this file — same reasoning as nbt-codec.ts.
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-redundant-type-constituents */
 
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { NESTED_MAX_PATH, NESTED_KEY_RE } from './nbt-codec';

@@ -64,7 +64,8 @@ export class DockerImagesService {
         ref,
         {},
         (err: Error | null, stream?: NodeJS.ReadableStream) => {
-          if (err || !stream) return reject(err);
+          if (err || !stream)
+            return reject(err || new Error('Docker pull returned no stream'));
           const layers = new Map<string, ProgressLayerDetail>();
           docker.modem.followProgress(
             stream,

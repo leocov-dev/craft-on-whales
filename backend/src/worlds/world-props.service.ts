@@ -18,6 +18,7 @@ export class WorldPropsService {
   constructor(
     private readonly pathGuard: PathGuardService,
     private readonly lifecycle: ServerLifecycleService,
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
     @Inject(forwardRef(() => require('../map/map.service').MapService))
     private readonly map: MapService,
   ) {}

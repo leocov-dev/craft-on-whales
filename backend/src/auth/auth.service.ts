@@ -398,7 +398,7 @@ export class AuthService {
     // Fall back to a backup code — single use, removed once matched.
     let codes: string[] = [];
     try {
-      codes = JSON.parse(user.totpBackupCodesJson || '[]');
+      codes = JSON.parse(user.totpBackupCodesJson || '[]') as string[];
     } catch {
       codes = [];
     }

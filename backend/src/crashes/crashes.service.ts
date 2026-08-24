@@ -176,7 +176,10 @@ export class CrashesService implements OnModuleDestroy {
   }
 
   private decorate(row: CrashRow): DecoratedCrash {
-    return { ...row, suspected: JSON.parse(row.suspectedJson || '[]') };
+    return {
+      ...row,
+      suspected: JSON.parse(row.suspectedJson || '[]') as string[],
+    };
   }
 
   async listCrashes(serverId: string): Promise<DecoratedCrash[]> {

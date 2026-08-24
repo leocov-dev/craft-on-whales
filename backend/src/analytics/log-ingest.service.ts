@@ -57,7 +57,7 @@ export class LogIngestService implements OnModuleInit {
     // must never block app startup on the first tap-sync round.
     this.startIngest().catch((err) =>
       this.logger.error(
-        `initial tap sync failed: ${err instanceof Error ? err.message : err}`,
+        `initial tap sync failed: ${err instanceof Error ? err.message : String(err)}`,
       ),
     );
   }
@@ -225,7 +225,7 @@ export class LogIngestService implements OnModuleInit {
       );
     } catch (err) {
       this.logger.error(
-        `insert failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+        `insert failed for ${serverId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     // Custom chat commands (!rtp2 …): fire-and-forget — a broken command
@@ -235,7 +235,7 @@ export class LogIngestService implements OnModuleInit {
         .handleChat(serverId, evt.player, evt.message)
         .catch((err) => {
           this.logger.error(
-            `chat-command handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+            `chat-command handling failed for ${serverId}: ${err instanceof Error ? err.message : String(err)}`,
           );
         });
     }
@@ -259,7 +259,7 @@ export class LogIngestService implements OnModuleInit {
         if (line.trim()) {
           this.handleLine(serverId, line).catch((err: unknown) =>
             this.logger.error(
-              `line handling failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+              `line handling failed for ${serverId}: ${err instanceof Error ? err.message : String(err)}`,
             ),
           );
         }
@@ -270,7 +270,7 @@ export class LogIngestService implements OnModuleInit {
       this.taps.delete(serverId);
       this.closeAllSessions(serverId).catch((err: unknown) =>
         this.logger.error(
-          `closeAllSessions failed for ${serverId}: ${err instanceof Error ? err.message : err}`,
+          `closeAllSessions failed for ${serverId}: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
     };
@@ -299,7 +299,7 @@ export class LogIngestService implements OnModuleInit {
         if (!this.taps.has(id)) {
           await this.attach(id).catch((err) =>
             this.logger.error(
-              `tap ${id} failed: ${err instanceof Error ? err.message : err}`,
+              `tap ${id} failed: ${err instanceof Error ? err.message : String(err)}`,
             ),
           );
         }
@@ -313,10 +313,12 @@ export class LogIngestService implements OnModuleInit {
   async startIngest(): Promise<void> {
     await this.syncTaps().catch((err) =>
       this.logger.error(
-        `initial tap sync failed: ${err instanceof Error ? err.message : err}`,
+        `initial tap sync failed: ${err instanceof Error ? err.message : String(err)}`,
       ),
     );
-    this.pollTimer = setInterval(() => this.syncTaps().catch(() => {}), 60_000);
+    this.pollTimer = setInterval(() => {
+      this.syncTaps().catch(() => {});
+    }, 60_000);
     this.pollTimer.unref?.();
   }
 

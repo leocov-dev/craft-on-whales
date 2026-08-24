@@ -69,9 +69,9 @@ export class DockerWatcherService implements OnModuleInit {
   async startWatcher(): Promise<void> {
     if (this.stream) return;
     const docker = this.connection.getDocker();
-    const s = (await docker.getEvents({
+    const s = await docker.getEvents({
       filters: { type: ['container'], label: ['msm.managed=true'] },
-    })) as unknown as NodeJS.ReadableStream;
+    });
     this.stream = s;
     let buffer = '';
     s.on('data', (chunk: Buffer) => {
@@ -240,24 +240,26 @@ export class DockerWatcherService implements OnModuleInit {
       return;
     }
     const delayMs = 5000 * 2 ** (window.length - 1); // 5s, 10s, 20s
-    setTimeout(async () => {
-      try {
-        const info = await this.containers.inspectStatus(serverId);
-        if (info.exists && info.status === 'crashed') {
-          // TODO(ServersModule): go through the guarded lifecycle
-          // (ServersService.startServer), not ContainerService.startContainer
-          // directly, so this can't race a user start/recreate/delete and so
-          // pending config changes (pendingRecreate) are honored rather than
-          // starting a stale container. Wire via forwardRef() once
-          // ServersModule exists — see this file's class doc comment.
-          this.logger.warn(
-            `auto-restart for ${serverId} skipped: ServersModule not wired yet (TODO — see DockerWatcherService doc comment)`,
-          );
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const info = await this.containers.inspectStatus(serverId);
+          if (info.exists && info.status === 'crashed') {
+            // TODO(ServersModule): go through the guarded lifecycle
+            // (ServersService.startServer), not ContainerService.startContainer
+            // directly, so this can't race a user start/recreate/delete and so
+            // pending config changes (pendingRecreate) are honored rather than
+            // starting a stale container. Wire via forwardRef() once
+            // ServersModule exists — see this file's class doc comment.
+            this.logger.warn(
+              `auto-restart for ${serverId} skipped: ServersModule not wired yet (TODO — see DockerWatcherService doc comment)`,
+            );
+          }
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.logger.error(`auto-restart failed: ${message}`);
         }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.error(`auto-restart failed: ${message}`);
-      }
+      })();
     }, delayMs).unref();
   }
 

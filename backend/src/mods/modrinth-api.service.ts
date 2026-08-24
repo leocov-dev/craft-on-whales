@@ -174,7 +174,7 @@ export class ModrinthApiService {
       const v = versions.find(
         (x) =>
           x.id === versionRef ||
-          x.version_number === decodeURIComponent(versionRef!),
+          x.version_number === decodeURIComponent(versionRef),
       );
       versionId = v ? v.id : null;
     }

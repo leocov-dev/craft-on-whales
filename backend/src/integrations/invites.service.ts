@@ -1,11 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-// @types/archiver has no factory-function signature (only the Archiver
-// class) — matching the untyped-require pattern established in
-// backend/src/worlds/world-archive.service.ts.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const archiver = require('archiver');
+import archiver from 'archiver';
 import { and, eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';

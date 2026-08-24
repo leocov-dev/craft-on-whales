@@ -188,7 +188,7 @@ export class EventsService {
 
   private safeParse(json: string | null | undefined): Record<string, unknown> {
     try {
-      return JSON.parse(json || '{}');
+      return JSON.parse(json || '{}') as Record<string, unknown>;
     } catch {
       return {};
     }
@@ -228,7 +228,25 @@ export class EventsService {
       );
       return { filename, contentType: 'application/json', body };
     }
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const esc = (v: unknown) => {
+      let s: string;
+      switch (typeof v) {
+        case 'undefined':
+          s = '';
+          break;
+        case 'string':
+          s = v;
+          break;
+        case 'number':
+        case 'boolean':
+        case 'bigint':
+          s = String(v);
+          break;
+        default:
+          s = v == null ? '' : JSON.stringify(v);
+      }
+      return `"${s.replace(/"/g, '""')}"`;
+    };
     const body = ['id,created_at,server_id,actor,type,summary']
       .concat(
         rows.map((r) =>

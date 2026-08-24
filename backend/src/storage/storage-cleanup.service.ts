@@ -158,7 +158,9 @@ export class StorageCleanupService {
         }
       }
     } else {
-      throw new BadRequestException(`Unknown cleanup action "${action}"`);
+      throw new BadRequestException(
+        `Unknown cleanup action "${String(action)}"`,
+      );
     }
 
     if (!dryRun && removed > 0) {

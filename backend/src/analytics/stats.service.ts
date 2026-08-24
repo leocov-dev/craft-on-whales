@@ -288,20 +288,20 @@ export class StatsService implements OnModuleInit {
           await this.ingestStats(server.id);
         } catch (err) {
           this.logger.error(
-            `stats ingest ${server.id} failed: ${err instanceof Error ? err.message : err}`,
+            `stats ingest ${server.id} failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
     };
     tick().catch((err: unknown) =>
       this.logger.error(
-        `stats ingest tick failed: ${err instanceof Error ? err.message : err}`,
+        `stats ingest tick failed: ${err instanceof Error ? err.message : String(err)}`,
       ),
     );
     this.timer = setInterval(() => {
       tick().catch((err: unknown) =>
         this.logger.error(
-          `stats ingest tick failed: ${err instanceof Error ? err.message : err}`,
+          `stats ingest tick failed: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
     }, intervalMs);
@@ -513,9 +513,9 @@ export class StatsService implements OnModuleInit {
   async scoreboard(
     serverId: string,
     {
-      metric = 'playtimeTicks' as keyof CuratedStats,
-      window = 'all' as Window,
-    } = {},
+      metric = 'playtimeTicks',
+      window = 'all',
+    }: { metric?: keyof CuratedStats; window?: Window } = {},
   ): Promise<ScoreboardRow[]> {
     if (!METRICS.has(metric))
       throw new BadRequestException(`Unknown metric: ${metric}`);

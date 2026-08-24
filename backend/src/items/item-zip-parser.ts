@@ -1,7 +1,7 @@
 // Pure zip/lang/mod-metadata/version-comparison helpers for ItemRegistryService.
 // No DB/filesystem-root/config dependency — kept as plain functions rather
 // than an @Injectable() since there's no state or DI surface to justify one.
-import yauzl = require('yauzl');
+import * as yauzl from 'yauzl';
 import type { LangEntry, McDataItem } from './item-registry.types';
 
 export const LANG_RE = /^assets\/([a-z0-9_.-]+)\/lang\/en_us\.json$/i;
@@ -9,6 +9,13 @@ export const META_RE =
   /^(META-INF\/(neoforge\.)?mods\.toml|fabric\.mod\.json|quilt\.mod\.json)$/;
 export const NESTED_SERVER_RE = /^META-INF\/versions\/[^/]+\/server[^/]*\.jar$/;
 const KEY_RE = /^(item|block)\.([a-z0-9_-]+)\.([a-z0-9_-]+)$/;
+
+/** Coerce an unknown (JSON-parsed) value to a string. */
+function asString(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return '';
+}
 
 // ---------------------------------------------------------------------------
 // zip plumbing (yauzl, lazyEntries — only the entries we need are ever read)
@@ -146,11 +153,11 @@ export function parseFabricModJson(text: unknown): Map<string, string | null> {
       quilt_loader?: { id?: unknown; metadata?: { name?: unknown } };
     };
     if (data.id)
-      names.set(String(data.id), data.name ? String(data.name) : null);
+      names.set(asString(data.id), data.name ? asString(data.name) : null);
     const quilt = data.quilt_loader;
     if (quilt && quilt.id) {
       const meta = quilt.metadata || {};
-      names.set(String(quilt.id), meta.name ? String(meta.name) : null);
+      names.set(asString(quilt.id), meta.name ? asString(meta.name) : null);
     }
   } catch {
     /* malformed metadata — namespace fallback covers it */
@@ -165,7 +172,7 @@ export function parseFabricModJson(text: unknown): Map<string, string | null> {
 export function parseLang(buf: unknown): LangEntry[] {
   let data: Record<string, unknown>;
   try {
-    data = JSON.parse(String(buf));
+    data = JSON.parse(String(buf)) as Record<string, unknown>;
   } catch {
     return [];
   }
@@ -231,7 +238,7 @@ export function mcDataItemsToLangEntries(
     .map((it) => ({
       id: `minecraft:${it.name}`,
       name: it.displayName,
-      kind: (blockNames.has(it.name) ? 'block' : 'item') as 'item' | 'block',
+      kind: blockNames.has(it.name) ? 'block' : 'item',
       ns: 'minecraft',
     }));
 }

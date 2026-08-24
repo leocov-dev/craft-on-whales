@@ -54,7 +54,7 @@ export class StorageController {
   @Roles('admin')
   async runCleanup(@Body() body: unknown) {
     const { action, olderThanDays, dryRun } = cleanupSchema.parse(body);
-    const result = await this.cleanup.runCleanup(action as CleanupAction, {
+    const result = await this.cleanup.runCleanup(action, {
       olderThanDays,
       dryRun: Boolean(dryRun),
       actor: 'system',

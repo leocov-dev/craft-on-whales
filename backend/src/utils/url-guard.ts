@@ -50,11 +50,8 @@ function expandIpv6(ip: string): string[] {
     const headParts = head ? head.split(':') : [];
     const tailParts = tail ? tail.split(':') : [];
     const missing = 8 - headParts.length - tailParts.length;
-    s = [
-      ...headParts,
-      ...Array(Math.max(0, missing)).fill('0'),
-      ...tailParts,
-    ].join(':');
+    const zeros: string[] = Array<string>(Math.max(0, missing)).fill('0');
+    s = [...headParts, ...zeros, ...tailParts].join(':');
   }
   return s.split(':');
 }

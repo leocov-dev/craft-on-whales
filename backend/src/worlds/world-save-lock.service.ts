@@ -28,7 +28,7 @@ export class WorldSaveLockService {
       () => {},
     );
     this.tails.set(key, tail);
-    tail.then(() => {
+    void tail.then(() => {
       if (this.tails.get(key) === tail) this.tails.delete(key);
     });
     return result;

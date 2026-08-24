@@ -212,7 +212,7 @@ export class CurseforgeApiService {
       `/mods/${modId}/description`,
       { ttlMs: 30 * 60 * 1000 },
     );
-    return String(data.data || '');
+    return typeof data.data === 'string' ? data.data : '';
   }
 
   /**

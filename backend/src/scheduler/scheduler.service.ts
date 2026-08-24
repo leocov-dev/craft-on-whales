@@ -85,9 +85,10 @@ export class SchedulerService implements OnModuleInit {
   }
 
   private async runTask(job: ScheduleRow): Promise<void> {
-    const payload: Record<string, unknown> = JSON.parse(
-      job.payloadJson || '{}',
-    );
+    const payload = JSON.parse(job.payloadJson || '{}') as Record<
+      string,
+      unknown
+    >;
     const actor = 'scheduler';
     switch (job.taskType) {
       case 'restart':
@@ -106,17 +107,19 @@ export class SchedulerService implements OnModuleInit {
         });
         break;
       case 'rcon': {
+        const command =
+          typeof payload.command === 'string' ? payload.command : 'list';
         // '--' stops rcon-cli parsing command words that start with '-' as flags.
         const out = await this.containers.execCapture(job.serverId!, [
           'rcon-cli',
           '--',
-          ...String(payload.command || 'list').split(/\s+/),
+          ...command.split(/\s+/),
         ]);
         this.events.recordEvent({
           serverId: job.serverId,
           actor,
           type: 'rcon',
-          summary: `Scheduled RCON: ${payload.command}`,
+          summary: `Scheduled RCON: ${command}`,
           details: { output: out.slice(0, 1000) },
         });
         break;
@@ -185,7 +188,6 @@ export class SchedulerService implements OnModuleInit {
       );
       this.jobs.set(job.id, cron);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error(
         `[scheduler] invalid cron "${job.cron}" for ${job.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -212,7 +214,7 @@ export class SchedulerService implements OnModuleInit {
     await this.seedGlobalDefaults();
     for (const job of await this.db.select().from(schedules))
       await this.schedule(job);
-    // eslint-disable-next-line no-console
+
     console.log(`[scheduler] ${this.jobs.size} job(s) armed`);
   }
 
@@ -363,7 +365,7 @@ export class SchedulerService implements OnModuleInit {
         task: TASK_TYPES[s.taskType as TaskType]?.label || s.taskType,
         taskType: s.taskType,
         cron: s.cron,
-        payload: JSON.parse(s.payloadJson || '{}'),
+        payload: JSON.parse(s.payloadJson || '{}') as Record<string, unknown>,
         enabled: Boolean(s.enabled),
         lastRun: s.lastRunAt,
         lastRunMs: Number.isFinite(lastRunMs) ? lastRunMs : null,

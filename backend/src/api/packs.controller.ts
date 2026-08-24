@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  ConflictException,
   Get,
   HttpCode,
   NotFoundException,
@@ -13,12 +12,9 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z, ZodError } from 'zod';
-// sanitize-html ships no types anywhere in this tree — matching the
-// established pattern for similarly-untyped packages (e.g. archiver in
-// backend/src/worlds/world-archive.service.ts), stays untyped rather than
-// fighting for a declaration file that doesn't exist.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const sanitizeHtml = require('sanitize-html');
+// sanitize-html ships no types of its own — see backend/src/types/sanitize-html.d.ts
+// for the minimal hand-rolled declaration covering the surface area used here.
+import sanitizeHtml from 'sanitize-html';
 import { marked } from 'marked';
 import { PacksService } from '../packs/packs.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
@@ -47,7 +43,8 @@ function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
 }
 
 function sanitizePackHtml(html: unknown): string {
-  return sanitizeHtml(String(html || ''), {
+  const htmlStr = typeof html === 'string' ? html : '';
+  return sanitizeHtml(htmlStr, {
     allowedTags: [
       'p',
       'b',
@@ -500,13 +497,13 @@ export class PacksController {
             containerMemoryMb: input.containerMemoryMb,
             diskQuotaGb: input.diskQuotaGb,
             portGame: input.portGame,
-          } as never,
+          },
           {
             actor,
             start: false,
             onProgress: (s: string) => t.step(s),
             javaTagHint: resolved.javaTag,
-          } as never,
+          },
         );
         t.step(`Pinning ${resolved.projectName} @ ${resolved.versionName}`);
         await this.packs.applyPack(server.id, resolved, { actor, force: true });
