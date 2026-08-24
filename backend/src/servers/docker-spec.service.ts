@@ -23,7 +23,6 @@ export interface DockerSpecPreview {
   volumes: {
     extra: ServerExtraBind[];
   };
-  [key: string]: unknown;
 }
 
 export interface ParsedOverrides {
