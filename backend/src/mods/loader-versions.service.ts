@@ -60,7 +60,7 @@ export class LoaderVersionsService {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: unknown = await res.json();
-      this.cache.set(cacheKey, data);
+      void this.cache.set(cacheKey, data).catch(() => undefined);
       return data;
     } catch (err) {
       if (cached) return cached.value; // stale beats nothing

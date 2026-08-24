@@ -260,7 +260,7 @@ export class InventoryService implements OnModuleDestroy {
       if (Array.isArray(parsed)) {
         for (const e of parsed) {
           if (!e || !e.uuid || !e.name) continue;
-          byUuid.set(String(e.uuid).toLowerCase(), e.name);
+          byUuid.set(String(e.uuid).toLowerCase(), String(e.name));
           byName.set(
             String(e.name).toLowerCase(),
             String(e.uuid).toLowerCase(),
@@ -1141,7 +1141,7 @@ export class InventoryService implements OnModuleDestroy {
     const run = prev.then(fn, fn); // run regardless of the previous edit's outcome
     const tail = run.catch(() => {});
     this.datLocks.set(key, tail);
-    tail.then(() => {
+    void tail.then(() => {
       if (this.datLocks.get(key) === tail) this.datLocks.delete(key);
     });
     return run;

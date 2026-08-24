@@ -40,7 +40,7 @@ export class SqliteSessionStore extends Store {
           await this.db.db.delete(sessions).where(eqSid(sid));
           return cb(null, null);
         }
-        cb(null, JSON.parse(row.dataJson));
+        cb(null, JSON.parse(row.dataJson) as SessionData);
       })
       .catch((err: unknown) => cb(err));
   }

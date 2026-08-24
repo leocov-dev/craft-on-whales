@@ -246,7 +246,9 @@ export class StatsService implements OnModuleInit {
       let curated: CuratedStats;
       try {
         curated = this.curate(
-          JSON.parse(fs.readFileSync(path.join(statsDir, file), 'utf8')),
+          JSON.parse(fs.readFileSync(path.join(statsDir, file), 'utf8')) as {
+            stats?: Record<string, Record<string, unknown>>;
+          } | null,
         );
       } catch {
         continue; // partial write / malformed file — retry next cycle

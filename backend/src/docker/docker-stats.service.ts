@@ -96,7 +96,7 @@ export class DockerStatsService {
         buffer = buffer.slice(idx + 1);
         if (!line) continue;
         try {
-          onSample(this.normalize(JSON.parse(line)));
+          onSample(this.normalize(JSON.parse(line) as ContainerStats));
         } catch {
           /* partial frame */
         }

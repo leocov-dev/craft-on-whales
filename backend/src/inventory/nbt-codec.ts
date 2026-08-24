@@ -103,7 +103,7 @@ function normalizeEnchants(value: any): NormalizedEnchant[] | null {
     // 1.20.5–1.21.4: {levels: {'minecraft:sharpness': 5}}; 1.21.5+: {'minecraft:sharpness': 5}
     const levels =
       value.levels && typeof value.levels === 'object' ? value.levels : value;
-    for (const [id, lvl] of Object.entries(levels)) {
+    for (const [id, lvl] of Object.entries(levels as Record<string, unknown>)) {
       if (typeof lvl === 'number' || typeof lvl === 'bigint')
         out.push({ id, lvl: Number(lvl) });
     }
@@ -187,7 +187,7 @@ function isItemList(arr: any): boolean {
       (item.count !== undefined || item.Count !== undefined)
     )
       stacks += 1;
-    else if (Object.keys(el).length) return false; // a non-item compound — not an inventory
+    else if (Object.keys(el as Record<string, unknown>).length) return false; // a non-item compound — not an inventory
   }
   return stacks > 0;
 }
@@ -258,7 +258,7 @@ export function detectNestedInventories(raw: any): NestedInventory[] {
       node.forEach((el, i) => visit(el, [...pathSegs, i], depth));
       return;
     }
-    for (const [key, value] of Object.entries(node))
+    for (const [key, value] of Object.entries(node as Record<string, unknown>))
       visit(value, [...pathSegs, key], depth);
   };
   try {
