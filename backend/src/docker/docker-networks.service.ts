@@ -45,13 +45,11 @@ export class DockerNetworksService {
   /** Create the panel-owned network if it doesn't exist yet. Idempotent. */
   async ensureNetwork(name: string = ROUTER_NETWORK_NAME): Promise<string> {
     if (await this.networkExists(name)) return name;
-    await this.connection
-      .getDocker()
-      .createNetwork({
-        Name: name,
-        Driver: 'bridge',
-        Labels: { 'msm.managed': 'true' },
-      });
+    await this.connection.getDocker().createNetwork({
+      Name: name,
+      Driver: 'bridge',
+      Labels: { 'msm.managed': 'true' },
+    });
     return name;
   }
 }

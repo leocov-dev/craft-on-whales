@@ -151,17 +151,15 @@ export class BackupsService {
 
     const size = (await fsp.stat(absPath)).size;
     const id = `bk_${nanoid(8)}`;
-    await this.db
-      .insert(backups)
-      .values({
-        id,
-        serverId,
-        filename,
-        relPath,
-        sizeBytes: size,
-        reason,
-        note,
-      });
+    await this.db.insert(backups).values({
+      id,
+      serverId,
+      filename,
+      relPath,
+      sizeBytes: size,
+      reason,
+      note,
+    });
     this.events.recordEvent({
       serverId,
       actor,

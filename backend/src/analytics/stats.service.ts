@@ -265,15 +265,13 @@ export class StatsService implements OnModuleInit {
         .orderBy(desc(playerStatSnapshots.id))
         .limit(1);
       if (latest && latest.statsJson === json) continue;
-      await this.db
-        .insert(playerStatSnapshots)
-        .values({
-          serverId,
-          uuid,
-          name: names.get(uuid) || '',
-          ts: new Date().toISOString(),
-          statsJson: json,
-        });
+      await this.db.insert(playerStatSnapshots).values({
+        serverId,
+        uuid,
+        name: names.get(uuid) || '',
+        ts: new Date().toISOString(),
+        statsJson: json,
+      });
       snapshots++;
     }
     return { players, snapshots };

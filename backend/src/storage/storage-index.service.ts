@@ -121,13 +121,11 @@ export class StorageIndexService {
           for (const [rel, v] of results) {
             // Cache depth <= 3 to keep the table small; deeper paths are summed live.
             if (rel.split('/').length <= 3) {
-              await tx
-                .insert(storageIndex)
-                .values({
-                  relPath: rel,
-                  sizeBytes: v.size,
-                  fileCount: v.files,
-                });
+              await tx.insert(storageIndex).values({
+                relPath: rel,
+                sizeBytes: v.size,
+                fileCount: v.files,
+              });
             }
           }
         });
@@ -149,12 +147,10 @@ export class StorageIndexService {
         const m = /^servers\/([^/]+)$/.exec(rel);
         if (m) perServer[m[1] as string] = v.size;
       }
-      await this.db
-        .insert(storageSnapshots)
-        .values({
-          totalBytes: total.size,
-          perServerJson: JSON.stringify(perServer),
-        });
+      await this.db.insert(storageSnapshots).values({
+        totalBytes: total.size,
+        perServerJson: JSON.stringify(perServer),
+      });
       // Retention: keep the last 500 snapshots.
       const keepRows = await this.db
         .select({ id: storageSnapshots.id })

@@ -266,17 +266,15 @@ export class BlueprintsLibraryService {
     });
     const size = (await fsp.stat(absPath)).size;
     const id = `bp_${nanoid(8)}`;
-    await this.db
-      .insert(blueprints)
-      .values({
-        id,
-        name: manifest.name,
-        filename,
-        relPath,
-        sizeBytes: size,
-        builtin,
-        manifestJson: JSON.stringify(manifest),
-      });
+    await this.db.insert(blueprints).values({
+      id,
+      name: manifest.name,
+      filename,
+      relPath,
+      sizeBytes: size,
+      builtin,
+      manifestJson: JSON.stringify(manifest),
+    });
     const [row] = await this.db
       .select()
       .from(blueprints)

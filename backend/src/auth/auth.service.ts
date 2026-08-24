@@ -67,14 +67,12 @@ export class AuthService {
       throw new ConflictException('Username already exists');
     }
     const id = `usr_${nanoid(8)}`;
-    await this.db
-      .insert(users)
-      .values({
-        id,
-        username,
-        passwordHash: bcrypt.hashSync(password, 11),
-        role,
-      });
+    await this.db.insert(users).values({
+      id,
+      username,
+      passwordHash: bcrypt.hashSync(password, 11),
+      role,
+    });
     this.events.recordEvent({
       actor,
       type: 'user-created',

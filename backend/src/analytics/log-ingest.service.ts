@@ -192,17 +192,15 @@ export class LogIngestService implements OnModuleInit {
         return false;
       }
     }
-    await this.db
-      .insert(playerEvents)
-      .values({
-        serverId,
-        ts,
-        type: evt.type,
-        player: evt.player,
-        target: evt.target,
-        message: evt.message,
-        raw,
-      });
+    await this.db.insert(playerEvents).values({
+      serverId,
+      ts,
+      type: evt.type,
+      player: evt.player,
+      target: evt.target,
+      message: evt.message,
+      raw,
+    });
     if (sessions) {
       if (evt.type === 'join') await this.openSession(serverId, evt.player, ts);
       else if (evt.type === 'leave')

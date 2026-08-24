@@ -120,12 +120,10 @@ export class LoaderVersionsService {
     const all = (data.versions || []).slice().reverse(); // maven returns ascending; newest first
     const prefix = this.neoforgePrefix(mc);
     const matched = prefix ? all.filter((v) => v.startsWith(prefix)) : all;
-    return matched
-      .slice(0, MAX_BUILDS)
-      .map((v) => ({
-        version: v,
-        label: /-beta$/i.test(v) ? `${v} (beta)` : v,
-      }));
+    return matched.slice(0, MAX_BUILDS).map((v) => ({
+      version: v,
+      label: /-beta$/i.test(v) ? `${v} (beta)` : v,
+    }));
   }
 
   // Forge's promotions feed only surfaces the recommended + latest build per MC —

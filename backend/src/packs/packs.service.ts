@@ -107,14 +107,12 @@ export class PacksService {
         versionId: String(file.fileId),
         versionName: file.name,
         mcVersion: this.pickMcVersion(file.gameVersions),
-        allVersions: files
-          .slice(0, 25)
-          .map((f) => ({
-            id: String(f.fileId),
-            name: f.name,
-            type: f.releaseType,
-            date: f.fileDate,
-          })),
+        allVersions: files.slice(0, 25).map((f) => ({
+          id: String(f.fileId),
+          name: f.name,
+          type: f.releaseType,
+          date: f.fileDate,
+        })),
       };
     }
     if (platform === 'modrinth') {

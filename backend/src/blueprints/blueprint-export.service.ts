@@ -191,17 +191,15 @@ export class BlueprintExportService {
 
     const size = (await fsp.stat(absPath)).size;
     const id = `bp_${nanoid(8)}`;
-    await this.db
-      .insert(blueprints)
-      .values({
-        id,
-        name: server.display_name,
-        filename,
-        relPath,
-        sizeBytes: size,
-        builtin: false,
-        manifestJson: JSON.stringify(manifest),
-      });
+    await this.db.insert(blueprints).values({
+      id,
+      name: server.display_name,
+      filename,
+      relPath,
+      sizeBytes: size,
+      builtin: false,
+      manifestJson: JSON.stringify(manifest),
+    });
     this.events.recordEvent({
       serverId,
       actor,

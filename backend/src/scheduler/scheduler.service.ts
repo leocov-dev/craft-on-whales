@@ -232,16 +232,14 @@ export class SchedulerService implements OnModuleInit {
         )
         .limit(1);
       if (!exists) {
-        await this.db
-          .insert(schedules)
-          .values({
-            id: `sch_${nanoid(8)}`,
-            serverId: null,
-            taskType: d.taskType,
-            cron: d.cron,
-            payloadJson: '{}',
-            enabled: true,
-          });
+        await this.db.insert(schedules).values({
+          id: `sch_${nanoid(8)}`,
+          serverId: null,
+          taskType: d.taskType,
+          cron: d.cron,
+          payloadJson: '{}',
+          enabled: true,
+        });
       }
     }
   }
@@ -260,16 +258,14 @@ export class SchedulerService implements OnModuleInit {
       throw new BadRequestException(`Unknown task type ${taskType}`);
     new Cron(cron, { timezone: await this.settings.getTimezone() }); // validates; throws on bad expression
     const id = `sch_${nanoid(8)}`;
-    await this.db
-      .insert(schedules)
-      .values({
-        id,
-        serverId,
-        taskType,
-        cron,
-        payloadJson: JSON.stringify(payload),
-        enabled,
-      });
+    await this.db.insert(schedules).values({
+      id,
+      serverId,
+      taskType,
+      cron,
+      payloadJson: JSON.stringify(payload),
+      enabled,
+    });
     const [job] = await this.db
       .select()
       .from(schedules)
