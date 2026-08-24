@@ -186,7 +186,9 @@ Open **http://your-host:3000**. In Portainer/Dockge, paste the compose file as a
 `DATA_DIR_HOST` in the stack's environment.
 
 Want to build from source instead of pulling the published image? See the
-[Docker Compose example](examples/docker-compose/README.md).
+[Docker Compose example](examples/docker-compose/README.md). Want Postgres
+instead of the default SQLite file? See the
+[Docker Compose with Postgres example](examples/docker-compose-postgres/README.md).
 
 How it works — and what to know:
 
