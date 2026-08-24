@@ -8,6 +8,11 @@ export interface SessionUser {
   totpEnabled: boolean;
 }
 
+/** `GET /auth/status`'s response body. */
+export interface AuthStatus {
+  firstRunNeeded: boolean;
+}
+
 export type SetupCheckLevel = 'pass' | 'warn' | 'fail';
 
 /** `GET /setup/checks`'s response body's `checks` field. */

@@ -42,7 +42,16 @@ export default defineRouter((/* { store, ssrContext } */) => {
     if (auth.status === 'unknown') {
       await auth.fetchSession();
     }
+    if (auth.firstRunNeeded === null) {
+      await auth.fetchFirstRunNeeded();
+    }
 
+    if (auth.firstRunNeeded && to.path !== '/setup') {
+      return { path: '/setup' };
+    }
+    if (!auth.firstRunNeeded && !auth.isAuthenticated && to.path === '/setup') {
+      return { path: '/login' };
+    }
     if (!isPublic && !auth.isAuthenticated) {
       return { path: '/login', query: to.fullPath !== '/' ? { next: to.fullPath } : {} };
     }

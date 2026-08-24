@@ -2,9 +2,20 @@
 // GET /api/session endpoint in src/web/routes/api.ts.
 
 import { http } from './http';
-import type { Role, SessionUser, SetupCheckLevel, SetupChecks } from '../../../shared/types/auth';
+import type {
+  AuthStatus,
+  Role,
+  SessionUser,
+  SetupCheckLevel,
+  SetupChecks,
+} from '../../../shared/types/auth';
 
-export type { Role, SessionUser, SetupCheckLevel, SetupChecks };
+export type { AuthStatus, Role, SessionUser, SetupCheckLevel, SetupChecks };
+
+interface AuthStatusResponse {
+  ok: true;
+  status: AuthStatus;
+}
 
 interface SessionResponse {
   ok: true;
@@ -35,6 +46,7 @@ interface SetupChecksResponse {
 }
 
 export const authApi = {
+  status: () => http.get<AuthStatusResponse>('/auth/status'),
   session: () => http.get<SessionResponse>('/api/session'),
   login: (username: string, password: string, next?: string) =>
     http.post<LoginResponse>('/login', { username, password, next }),

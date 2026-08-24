@@ -23,7 +23,11 @@ import { AuthService } from './auth.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
 import { Public } from './public.decorator';
 import { AllowViewerWrite } from './allow-viewer-write.decorator';
-import type { SessionUser, SetupChecks } from '../../../shared/types/auth';
+import type {
+  AuthStatus,
+  SessionUser,
+  SetupChecks,
+} from '../../../shared/types/auth';
 
 const loginSchema = z.object({
   username: z.string().trim().min(1).max(64),
@@ -74,6 +78,20 @@ export class AuthController {
     recent.push(nowMs);
     this.setupHits.set(userId, recent);
     return recent.length <= SETUP_MAX;
+  }
+
+  /**
+   * Lets the SPA decide, before any login attempt, whether to route a
+   * visitor to /setup instead of /login. Unlike /setup/checks (which 400s
+   * once setup is done) this is safe to poll unconditionally.
+   */
+  @Public()
+  @Get('auth/status')
+  async authStatus(): Promise<{ ok: true; status: AuthStatus }> {
+    return {
+      ok: true,
+      status: { firstRunNeeded: await this.authService.firstRunNeeded() },
+    };
   }
 
   /**

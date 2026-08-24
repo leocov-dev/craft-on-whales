@@ -4,6 +4,8 @@
 # adds a `db` service. Moving an EXISTING SQLite install over needs a
 # one-time data copy — see ../../tools/sqlite-to-postgres/README.md.
 #
+# DATA_DIR_HOST defaults to ./data (next to this file) if unset.
+#
 # Usage (from this directory):
 #   docker compose up
 #   open http://localhost:3000
@@ -25,7 +27,12 @@ services:
       # plain Linux Engine needs it mapped explicitly (Docker Engine 20.10+).
       - 'host.docker.internal:host-gateway'
     environment:
-      DATA_DIR_HOST: ${DATA_DIR_HOST:?Set DATA_DIR_HOST to the absolute host path for panel data, e.g. /opt/msm/data}
+      # $PWD is this directory (docker compose expands it from your shell at
+      # `up` time) — the panel needs its OWN absolute view of the host path
+      # backing ./data, since it hands that path to sibling Minecraft server
+      # containers as their bind-mount source. A relative path here would
+      # bind-mount the wrong thing on those containers.
+      DATA_DIR_HOST: ${DATA_DIR_HOST:-${PWD}/data}
       DB_DRIVER: postgres
       DATABASE_URL: postgres://panel:panel@db:5432/panel
       # Behind a TLS-terminating reverse proxy? See the README env table:
@@ -40,8 +47,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   db:
-    image: postgres:16-alpine
     container_name: craft-on-whales-db
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: panel
