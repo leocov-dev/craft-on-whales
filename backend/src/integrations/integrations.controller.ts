@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -11,24 +10,13 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { EventsService } from '../events/events.service';
 import { StatusService } from '../status/status.service';
 import { DiscordService } from './discord.service';
 import { InvitesService } from './invites.service';
-
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
@@ -83,7 +71,7 @@ export class IntegrationsController {
   ) {}
 
   private async mustGet(id: string) {
-    const serverId = parse(serverIdSchema, id);
+    const serverId = parseBody(serverIdSchema, id);
     const server = await this.serverQuery.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     return server;
@@ -103,7 +91,7 @@ export class IntegrationsController {
   @Post('discord')
   async setDiscord(@Param('id') id: string, @Req() req: Request) {
     const server = await this.mustGet(id);
-    const input = parse(discordSchema, req.body);
+    const input = parseBody(discordSchema, req.body);
     const config = await this.discord.setConfig(server.id, input);
     this.events.recordEvent({
       serverId: server.id,
@@ -134,7 +122,7 @@ export class IntegrationsController {
   ) {
     const server = await this.mustGet(id);
     const host = hostQuery
-      ? parse(z.string().trim().max(260), hostQuery)
+      ? parseBody(z.string().trim().max(260), hostQuery)
       : undefined;
     const pack = await this.invites.generateMrpack(server.id, { host });
     res.download(pack.absPath, pack.filename, () => {
@@ -145,7 +133,7 @@ export class IntegrationsController {
   @Post('status-page')
   async setStatusPage(@Param('id') id: string, @Req() req: Request) {
     const server = await this.mustGet(id);
-    const { enabled, slug } = parse(statusPageSchema, req.body);
+    const { enabled, slug } = parseBody(statusPageSchema, req.body);
     const config = await this.statusPage.setStatusPage(server.id, {
       enabled,
       slug: slug || undefined,

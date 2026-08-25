@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -8,7 +7,8 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { PlayerRosterService } from './player-roster.service';
@@ -98,18 +98,6 @@ const teleportSchema = z.discriminatedUnion('mode', [
     maxDistance: z.coerce.number().int().min(16).max(1000000).optional(),
   }),
 ]);
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 /** Ports legacy `src/web/routes/players.ts`, mounted at /api/servers/:id/players. */
 @Controller('api/servers/:id/players')

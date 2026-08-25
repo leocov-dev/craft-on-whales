@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,32 +8,25 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { and, eq, like, or, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
 import { events, servers } from '../db/schema';
 import { EventsService } from '../events/events.service';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import type { EventViewModel } from '../../../shared/types/events';
 
 const ACTIVITY_PER_PAGE = 50;
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
+const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
 /** Ports the "Events" section of legacy `src/web/routes/api.ts`. */
 @Controller('api')
@@ -207,7 +199,10 @@ export class EventsController {
   }
 
   @Get('servers/:id/logs/archived')
-  async archivedList(@Param('id') id: string) {
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
+  async archivedList(@Param('id') idParam: string) {
+    const id = parseBody(serverIdSchema, idParam);
     const dir = path.join(this.config.dataDir, 'logs', id, 'events');
     const entries = await fsp
       .readdir(dir, { withFileTypes: true })
@@ -224,11 +219,14 @@ export class EventsController {
   }
 
   @Get('servers/:id/logs/archived/:file')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   archivedFile(
     @Res() res: Response,
-    @Param('id') id: string,
+    @Param('id') idParam: string,
     @Param('file') fileParam: string,
   ) {
+    const id = parseBody(serverIdSchema, idParam);
     const file = parseBody(
       z.string().regex(/^[\w.,()[\] -]+$/, 'Invalid file name'),
       fileParam,

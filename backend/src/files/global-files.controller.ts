@@ -15,7 +15,8 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import * as fsp from 'node:fs/promises';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { FilesService } from './files.service';
@@ -29,18 +30,6 @@ const nameSchema = z
   .max(180)
   .regex(/^[^\\/\0]+$/, 'Names cannot contain path separators');
 
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-
 /** Global (admin) file manager, rooted at DATA_DIR. Ports the `globalFiles` branch of legacy `src/web/routes/files.ts`. */
 @Controller('api/files')
 @UseGuards(RolesGuard)
@@ -50,13 +39,13 @@ export class GlobalFilesController {
 
   @Get('list')
   async list(@Query('path') path?: string) {
-    const rel = parse(pathSchema, path ?? '');
+    const rel = parseBody(pathSchema, path ?? '');
     return { ok: true, ...(await this.files.list(null, rel)) };
   }
 
   @Get('read')
   async read(@Query('path') path?: string) {
-    const rel = parse(pathSchema, path ?? '');
+    const rel = parseBody(pathSchema, path ?? '');
     return { ok: true, path: rel, ...(await this.files.readText(null, rel)) };
   }
 
@@ -65,14 +54,14 @@ export class GlobalFilesController {
     @Query('path') path: string | undefined,
     @Res() res: Response,
   ) {
-    const rel = parse(pathSchema, path ?? '');
+    const rel = parseBody(pathSchema, path ?? '');
     const file = await this.files.statFile(null, rel);
     res.download(file.abs, file.name);
   }
 
   @Post('write')
   async write(@Body() body: unknown) {
-    const { path: rel, content } = parse(
+    const { path: rel, content } = parseBody(
       z.object({
         path: pathSchema,
         content: z
@@ -89,7 +78,7 @@ export class GlobalFilesController {
 
   @Post('mkdir')
   async mkdir(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel } = parse(z.object({ path: pathSchema }), body);
+    const { path: rel } = parseBody(z.object({ path: pathSchema }), body);
     return {
       ok: true,
       ...(await this.files.mkdir(null, rel, { actor: req.user!.username })),
@@ -98,7 +87,7 @@ export class GlobalFilesController {
 
   @Post('rename')
   async rename(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, newName } = parse(
+    const { path: rel, newName } = parseBody(
       z.object({ path: pathSchema, newName: nameSchema }),
       body,
     );
@@ -112,7 +101,7 @@ export class GlobalFilesController {
 
   @Post('move')
   async move(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, dest } = parse(
+    const { path: rel, dest } = parseBody(
       z.object({ path: pathSchema, dest: pathSchema }),
       body,
     );
@@ -126,7 +115,7 @@ export class GlobalFilesController {
 
   @Post('copy')
   async copy(@Body() body: unknown, @Req() req: Request) {
-    const { path: rel, dest } = parse(
+    const { path: rel, dest } = parseBody(
       z.object({ path: pathSchema, dest: pathSchema }),
       body,
     );
@@ -140,7 +129,7 @@ export class GlobalFilesController {
 
   @Delete()
   async remove(@Query('path') path: string | undefined, @Req() req: Request) {
-    const rel = parse(pathSchema, path ?? '');
+    const rel = parseBody(pathSchema, path ?? '');
     return {
       ok: true,
       ...(await this.files.remove(null, rel, { actor: req.user!.username })),
@@ -155,7 +144,7 @@ export class GlobalFilesController {
     @Req() req: Request,
   ) {
     try {
-      const rel = parse(pathSchema, path ?? '');
+      const rel = parseBody(pathSchema, path ?? '');
       if (!uploadedFiles || !uploadedFiles.length)
         throw new BadRequestException('No files attached');
       const uploaded = [];

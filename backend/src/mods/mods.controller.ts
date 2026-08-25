@@ -16,7 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { serverContent, libraryFiles, updateChecks } from '../db/schema';
@@ -31,18 +32,6 @@ import {
   fromModsSchema,
 } from './mod-browser-orchestrator.service';
 import { requireAdminForOverrides } from '../api/docker-overrides.schema';
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 /**
  * Installed-mod CRUD for one server. Ports the `/servers/:id/mods*` and

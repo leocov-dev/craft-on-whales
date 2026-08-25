@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -7,25 +6,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { StatsIngestService } from './stats-ingest.service';
 import { StatsProfileService } from './stats-profile.service';
 import { StatsXrayService } from './stats-xray.service';
 import { StatsTimelineService } from './stats-timeline.service';
 import { LogIngestService } from './log-ingest.service';
-
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 const timelineSchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -89,14 +77,14 @@ export class AnalyticsController {
   @Get('timeline')
   async timeline(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const q = parse(timelineSchema, query);
+    const q = parseBody(timelineSchema, query);
     return { ok: true, ...(await this.statsTimeline.timeline(id, q)) };
   }
 
   @Get('sessions')
   async sessions(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const { player } = parse(sessionsSchema, query);
+    const { player } = parseBody(sessionsSchema, query);
     return {
       ok: true,
       sessions: await this.statsTimeline.sessionsList(id, player),
@@ -106,7 +94,7 @@ export class AnalyticsController {
   @Get('scoreboard')
   async scoreboard(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const { metric, window } = parse(scoreboardSchema, query);
+    const { metric, window } = parseBody(scoreboardSchema, query);
     return {
       ok: true,
       metric,
@@ -118,7 +106,7 @@ export class AnalyticsController {
   @Get('profile/:uuid')
   async profile(@Param('id') id: string, @Param('uuid') uuidParam: string) {
     await this.mustServer(id);
-    const uuid = parse(
+    const uuid = parseBody(
       z
         .string()
         .trim()

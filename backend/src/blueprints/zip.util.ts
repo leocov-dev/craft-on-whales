@@ -62,20 +62,42 @@ export function readZipIndex(
   });
 }
 
-/** Extract a whole zip under destDir; every entry path is containment-checked. */
+// Default cumulative decompressed-size budget for extractZipSafe — matches
+// the upload size cap enforced on blueprint import (see
+// blueprints.controller.ts's `limits.fileSize`), since extraction shouldn't
+// be able to write out more than an honestly-sized upload ever could.
+export const MAX_EXTRACT_BYTES = 8 * 1024 ** 3;
+
+/**
+ * Extract a whole zip under destDir; every entry path is containment-checked
+ * and the total decompressed size written is capped at `maxTotalBytes`
+ * (defends against zip bombs — a small compressed file expanding to
+ * exhaust host disk).
+ */
 export function extractZipSafe(
   zipFile: string,
   destDir: string,
+  maxTotalBytes: number = MAX_EXTRACT_BYTES,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    let totalBytes = 0;
+    let aborted = false;
     yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
       if (err) return reject(err);
+      const abort = (abortErr: Error) => {
+        if (aborted) return;
+        aborted = true;
+        zip.close();
+        reject(abortErr);
+      };
       zip.on('error', reject);
-      zip.on('end', resolve);
+      zip.on('end', () => {
+        if (!aborted) resolve();
+      });
       zip.on('entry', (entry) => {
+        if (aborted) return;
         if (!safeEntryName(entry.fileName)) {
-          zip.close();
-          return reject(
+          return abort(
             new Error(`Archive entry escapes destination: ${entry.fileName}`),
           );
         }
@@ -84,8 +106,7 @@ export function extractZipSafe(
           target !== path.resolve(destDir) &&
           !target.startsWith(path.resolve(destDir) + path.sep)
         ) {
-          zip.close();
-          return reject(
+          return abort(
             new Error(`Archive entry escapes destination: ${entry.fileName}`),
           );
         }
@@ -97,7 +118,22 @@ export function extractZipSafe(
           zip.openReadStream(entry, (streamErr, readStream) => {
             if (streamErr) return reject(streamErr);
             const out = fs.createWriteStream(target);
-            out.on('close', () => zip.readEntry());
+            readStream.on('data', (chunk: Buffer) => {
+              totalBytes += chunk.length;
+              if (totalBytes > maxTotalBytes) {
+                readStream.unpipe(out);
+                readStream.destroy();
+                out.destroy();
+                abort(
+                  new Error(
+                    `Archive exceeds the ${Math.round(maxTotalBytes / 1024 ** 3)}GB decompressed-size limit`,
+                  ),
+                );
+              }
+            });
+            out.on('close', () => {
+              if (!aborted) zip.readEntry();
+            });
             out.on('error', reject);
             readStream.pipe(out);
           });

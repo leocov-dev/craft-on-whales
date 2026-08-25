@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,25 +9,14 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Cron } from 'croner';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { SchedulerService, TASK_TYPES } from '../scheduler/scheduler.service';
 import { SettingsService } from '../settings/settings.service';
 import type {
   ScheduleViewModel,
   TaskTypeOption,
 } from '../../../shared/types/schedules';
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 /** Ports the "Schedules" section of legacy `src/web/routes/api.ts`. */
 @Controller('api/schedules')

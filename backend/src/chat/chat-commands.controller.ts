@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Controller,
   Delete,
@@ -12,7 +11,8 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { ChatCommandsService } from './chat-commands.service';
@@ -47,18 +47,6 @@ function publicCommand(c: HydratedCommand, actionSummary: string): ChatCommand {
     msg_failure: c.msgFailure,
     actionSummary,
   };
-}
-
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
 }
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']); // rcon still answers while unhealthy
@@ -145,7 +133,7 @@ export class ChatCommandsController {
   @Post()
   async create(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
-    const input = parse(createSchema, req.body);
+    const input = parseBody(createSchema, req.body);
     const command = await this.chatCommands.createCommand(id, input, {
       actor: req.user!.username,
     });
@@ -164,7 +152,7 @@ export class ChatCommandsController {
     @Req() req: Request,
   ) {
     await this.requireServer(id);
-    const changes = parse(patchSchema, req.body);
+    const changes = parseBody(patchSchema, req.body);
     const command = await this.chatCommands.updateCommand(id, cmdId, changes, {
       actor: req.user!.username,
     });
@@ -196,7 +184,7 @@ export class ChatCommandsController {
     @Req() req: Request,
   ) {
     await this.requireServer(id);
-    const { player } = parse(
+    const { player } = parseBody(
       z.object({
         player: z
           .string()
@@ -227,7 +215,7 @@ export class ChatCommandsController {
   @Put('prefix')
   async setPrefix(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
-    const { prefix } = parse(
+    const { prefix } = parseBody(
       z.object({ prefix: z.string().trim().min(1).max(2) }),
       req.body,
     );

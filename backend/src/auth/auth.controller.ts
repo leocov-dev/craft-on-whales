@@ -15,7 +15,8 @@ import * as path from 'node:path';
 // qrcode ships no types of its own — see backend/src/types/qrcode.d.ts for
 // the minimal hand-rolled declaration covering the surface area used here.
 import QRCode from 'qrcode';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
 import { DockerConnectionService } from '../docker/docker-connection.service';
@@ -376,19 +377,6 @@ export class AuthController {
     }
     this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
     return { ok: true, backupCodes: result.backupCodes };
-  }
-}
-
-/** schema.parse() that turns a ZodError into the same 400 + first-issue-message shape legacy returned. */
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
   }
 }
 

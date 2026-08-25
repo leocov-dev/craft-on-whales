@@ -24,6 +24,7 @@ interface ConsoleSocketState {
   closed: boolean;
   user: PublicUser;
   serverId: string;
+  lastCmdMs: number;
 }
 
 /**
@@ -38,6 +39,8 @@ export class ConsoleGateway
 {
   private readonly logger = new Logger(ConsoleGateway.name);
   private readonly state = new WeakMap<Socket, ConsoleSocketState>();
+  // Matches ChatCommandsRuntimeService's per-player spam guard.
+  private static readonly CMD_THROTTLE_MS = 400;
 
   constructor(
     private readonly sessions: SessionService,
@@ -74,6 +77,7 @@ export class ConsoleGateway
       closed: false,
       user,
       serverId,
+      lastCmdMs: 0,
     };
     this.state.set(client, state);
 
@@ -134,6 +138,18 @@ export class ConsoleGateway
     }
     const command = body.command.trim().replace(/^\//, '').slice(0, 500);
     if (!command) return;
+
+    const now = Date.now();
+    if (now - state.lastCmdMs < ConsoleGateway.CMD_THROTTLE_MS) {
+      this.send(client, {
+        kind: 'cmd-result',
+        command,
+        output: '',
+        error: 'Too many commands — slow down.',
+      });
+      return;
+    }
+    state.lastCmdMs = now;
 
     try {
       const info = await this.containers.inspectStatus(serverId);

@@ -11,7 +11,8 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 // sanitize-html ships no types of its own — see backend/src/types/sanitize-html.d.ts
 // for the minimal hand-rolled declaration covering the surface area used here.
 import sanitizeHtml from 'sanitize-html';
@@ -29,18 +30,6 @@ import { DbService } from '../db/db.service';
 import { backups } from '../db/schema';
 import { and, desc, eq } from 'drizzle-orm';
 import type { PackSearchResult } from '../../../shared/types/packs';
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
 
 function sanitizePackHtml(html: unknown): string {
   const htmlStr = typeof html === 'string' ? html : '';
