@@ -3,6 +3,7 @@ import {
   ConflictException,
   HttpException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
@@ -59,8 +60,33 @@ const FAMILY: Record<string, string> = {
   FTBA: 'modded',
   PACKWIZ: 'modded',
 };
-const familyOf = (type: string): string => FAMILY[type] || 'vanilla';
-const flavorLabel = (type: string): string => FLAVOR_LABEL[type] || type;
+// No canonical server-flavor registry exists anywhere in the codebase to
+// derive these from — servers/, mods/ (PLUGIN_TYPES), and the frontend
+// wizard each keep their own independent grouping for their own purpose, so
+// there's nothing single-source-of-truth to point at here. Instead: warn
+// once per unrecognized type so a flavor missing from these maps surfaces in
+// the logs instead of silently falling back to the wrong label/family.
+const unknownFlavorLogger = new Logger('WorldTransferService:flavorMaps');
+const warnedUnknownFlavors = new Set<string>();
+function warnUnknownFlavorOnce(type: string): void {
+  if (warnedUnknownFlavors.has(type)) return;
+  warnedUnknownFlavors.add(type);
+  unknownFlavorLogger.warn(
+    `server type "${type}" is missing from FLAVOR_LABEL/FAMILY — compat warnings for it will use a generic fallback`,
+  );
+}
+// FLAVOR_LABEL lists every flavor this module knows about, including ones
+// that intentionally default to the 'vanilla' family (VANILLA, CUSTOM) —
+// so it's the right membership check for "is this type known at all",
+// even from familyOf().
+const familyOf = (type: string): string => {
+  if (!(type in FLAVOR_LABEL)) warnUnknownFlavorOnce(type);
+  return FAMILY[type] || 'vanilla';
+};
+const flavorLabel = (type: string): string => {
+  if (!(type in FLAVOR_LABEL)) warnUnknownFlavorOnce(type);
+  return FLAVOR_LABEL[type] || type;
+};
 
 export interface CompatWorld {
   flavor?: string | null;
@@ -332,7 +358,12 @@ export class WorldTransferService {
         );
       }
       for (const e of dimTops) {
-        const suffix = e.name.endsWith('_the_end') ? '_the_end' : '_nether';
+        // dimTops was filtered via isDimName(), so dimBase() is guaranteed
+        // non-null here; deriving the suffix from it (rather than a
+        // hardcoded _the_end/_nether ternary) means a third DIM_SUFFIXES
+        // entry is honored automatically.
+        const base = this.archive.dimBase(e.name)!;
+        const suffix = e.name.slice(base.length);
         await this.archive.moveEntry(
           path.join(tmpDir, e.name),
           this.pathGuard.dataPath('servers', serverId, targetLevel + suffix),
