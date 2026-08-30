@@ -5,6 +5,7 @@ node_modules/
 public/css/app.css
 .env
 backend/dist/
+backend/tsconfig.tsbuildinfo
 backend/tsconfig.build.tsbuildinfo
 
 
