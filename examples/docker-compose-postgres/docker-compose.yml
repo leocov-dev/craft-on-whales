@@ -42,7 +42,7 @@ services:
       # Pin the session/crypto secret instead of the auto-generated one:
       # SESSION_SECRET: change-me-to-a-long-random-string
     volumes:
-      - ${DATA_DIR_HOST}:/data
+      - ${DATA_DIR_HOST:-${PWD}/data}:/data
       # World data, mods, and backups still live under /data — only the
       # panel's own database moves to Postgres.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -56,7 +56,7 @@ services:
       POSTGRES_PASSWORD: panel
       POSTGRES_DB: panel
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U panel -d panel']
       interval: 5s
