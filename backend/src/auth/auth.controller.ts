@@ -78,6 +78,14 @@ export class AuthController {
     );
     recent.push(nowMs);
     this.setupHits.set(userId, recent);
+    // Evict once the window has fully elapsed — otherwise this Map grows by
+    // one stale empty-array entry per distinct userId for the life of the
+    // process. A stale entry is worth pruning on any hit, not just this
+    // user's own, since it's a cheap opportunistic sweep.
+    for (const [id, hits] of this.setupHits) {
+      if (hits.every((t) => nowMs - t >= SETUP_WINDOW_MS))
+        this.setupHits.delete(id);
+    }
     return recent.length <= SETUP_MAX;
   }
 
@@ -133,11 +141,6 @@ export class AuthController {
           level: docker.available ? 'pass' : 'warn', // panel works without Docker; lifecycle features just wait
           available: docker.available,
           version: docker.version,
-          os: docker.os,
-          ncpu: docker.ncpu,
-          memTotal: docker.memTotal,
-          installed: docker.installed,
-          isDockerDesktop: docker.isDockerDesktop,
           error: docker.error,
         },
         node: {
