@@ -4,6 +4,7 @@ import {
   BadGatewayException,
 } from '@nestjs/common';
 import { ApiCacheService } from './api-cache.service';
+import { indexSchema } from './gtnh-api.schemas';
 
 // GT New Horizons release-index client.
 //
@@ -26,14 +27,6 @@ export interface GtnhVersionEntry {
   releaseDate: string | null;
   maxJavaVersion: number | null;
   changelogUrl: string | null;
-}
-
-/** Shape of one raw entry in the upstream versions.json index. */
-interface RawGtnhEntry {
-  title?: unknown;
-  releaseDate?: unknown;
-  maxJavaVersion?: unknown;
-  description?: unknown;
 }
 
 @Injectable()
@@ -70,25 +63,24 @@ export class GtnhApiService {
    * Pure: no network, no db — this is the part under test.
    */
   normalizeIndex(raw: unknown): GtnhVersionEntry[] {
-    if (!raw || typeof raw !== 'object') return [];
+    const parsed = indexSchema.safeParse(raw);
+    if (!parsed.success) return [];
     // No serverUrl here on purpose: the itzg image downloads the pack itself,
     // keyed by GTNH_PACK_VERSION — the panel never fetches the archive.
-    return Object.entries(raw as Record<string, RawGtnhEntry>).map(
-      ([version, entry]) => {
-        const e = entry || {};
-        return {
-          version,
-          channel: /beta/i.test(typeof e.title === 'string' ? e.title : '')
-            ? 'beta'
-            : 'stable',
-          releaseDate: (e.releaseDate as string | undefined) || null,
-          maxJavaVersion: Number.isInteger(e.maxJavaVersion)
-            ? (e.maxJavaVersion as number)
-            : null,
-          changelogUrl: this.safeChangelogUrl(e.description),
-        };
-      },
-    );
+    return Object.entries(parsed.data).map(([version, entry]) => {
+      const e = entry || {};
+      return {
+        version,
+        channel: /beta/i.test(typeof e.title === 'string' ? e.title : '')
+          ? 'beta'
+          : 'stable',
+        releaseDate: typeof e.releaseDate === 'string' ? e.releaseDate : null,
+        maxJavaVersion: Number.isInteger(e.maxJavaVersion)
+          ? (e.maxJavaVersion as number)
+          : null,
+        changelogUrl: this.safeChangelogUrl(e.description),
+      };
+    });
   }
 
   filterVersions(

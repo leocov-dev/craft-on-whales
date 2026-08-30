@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ApiCacheService } from './api-cache.service';
+import {
+  fabricLoaderListSchema,
+  neoforgeVersionsSchema,
+  forgePromotionsSchema,
+} from './loader-versions.schemas';
 
 // Loader BUILD versions for the "From mods" wizard, so a server can pin a
 // specific Fabric/Quilt/NeoForge/Forge loader instead of always tracking latest.
@@ -36,10 +41,7 @@ const ENV_KEY: Record<string, string> = {
   forge: 'FORGE_VERSION',
 };
 
-interface FabricLoaderVersion {
-  version?: string;
-  stable?: boolean;
-}
+type FabricLoaderVersion = { version?: string; stable?: boolean };
 
 @Injectable()
 export class LoaderVersionsService {
@@ -70,10 +72,12 @@ export class LoaderVersionsService {
 
   // Fabric & Quilt loader versions are independent of the Minecraft version.
   private async fabricBuilds(): Promise<LoaderBuild[]> {
-    const list = (await this.cachedJson(
-      'loader:fabric',
-      'https://meta.fabricmc.net/v2/versions/loader',
-    )) as FabricLoaderVersion[] | null | undefined;
+    const list = fabricLoaderListSchema.parse(
+      await this.cachedJson(
+        'loader:fabric',
+        'https://meta.fabricmc.net/v2/versions/loader',
+      ),
+    );
     return (list || [])
       .filter(
         (
@@ -89,10 +93,12 @@ export class LoaderVersionsService {
   }
 
   private async quiltBuilds(): Promise<LoaderBuild[]> {
-    const list = (await this.cachedJson(
-      'loader:quilt',
-      'https://meta.quiltmc.org/v3/versions/loader',
-    )) as FabricLoaderVersion[] | null | undefined;
+    const list = fabricLoaderListSchema.parse(
+      await this.cachedJson(
+        'loader:quilt',
+        'https://meta.quiltmc.org/v3/versions/loader',
+      ),
+    );
     return (list || [])
       .filter(
         (
@@ -113,10 +119,12 @@ export class LoaderVersionsService {
   private async neoforgeBuilds(
     mc: string | null | undefined,
   ): Promise<LoaderBuild[]> {
-    const data = (await this.cachedJson(
-      'loader:neoforge',
-      'https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge',
-    )) as { versions?: string[] };
+    const data = neoforgeVersionsSchema.parse(
+      await this.cachedJson(
+        'loader:neoforge',
+        'https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge',
+      ),
+    );
     const all = (data.versions || []).slice().reverse(); // maven returns ascending; newest first
     const prefix = this.neoforgePrefix(mc);
     const matched = prefix ? all.filter((v) => v.startsWith(prefix)) : all;
@@ -132,10 +140,12 @@ export class LoaderVersionsService {
   private async forgeBuilds(
     mc: string | null | undefined,
   ): Promise<LoaderBuild[]> {
-    const data = (await this.cachedJson(
-      'loader:forge',
-      'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json',
-    )) as { promos?: Record<string, string> };
+    const data = forgePromotionsSchema.parse(
+      await this.cachedJson(
+        'loader:forge',
+        'https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json',
+      ),
+    );
     const promos = data.promos || {};
     const recommended = promos[`${mc}-recommended`];
     const latest = promos[`${mc}-latest`];

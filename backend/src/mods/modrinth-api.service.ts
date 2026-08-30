@@ -4,6 +4,7 @@ import {
   HttpException,
   BadGatewayException,
 } from '@nestjs/common';
+import type { ZodType } from 'zod';
 import { ApiCacheService } from './api-cache.service';
 import type {
   ModrinthSearchHit,
@@ -12,6 +13,12 @@ import type {
   ModrinthVersion,
   ModrinthFile,
 } from './mods.types';
+import {
+  searchResponseSchema,
+  projectSchema,
+  versionSchema,
+  versionListSchema,
+} from './modrinth-api.schemas';
 
 const BASE = 'https://api.modrinth.com/v2';
 const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
@@ -19,17 +26,6 @@ const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
 interface MrFetchOptions {
   ttlMs?: number;
   search?: Record<string, string>;
-}
-
-interface ModrinthSearchHitRaw {
-  project_id: string;
-  slug: string;
-  title: string;
-  description: string;
-  icon_url?: string | null;
-  downloads: number;
-  categories: string[];
-  latest_version: string;
 }
 
 export interface ModrinthSearchParams {
@@ -46,8 +42,9 @@ export interface ModrinthSearchParams {
 export class ModrinthApiService {
   constructor(private readonly cache: ApiCacheService) {}
 
-  private async mrFetch<T = unknown>(
+  private async mrFetch<T>(
     pathname: string,
+    schema: ZodType<T>,
     { ttlMs = 10 * 60 * 1000, search }: MrFetchOptions = {},
   ): Promise<T> {
     const url = new URL(BASE + pathname);
@@ -55,13 +52,13 @@ export class ModrinthApiService {
       for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
     const cacheKey = `modrinth:${url.pathname}${url.search}`;
     const cached = await this.cache.get(cacheKey);
-    if (cached && cached.ageMs < ttlMs) return cached.value as T;
+    if (cached && cached.ageMs < ttlMs) return schema.parse(cached.value);
     const res = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },
       signal: AbortSignal.timeout(15000),
     });
     if (res.status === 429) {
-      if (cached) return cached.value as T;
+      if (cached) return schema.parse(cached.value);
       throw new HttpException(
         'Modrinth rate limit hit — try again in a minute',
         429,
@@ -71,8 +68,16 @@ export class ModrinthApiService {
       throw new NotFoundException('Not found on Modrinth');
     if (!res.ok)
       throw new BadGatewayException(`Modrinth answered HTTP ${res.status}`);
-    const data = (await res.json()) as T;
-    void this.cache.set(cacheKey, data).catch(() => undefined);
+    const json: unknown = await res.json();
+    let data: T;
+    try {
+      data = schema.parse(json);
+    } catch {
+      throw new BadGatewayException(
+        `Modrinth returned an unexpected response shape for ${pathname}`,
+      );
+    }
+    void this.cache.set(cacheKey, json).catch(() => undefined);
     return data;
   }
 
@@ -96,19 +101,16 @@ export class ModrinthApiService {
     if (loader && kind !== 'plugin')
       facets.push([`categories:${loader.toLowerCase()}`]);
     if (mcVersion) facets.push([`versions:${mcVersion}`]);
-    const data = await this.mrFetch<{ hits: ModrinthSearchHitRaw[] }>(
-      '/search',
-      {
-        search: {
-          query,
-          limit: String(limit),
-          offset: String(offset),
-          index: 'relevance',
-          facets: JSON.stringify(facets),
-        },
-        ttlMs: 5 * 60 * 1000,
+    const data = await this.mrFetch('/search', searchResponseSchema, {
+      search: {
+        query,
+        limit: String(limit),
+        offset: String(offset),
+        index: 'relevance',
+        facets: JSON.stringify(facets),
       },
-    );
+      ttlMs: 5 * 60 * 1000,
+    });
     return data.hits.map((h) => ({
       projectId: h.project_id,
       slug: h.slug,
@@ -122,8 +124,9 @@ export class ModrinthApiService {
   }
 
   getProject(idOrSlug: string): Promise<ModrinthProject> {
-    return this.mrFetch<ModrinthProject>(
+    return this.mrFetch(
       `/project/${encodeURIComponent(idOrSlug)}`,
+      projectSchema,
       { ttlMs: 30 * 60 * 1000 },
     );
   }
@@ -136,15 +139,17 @@ export class ModrinthApiService {
     const search: Record<string, string> = {};
     if (loader) search.loaders = JSON.stringify([loader.toLowerCase()]);
     if (mcVersion) search.game_versions = JSON.stringify([mcVersion]);
-    return this.mrFetch<ModrinthVersion[]>(
+    return this.mrFetch(
       `/project/${encodeURIComponent(idOrSlug)}/version`,
+      versionListSchema,
       { search, ttlMs: 10 * 60 * 1000 },
     );
   }
 
   getVersion(versionId: string): Promise<ModrinthVersion> {
-    return this.mrFetch<ModrinthVersion>(
+    return this.mrFetch(
       `/version/${encodeURIComponent(versionId)}`,
+      versionSchema,
       { ttlMs: 60 * 60 * 1000 },
     );
   }
@@ -167,8 +172,9 @@ export class ModrinthApiService {
     const project = await this.getProject(slug);
     let versionId: string | null = null;
     if (versionRef) {
-      const versions = await this.mrFetch<ModrinthVersion[]>(
+      const versions = await this.mrFetch(
         `/project/${project.id}/version`,
+        versionListSchema,
         { ttlMs: 10 * 60 * 1000 },
       );
       const v = versions.find(
