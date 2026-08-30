@@ -5,6 +5,7 @@ import { parseBody } from '../utils/parse-body';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { currentUser } from '../auth/current-user';
 
 /** Ports the "API keys" section of legacy `src/web/routes/api.ts`. */
 @Controller('api/keys')
@@ -29,7 +30,9 @@ export class ApiKeysController {
     );
     const test = await this.apiKeys.testCurseForgeKey(key);
     if (!test.ok) return { ok: false, error: test.error };
-    await this.apiKeys.setKey('curseforge', key, { actor: req.user!.username });
+    await this.apiKeys.setKey('curseforge', key, {
+      actor: currentUser(req).username,
+    });
     return { ok: true };
   }
 

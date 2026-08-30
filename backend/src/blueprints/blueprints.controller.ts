@@ -30,6 +30,7 @@ import {
   type DecoratedBlueprint,
 } from './blueprints-library.service';
 import type { BlueprintViewModel } from '../../../shared/types/blueprints';
+import { currentUser } from '../auth/current-user';
 
 // Shared "Advanced Docker Settings" fields — ports `dockerOverridesSchema.ts`.
 const dockerOverridesSchema = {
@@ -166,7 +167,7 @@ export class BlueprintsController {
         embedFiles: input.embedFiles,
         includeWorld: input.includeWorld,
       },
-      { actor: req.user!.username },
+      { actor: currentUser(req).username },
     );
     return {
       ok: true,
@@ -241,7 +242,7 @@ export class BlueprintsController {
       const { server, report } = await this.importService.importBlueprint(
         zipRef as string,
         input.overrides || {},
-        { actor: req.user!.username },
+        { actor: currentUser(req).username },
       );
       return { ok: true, server: publicServer(server), report };
     } finally {
@@ -261,7 +262,7 @@ export class BlueprintsController {
     );
     const { server, report, blueprint } = await this.importService.cloneServer(
       input.serverId,
-      { includeWorld: input.includeWorld, actor: req.user!.username },
+      { includeWorld: input.includeWorld, actor: currentUser(req).username },
     );
     return {
       ok: true,
@@ -283,7 +284,7 @@ export class BlueprintsController {
     return {
       ok: true,
       ...(await this.library.deleteBlueprint(id, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }

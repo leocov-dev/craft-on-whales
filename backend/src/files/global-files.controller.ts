@@ -21,6 +21,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { FilesService } from './files.service';
 import { UploadPreflightInterceptor } from './upload-preflight.interceptor';
+import { currentUser } from '../auth/current-user';
 
 const pathSchema = z.string().max(4096).default('');
 const nameSchema = z
@@ -81,7 +82,9 @@ export class GlobalFilesController {
     const { path: rel } = parseBody(z.object({ path: pathSchema }), body);
     return {
       ok: true,
-      ...(await this.files.mkdir(null, rel, { actor: req.user!.username })),
+      ...(await this.files.mkdir(null, rel, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -94,7 +97,7 @@ export class GlobalFilesController {
     return {
       ok: true,
       ...(await this.files.rename(null, rel, newName, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -108,7 +111,7 @@ export class GlobalFilesController {
     return {
       ok: true,
       ...(await this.files.move(null, rel, dest, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -122,7 +125,7 @@ export class GlobalFilesController {
     return {
       ok: true,
       ...(await this.files.copy(null, rel, dest, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -132,7 +135,9 @@ export class GlobalFilesController {
     const rel = parseBody(pathSchema, path ?? '');
     return {
       ok: true,
-      ...(await this.files.remove(null, rel, { actor: req.user!.username })),
+      ...(await this.files.remove(null, rel, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -151,7 +156,7 @@ export class GlobalFilesController {
       for (const f of uploadedFiles) {
         uploaded.push(
           await this.files.acceptUpload(null, rel, f.path, f.originalname, {
-            actor: req.user!.username,
+            actor: currentUser(req).username,
           }),
         );
       }

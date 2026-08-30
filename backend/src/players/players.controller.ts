@@ -17,6 +17,7 @@ import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
 import { playerNameSchema } from '../utils/player-name';
+import { currentUser } from '../auth/current-user';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -116,7 +117,7 @@ export class PlayersController {
     } catch {
       /* docker down — fall back to file edits */
     }
-    return { server, ctx: { running, actor: req.user!.username } };
+    return { server, ctx: { running, actor: currentUser(req).username } };
   }
 
   @Get()

@@ -17,6 +17,7 @@ import type {
   ScheduleViewModel,
   TaskTypeOption,
 } from '../../../shared/types/schedules';
+import { currentUser } from '../auth/current-user';
 
 /** Ports the "Schedules" section of legacy `src/web/routes/api.ts`. */
 @Controller('api/schedules')
@@ -87,7 +88,7 @@ export class SchedulesController {
         payload: input.payload,
         enabled: input.enabled !== false,
       },
-      { actor: req.user!.username },
+      { actor: currentUser(req).username },
     );
     return { ok: true, schedule };
   }
@@ -99,13 +100,17 @@ export class SchedulesController {
     @Body() body: unknown,
   ) {
     const { enabled } = parseBody(z.object({ enabled: z.boolean() }), body);
-    await this.scheduler.setEnabled(id, enabled, { actor: req.user!.username });
+    await this.scheduler.setEnabled(id, enabled, {
+      actor: currentUser(req).username,
+    });
     return { ok: true };
   }
 
   @Delete(':id')
   async remove(@Req() req: Request, @Param('id') id: string) {
-    await this.scheduler.deleteSchedule(id, { actor: req.user!.username });
+    await this.scheduler.deleteSchedule(id, {
+      actor: currentUser(req).username,
+    });
     return { ok: true };
   }
 }

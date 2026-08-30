@@ -32,6 +32,7 @@ import {
   fromModsSchema,
 } from './mod-browser-orchestrator.service';
 import { requireAdminForOverrides } from '../api/docker-overrides.schema';
+import { currentUser } from '../auth/current-user';
 
 /**
  * Installed-mod CRUD for one server. Ports the `/servers/:id/mods*` and
@@ -68,7 +69,7 @@ export class ModsController {
       body,
     );
     const result = await this.mods.installFromUrl(id, url, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
       kind,
     });
     return {
@@ -101,7 +102,7 @@ export class ModsController {
       body,
     );
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
 
     const [row] = contentId
       ? await this.db
@@ -205,7 +206,7 @@ export class ModsController {
     return {
       ok: true,
       ...(await this.mods.setEnabled(id, file, enabled, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -219,7 +220,7 @@ export class ModsController {
     return {
       ok: true,
       ...(await this.mods.removeContent(id, file, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -242,7 +243,9 @@ export class ModsController {
       body,
     );
     const token = this.mods.pendingExcludeToken(id, filename);
-    await this.mods.excludePackMod(id, token, { actor: req.user!.username });
+    await this.mods.excludePackMod(id, token, {
+      actor: currentUser(req).username,
+    });
     this.mods.clearPendingLine(id, filename);
     return { ok: true, excluded: token, mods: this.mods.pendingDownloads(id) };
   }
@@ -271,7 +274,7 @@ export class ModsController {
         id,
         file.path,
         file.originalname,
-        { excludeToken, actor: req.user!.username },
+        { excludeToken, actor: currentUser(req).username },
       );
       if (excludeFilename) this.mods.clearPendingLine(id, excludeFilename);
       return { ok: true, ...result, mods: this.mods.pendingDownloads(id) };
@@ -397,7 +400,7 @@ export class ModBrowserController {
   fromMods(@Req() req: Request, @Body() body: unknown) {
     const input = parseBody(fromModsSchema, body);
     requireAdminForOverrides(req, input);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.orchestrator.createFromMods(input, actor);
     return { ok: true, taskId };
   }

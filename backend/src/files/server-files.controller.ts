@@ -24,6 +24,7 @@ import { Roles } from '../auth/roles.decorator';
 import { ServerQueryService } from '../servers/server-query.service';
 import { FilesService } from './files.service';
 import { UploadPreflightInterceptor } from './upload-preflight.interceptor';
+import { currentUser } from '../auth/current-user';
 
 const pathSchema = z.string().max(4096).default('');
 const nameSchema = z
@@ -102,7 +103,9 @@ export class ServerFilesController {
     const { path: rel } = parseBody(z.object({ path: pathSchema }), body);
     return {
       ok: true,
-      ...(await this.files.mkdir(id, rel, { actor: req.user!.username })),
+      ...(await this.files.mkdir(id, rel, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -120,7 +123,7 @@ export class ServerFilesController {
     return {
       ok: true,
       ...(await this.files.rename(id, rel, newName, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
@@ -138,7 +141,9 @@ export class ServerFilesController {
     );
     return {
       ok: true,
-      ...(await this.files.move(id, rel, dest, { actor: req.user!.username })),
+      ...(await this.files.move(id, rel, dest, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -155,7 +160,9 @@ export class ServerFilesController {
     );
     return {
       ok: true,
-      ...(await this.files.copy(id, rel, dest, { actor: req.user!.username })),
+      ...(await this.files.copy(id, rel, dest, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -169,7 +176,9 @@ export class ServerFilesController {
     const rel = parseBody(pathSchema, path ?? '');
     return {
       ok: true,
-      ...(await this.files.remove(id, rel, { actor: req.user!.username })),
+      ...(await this.files.remove(id, rel, {
+        actor: currentUser(req).username,
+      })),
     };
   }
 
@@ -190,7 +199,7 @@ export class ServerFilesController {
       for (const f of uploadedFiles) {
         uploaded.push(
           await this.files.acceptUpload(id, rel, f.path, f.originalname, {
-            actor: req.user!.username,
+            actor: currentUser(req).username,
           }),
         );
       }

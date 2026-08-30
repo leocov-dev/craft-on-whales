@@ -14,6 +14,7 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { EventsService } from '../events/events.service';
 import { ChatService } from './chat.service';
 import type { ChatHistoryEntry } from '../../../shared/types/chat';
+import { currentUser } from '../auth/current-user';
 
 const sendSchema = z.object({
   mode: z.enum(['tellraw', 'say']).default('tellraw'),
@@ -47,7 +48,7 @@ export class AdminChatController {
     const input = sendSchema.parse(body);
     const result = await this.chat.sendChat(id, {
       ...input,
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true, ...result };
   }

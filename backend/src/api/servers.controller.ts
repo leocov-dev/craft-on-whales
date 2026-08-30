@@ -31,6 +31,7 @@ import {
   dockerOverridesSchema,
   requireAdminForOverrides,
 } from './docker-overrides.schema';
+import { currentUser } from '../auth/current-user';
 
 export function parseBody<T extends z.ZodType>(
   schema: T,
@@ -183,7 +184,7 @@ export class ServersController {
     const input = parseBody(createSchema, body);
     requireAdminForOverrides(req, input);
     const server = await this.lifecycle.createServer(input, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
       start: input.start !== false,
     });
     return { ok: true, server: publicServer(server) };
@@ -191,31 +192,35 @@ export class ServersController {
 
   @Post('servers/:id/start')
   async start(@Req() req: Request, @Param('id') id: string) {
-    await this.lifecycle.startServer(id, { actor: req.user!.username });
+    await this.lifecycle.startServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/stop')
   async stop(@Req() req: Request, @Param('id') id: string) {
-    await this.lifecycle.stopServer(id, { actor: req.user!.username });
+    await this.lifecycle.stopServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/restart')
   async restart(@Req() req: Request, @Param('id') id: string) {
-    await this.lifecycle.restartServer(id, { actor: req.user!.username });
+    await this.lifecycle.restartServer(id, {
+      actor: currentUser(req).username,
+    });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/kill')
   async kill(@Req() req: Request, @Param('id') id: string) {
-    await this.lifecycle.killServer(id, { actor: req.user!.username });
+    await this.lifecycle.killServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/recreate')
   async recreate(@Req() req: Request, @Param('id') id: string) {
-    await this.lifecycle.recreateServer(id, { actor: req.user!.username });
+    await this.lifecycle.recreateServer(id, {
+      actor: currentUser(req).username,
+    });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
@@ -247,7 +252,7 @@ export class ServersController {
     const { server, needsRecreate } = await this.lifecycle.updateServer(
       id,
       changes,
-      { actor: req.user!.username },
+      { actor: currentUser(req).username },
     );
     return { ok: true, needsRecreate, server: publicServer(server) };
   }
@@ -259,7 +264,7 @@ export class ServersController {
     @Query('keepWorld') keepWorld?: string,
   ) {
     const { freedBytes } = await this.lifecycle.deleteServer(id, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
       keepWorld: keepWorld === 'true',
     });
     return { ok: true, freedBytes };

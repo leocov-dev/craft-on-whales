@@ -30,6 +30,7 @@ import { DbService } from '../db/db.service';
 import { backups } from '../db/schema';
 import { and, desc, eq } from 'drizzle-orm';
 import type { PackSearchResult } from '../../../shared/types/packs';
+import { currentUser } from '../auth/current-user';
 
 function sanitizePackHtml(html: unknown): string {
   const htmlStr = typeof html === 'string' ? html : '';
@@ -162,7 +163,7 @@ export class PacksController {
     );
     const resolved = await this.packs.resolvePack(platform, ref, { versionId });
     await this.packs.applyPack(id, resolved, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
       force,
     });
     return {
@@ -191,7 +192,7 @@ export class PacksController {
       body,
     );
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       `Upgrading pack on ${server.display_name}`,
       { serverId: server.id, actor },
@@ -227,7 +228,7 @@ export class PacksController {
       body,
     );
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const [preUpdateBackup] = await this.db
       .select({ id: backups.id })
       .from(backups)
@@ -460,7 +461,7 @@ export class PacksController {
         ),
       body,
     );
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       `Creating ${input.name} from a ${input.platform} pack`,
       { actor },

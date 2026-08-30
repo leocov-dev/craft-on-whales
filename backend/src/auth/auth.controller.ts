@@ -29,6 +29,7 @@ import type {
   SessionUser,
   SetupChecks,
 } from '../../../shared/types/auth';
+import { currentUser } from './current-user';
 
 const loginSchema = z.object({
   username: z.string().trim().min(1).max(64),
@@ -281,7 +282,7 @@ export class AuthController {
   // requests, so a successful response here always has req.user populated.
   @Get('api/session')
   session(@Req() req: Request): { ok: true; user: SessionUser } {
-    const user = req.user!;
+    const user = currentUser(req);
     return {
       ok: true,
       user: {
@@ -302,14 +303,14 @@ export class AuthController {
   @AllowViewerWrite()
   @Post('api/account/totp/setup')
   async totpSetup(@Req() req: Request) {
-    if (!this.throttleSetup(req.user!.id, Date.now())) {
+    if (!this.throttleSetup(currentUser(req).id, Date.now())) {
       throw new HttpException(
         'Too many 2FA setup attempts — wait a minute and try again.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
     const { secret, otpauthUrl } = await this.authService.beginTotpEnrollment(
-      req.user!.id,
+      currentUser(req).id,
     );
     const qrDataUrl = await QRCode.toDataURL(otpauthUrl, {
       margin: 1,
@@ -324,22 +325,22 @@ export class AuthController {
   @Post('api/account/totp/confirm')
   async confirmTotp(@Req() req: Request) {
     const { secret, code, password } = parseBody(confirmTotpSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     let result: { backupCodes: string[] };
     try {
       result = await this.authService.confirmTotp(
-        req.user!.id,
+        currentUser(req).id,
         secret,
         code,
         password,
-        { actor: req.user!.username },
+        { actor: currentUser(req).username },
       );
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true, backupCodes: result.backupCodes };
   }
 
@@ -347,17 +348,17 @@ export class AuthController {
   @Post('api/account/totp/disable')
   async disableTotp(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     try {
-      await this.authService.disableTotp(req.user!.id, password, {
-        actor: req.user!.username,
+      await this.authService.disableTotp(currentUser(req).id, password, {
+        actor: currentUser(req).username,
       });
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true };
   }
 
@@ -365,20 +366,20 @@ export class AuthController {
   @Post('api/account/totp/backup-codes/regenerate')
   async regenerateBackupCodes(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     let result: { backupCodes: string[] };
     try {
       result = await this.authService.regenerateBackupCodes(
-        req.user!.id,
+        currentUser(req).id,
         password,
-        { actor: req.user!.username },
+        { actor: currentUser(req).username },
       );
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true, backupCodes: result.backupCodes };
   }
 }

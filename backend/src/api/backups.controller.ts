@@ -26,6 +26,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { parseBody } from '../utils/parse-body';
 import type { BackupRow, ServerBackupRow } from '../../../shared/types/backups';
+import { currentUser } from '../auth/current-user';
 
 const createSchema = z.object({
   note: z.string().trim().max(500).optional(),
@@ -114,7 +115,7 @@ export class BackupsController {
     @Body() body: unknown,
   ) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const { note = '' } = parseBody(createSchema, body ?? {});
     const taskId = this.tasks.run(
       `Backing up ${server.display_name}`,
@@ -146,7 +147,7 @@ export class BackupsController {
     @Param('backupId') backupId: string,
   ) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       `Restoring backup on ${server.display_name}`,
       { serverId: server.id, actor },
@@ -178,7 +179,7 @@ export class BackupsController {
   @Delete('backups/:backupId')
   async remove(@Req() req: Request, @Param('backupId') backupId: string) {
     const result = await this.backupsService.deleteBackup(backupId, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true, ...result };
   }

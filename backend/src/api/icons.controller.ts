@@ -22,6 +22,7 @@ import { eq } from 'drizzle-orm';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
+import { currentUser } from '../auth/current-user';
 
 const ICON_MAX_BYTES = 512 * 1024;
 const ICON_EXTS: Record<string, string> = {
@@ -97,7 +98,7 @@ export class IconsController {
         .where(eq(servers.id, server.id));
       this.events.recordEvent({
         serverId: server.id,
-        actor: req.user!.username,
+        actor: currentUser(req).username,
         type: 'config-changed',
         summary: 'Custom server icon uploaded',
       });

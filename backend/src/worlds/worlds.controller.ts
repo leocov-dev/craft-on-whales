@@ -26,9 +26,10 @@ import { libraryFiles } from '../db/schema';
 import { WorldOperationsService } from './world-operations.service';
 import { WorldLibraryService } from './world-library.service';
 import type { SimpleWorld } from '../../../shared/types/worlds';
+import { currentUser } from '../auth/current-user';
 
 function actorOf(req: Request): string {
-  return req.user!.username;
+  return currentUser(req).username;
 }
 const worldNameSchema = z
   .string()

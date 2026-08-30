@@ -24,6 +24,7 @@ import { EventsService } from '../events/events.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { EventViewModel } from '../../../shared/types/events';
+import { currentUser } from '../auth/current-user';
 
 const ACTIVITY_PER_PAGE = 50;
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
@@ -193,7 +194,7 @@ export class EventsController {
       body,
     );
     const { removed } = await this.eventsService.pruneEvents(days, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true, removed };
   }

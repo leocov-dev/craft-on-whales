@@ -20,6 +20,7 @@ import { ChatCommandsRuntimeService } from './chat-commands-runtime.service';
 import { PLAYER_NAME_RE } from '../utils/player-name';
 import type { HydratedCommand } from './chat.types';
 import type { ChatCommand } from '../../../shared/types/chat-commands';
+import { currentUser } from '../auth/current-user';
 
 /**
  * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
@@ -135,7 +136,7 @@ export class ChatCommandsController {
     await this.requireServer(id);
     const input = parseBody(createSchema, req.body);
     const command = await this.chatCommands.createCommand(id, input, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return {
       ok: true,
@@ -154,7 +155,7 @@ export class ChatCommandsController {
     await this.requireServer(id);
     const changes = parseBody(patchSchema, req.body);
     const command = await this.chatCommands.updateCommand(id, cmdId, changes, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return {
       ok: true,
@@ -172,7 +173,7 @@ export class ChatCommandsController {
   ) {
     await this.requireServer(id);
     await this.chatCommands.deleteCommand(id, cmdId, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true };
   }
@@ -206,7 +207,7 @@ export class ChatCommandsController {
       cmdId,
       player,
       {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       },
     );
     return { ok: true, ...result };
@@ -222,7 +223,7 @@ export class ChatCommandsController {
     return {
       ok: true,
       ...(await this.chatCommands.setPrefix(id, prefix, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }
