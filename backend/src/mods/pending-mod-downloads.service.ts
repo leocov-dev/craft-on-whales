@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { PathGuardService } from '../storage/path-guard.service';
 import type { PendingDownload } from '../../../shared/types/mods';
@@ -15,6 +15,8 @@ export type { PendingDownload };
  */
 @Injectable()
 export class PendingModDownloadsService {
+  private readonly logger = new Logger(PendingModDownloadsService.name);
+
   constructor(private readonly pathGuard: PathGuardService) {}
 
   /** Parse MODS_NEED_DOWNLOAD.txt text → [{ name, versionName, filename, url, slug, fileId }]. */
@@ -90,8 +92,13 @@ export class PendingModDownloadsService {
       if (kept.some((l) => /curseforge\.com/i.test(l)))
         fs.writeFileSync(file, kept.join('\n'));
       else fs.rmSync(file, { force: true });
-    } catch {
-      /* ownership not aligned yet — the banner clears on the next successful start */
+    } catch (err) {
+      // ownership not aligned yet — the banner clears on the next successful
+      // start, but still worth a log line since this silently leaves a
+      // stale/incorrect pending-download banner until then.
+      this.logger.warn(
+        `failed to update ${file}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

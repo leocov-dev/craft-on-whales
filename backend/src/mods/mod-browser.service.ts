@@ -17,6 +17,7 @@ import type {
 
 const MAX_DEPS = 50; // safety cap on the resolved-dependency closure
 const MAX_ITER = 300; // recursion guard
+const DEP_BATCH_SIZE = 5; // concurrency cap per BFS level in resolveDependencies()
 
 function normMc(mc: string | null | undefined): string | undefined {
   const v = String(mc || '').trim();
@@ -286,50 +287,74 @@ export class ModBrowserService {
         queue.push({ platform: item.platform, projectId: pid });
     }
 
+    // Processed a batch (BFS "level") at a time instead of one node per
+    // network round trip — siblings already in the queue don't depend on
+    // each other, so their metaFor()/versions() lookups can run concurrently;
+    // only newly-discovered deps (pushed after a batch resolves) have to
+    // wait for their parent's batch to finish.
     let iter = 0;
     while (queue.length && iter < MAX_ITER && deps.length < MAX_DEPS) {
-      iter += 1;
-      const node = queue.shift()!;
-      const k = this.depKey(node.platform, node.projectId);
-      if (have.has(k)) continue;
-      have.add(k);
-
-      let meta: ModMeta;
-      try {
-        meta = await this.metaFor(node.platform, node.projectId);
-      } catch {
-        continue; // unresolvable id — skip quietly
+      const batch: QueueNode[] = [];
+      while (
+        queue.length &&
+        batch.length < DEP_BATCH_SIZE &&
+        iter + batch.length < MAX_ITER
+      ) {
+        const node = queue.shift()!;
+        const k = this.depKey(node.platform, node.projectId);
+        if (have.has(k)) continue;
+        have.add(k);
+        batch.push(node);
       }
-      let vers: ModVersion[] = [];
-      try {
-        vers = await this.versions({
+      if (!batch.length) continue;
+      iter += batch.length;
+
+      const resolved = await Promise.all(
+        batch.map(async (node) => {
+          let meta: ModMeta;
+          try {
+            meta = await this.metaFor(node.platform, node.projectId);
+          } catch {
+            return null; // unresolvable id — skip quietly
+          }
+          let vers: ModVersion[] = [];
+          try {
+            vers = await this.versions({
+              platform: node.platform,
+              ref: meta.ref,
+              loader,
+              mc,
+            });
+          } catch {
+            vers = [];
+          }
+          return { node, meta, vers };
+        }),
+      );
+
+      for (const r of resolved) {
+        if (!r || deps.length >= MAX_DEPS) continue;
+        const { node, meta, vers } = r;
+        if (!vers.length) {
+          warnings.push(
+            `${meta.name} has no ${loader}${mc ? ` ${mc}` : ''} build — skipped`,
+          );
+          continue;
+        }
+        const chosen = vers[0]!; // newest compatible build
+        deps.push({
           platform: node.platform,
           ref: meta.ref,
-          loader,
-          mc,
+          projectId: meta.projectId,
+          name: meta.name,
+          iconUrl: meta.iconUrl,
+          versions: vers,
+          versionId: chosen.versionId,
         });
-      } catch {
-        vers = [];
+        // Recurse into this dependency's own required deps.
+        for (const pid of chosen.requiredDeps)
+          queue.push({ platform: node.platform, projectId: pid });
       }
-      if (!vers.length) {
-        warnings.push(
-          `${meta.name} has no ${loader}${mc ? ` ${mc}` : ''} build — skipped`,
-        );
-        continue;
-      }
-      const chosen = vers[0]!; // newest compatible build
-      deps.push({
-        platform: node.platform,
-        ref: meta.ref,
-        projectId: meta.projectId,
-        name: meta.name,
-        iconUrl: meta.iconUrl,
-        versions: vers,
-        versionId: chosen.versionId,
-      });
-      // Recurse into this dependency's own required deps.
-      for (const pid of chosen.requiredDeps)
-        queue.push({ platform: node.platform, projectId: pid });
     }
 
     return { deps, warnings };

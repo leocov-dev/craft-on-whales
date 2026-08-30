@@ -1,11 +1,33 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
+import { z } from 'zod';
 import { PathGuardService } from '../storage/path-guard.service';
 
 export interface ManifestEntry {
   slug: string | null;
   projectId: string | null;
 }
+
+// Shape of the one kind of leaf object this walk actually extracts data
+// from — validated via safeParse instead of ad-hoc `typeof`/`??` chains.
+// `.passthrough()` since the manifest carries plenty of other fields per
+// entry that are irrelevant here.
+const manifestLeafSchema = z
+  .object({
+    fileName: z.string().optional(),
+    filename: z.string().optional(),
+    slug: z.string().optional(),
+    projectSlug: z.string().optional(),
+    projectID: z.union([z.string(), z.number()]).optional(),
+    projectId: z.union([z.string(), z.number()]).optional(),
+    modId: z.union([z.string(), z.number()]).optional(),
+  })
+  .passthrough();
+
+// A malicious/corrupt manifest could nest arbitrarily deep or contain huge
+// arrays — bound both dimensions of the recursive walk below.
+const MAX_VISIT_DEPTH = 32;
+const MAX_VISIT_NODES = 50_000;
 
 /**
  * Reads a pack server's `.curseforge-manifest.json` (written by mc-image-helper
@@ -35,35 +57,36 @@ export class ModManifestService {
     } catch {
       return map;
     }
-    const visit = (node: unknown): void => {
+    let visited = 0;
+    const visit = (node: unknown, depth: number): void => {
+      if (depth > MAX_VISIT_DEPTH || visited >= MAX_VISIT_NODES) return;
+      visited += 1;
       if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) {
-        node.forEach(visit);
+        for (const v of node) visit(v, depth + 1);
         return;
       }
-      const obj = node as Record<string, unknown>;
-      const fname = obj.fileName || obj.filename;
-      const slug = obj.slug || obj.projectSlug;
-      const pid = obj.projectID ?? obj.projectId ?? obj.modId;
-      if (
-        typeof fname === 'string' &&
-        /\.jar$/i.test(fname) &&
-        (slug || pid != null)
-      ) {
-        let projectId: string | null = null;
-        if (typeof pid === 'string' || typeof pid === 'number') {
-          projectId = String(pid);
-        } else if (pid != null) {
-          projectId = JSON.stringify(pid);
+      const parsed = manifestLeafSchema.safeParse(node);
+      if (parsed.success) {
+        const { fileName, filename, slug, projectSlug } = parsed.data;
+        const fname = fileName || filename;
+        const pid =
+          parsed.data.projectID ?? parsed.data.projectId ?? parsed.data.modId;
+        if (
+          fname &&
+          /\.jar$/i.test(fname) &&
+          (slug || projectSlug || pid != null)
+        ) {
+          map.set(fname, {
+            slug: slug || projectSlug || null,
+            projectId: pid == null ? null : String(pid),
+          });
         }
-        map.set(fname, {
-          slug: (slug as string) || null,
-          projectId,
-        });
       }
-      for (const v of Object.values(obj)) visit(v);
+      for (const v of Object.values(node as Record<string, unknown>))
+        visit(v, depth + 1);
     };
-    visit(data);
+    visit(data, 0);
     return map;
   }
 }

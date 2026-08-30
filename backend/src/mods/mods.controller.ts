@@ -34,6 +34,10 @@ import {
 import { requireAdminForOverrides } from '../api/docker-overrides.schema';
 import { currentUser } from '../auth/current-user';
 
+const uploadSchema = z.object({
+  excludeFilename: z.string().trim().min(1).max(300).optional(),
+});
+
 /**
  * Installed-mod CRUD for one server. Ports the `/servers/:id/mods*` and
  * `/servers/:id/pending-downloads*` section of legacy `src/web/routes/api.ts`.
@@ -163,15 +167,15 @@ export class ModsController {
         'No newer version is known — run an update check first',
       );
 
-    let ref: string;
-    if (lib.platform === 'modrinth')
-      ref = `https://modrinth.com/mod/${lib.projectId}/version/${check.latestVersion}`;
-    else if (lib.platform === 'curseforge')
-      ref = `https://www.curseforge.com/minecraft/mc-mods/${lib.projectId}/files/${check.latestVersion}`;
-    else
+    if (lib.platform !== 'modrinth' && lib.platform !== 'curseforge')
       throw new ConflictException(
         `Cannot auto-update content from platform "${lib.platform}"`,
       );
+    const ref = this.mods.refToUrl(
+      lib.platform,
+      lib.projectId,
+      check.latestVersion,
+    );
 
     const wasEnabled = Boolean(row.enabled);
     await this.mods.removeContent(server.id, row.filename, { actor });
@@ -261,11 +265,11 @@ export class ModsController {
     @Req() req: Request,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { excludeFilename?: string },
+    @Body() body: unknown,
   ) {
     await this.serverQuery.mustGet(id);
     if (!file) throw new BadRequestException('No file uploaded');
-    const excludeFilename = body?.excludeFilename || null;
+    const { excludeFilename = null } = parseBody(uploadSchema, body ?? {});
     const excludeToken = excludeFilename
       ? this.mods.pendingExcludeToken(id, excludeFilename)
       : null;

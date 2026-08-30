@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   BadRequestException,
   NotFoundException,
   ConflictException,
@@ -27,6 +28,7 @@ import type {
   PendingDownload,
   ContentKind as SharedContentKind,
 } from '../../../shared/types/mods';
+import type { ModPlatform } from './mods.types';
 
 export type { ContentItem, PendingDownload };
 
@@ -60,6 +62,8 @@ interface ClassifiedModSource {
 
 @Injectable()
 export class ModsService {
+  private readonly logger = new Logger(ModsService.name);
+
   constructor(
     private readonly dbService: DbService,
     private readonly pathGuard: PathGuardService,
@@ -289,6 +293,27 @@ export class ModsService {
   }
 
   /**
+   * Inverse of classifyModSource: build a project (or project+version) page
+   * URL for a platform + ref, the shape installFromUrl accepts. Shared so
+   * mods.controller.ts's update() and mod-browser-orchestrator.service.ts's
+   * fromMods() don't each hand-roll the same URL construction.
+   */
+  refToUrl(
+    platform: ModPlatform,
+    ref: string,
+    versionId?: string | null,
+  ): string {
+    const base =
+      platform === 'curseforge'
+        ? `https://www.curseforge.com/minecraft/mc-mods/${ref}`
+        : `https://modrinth.com/mod/${ref}`;
+    if (!versionId) return base;
+    return platform === 'curseforge'
+      ? `${base}/files/${versionId}`
+      : `${base}/version/${versionId}`;
+  }
+
+  /**
    * Install content from any source reference: direct URL, Modrinth URL/slug,
    * or CurseForge URL. Downloads into the library, links into the server dir,
    * and records an overlay row. onProgress passes through to the download.
@@ -423,7 +448,13 @@ export class ModsService {
       summary: `Custom ${targetKind} installed: ${lib.name}${lib.version ? ` ${lib.version}` : ''} (overlay)`,
       details: { libraryId: lib.id, filename },
     });
-    this.indexer.scan().catch(() => {});
+    this.indexer
+      .scan()
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `background storage-index scan failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
     return { library: lib, filename };
   }
 
@@ -742,7 +773,13 @@ export class ModsService {
       summary: `Uploaded ${targetKind} installed: ${lib.name} (overlay)`,
       details: { filename: installed },
     });
-    this.indexer.scan().catch(() => {});
+    this.indexer
+      .scan()
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `background storage-index scan failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
     return { filename: installed, excluded: excludeToken || null };
   }
 }

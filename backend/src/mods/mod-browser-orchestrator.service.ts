@@ -147,15 +147,7 @@ export class ModBrowserOrchestratorService {
         const failed: string[] = [];
         for (let i = 0; i < input.mods.length; i += 1) {
           const m = input.mods[i]!;
-          const base =
-            m.platform === 'curseforge'
-              ? `https://www.curseforge.com/minecraft/mc-mods/${m.ref}`
-              : `https://modrinth.com/mod/${m.ref}`;
-          const url = m.versionId
-            ? m.platform === 'curseforge'
-              ? `${base}/files/${m.versionId}`
-              : `${base}/version/${m.versionId}`
-            : base;
+          const url = this.mods.refToUrl(m.platform, m.ref, m.versionId);
           t.step(`Installing mod ${i + 1}/${input.mods.length}: ${m.ref}`);
           try {
             await this.mods.installFromUrl(server.id, url, { actor });
