@@ -8,7 +8,7 @@ import {
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import {
   servers,
@@ -772,51 +772,54 @@ export class ServerLifecycleService {
       .from(serverContent)
       .where(eq(serverContent.serverId, id));
     const contentIds = contentRows.map((r) => r.id);
+    // Single source of truth for the delete-cascade: every table + its
+    // where-clause, in FK-safe order. Previously this list was hand-copied
+    // into both branches below — a table added to one and missed in the
+    // other would silently leak rows under that driver.
+    const cascade: Array<[any, SQL]> = [
+      [
+        updateChecks,
+        sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
+      ],
+      ...contentIds.map((cid): [any, SQL] => [
+        updateChecks,
+        sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
+      ]),
+      [schedules, eq(schedules.serverId, id)],
+      [backups, eq(backups.serverId, id)],
+      [serverContent, eq(serverContent.serverId, id)],
+      [serverPacks, eq(serverPacks.serverId, id)],
+      [integrations, eq(integrations.serverId, id)],
+      [playerEvents, eq(playerEvents.serverId, id)],
+      [playerSessions, eq(playerSessions.serverId, id)],
+      [playerStatSnapshots, eq(playerStatSnapshots.serverId, id)],
+      [crashReports, eq(crashReports.serverId, id)],
+      [chatCommands, eq(chatCommands.serverId, id)],
+      [chatCommandSettings, eq(chatCommandSettings.serverId, id)],
+      [
+        storageIndex,
+        sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
+      ],
+    ];
+
     // Drizzle's SQLite (sync-driver) transaction() rejects async callbacks at
     // the type level (DrizzleTypeError: "Sync drivers can't use async
     // functions in transactions!") — an async callback isn't awaited before
     // the sync wrapper commits, so results would land outside the
     // transaction. Postgres's transaction() requires the opposite: an async
     // callback with awaited statements. Branch on the real driver so each
-    // dialect gets the form Drizzle actually supports.
+    // dialect gets the form Drizzle actually supports; only the statement
+    // wrapper shape and the dialect-specific "now" expression differ — the
+    // table/where-clause list above is shared.
     if (this.dbService.driver === 'postgres') {
       await (
         this.db.transaction as unknown as (
           cb: (tx: typeof this.db) => Promise<void>,
         ) => Promise<void>
       )(async (tx) => {
-        await tx
-          .delete(updateChecks)
-          .where(
-            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
-          );
-        for (const cid of contentIds) {
-          await tx
-            .delete(updateChecks)
-            .where(
-              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
-            );
+        for (const [table, where] of cascade) {
+          await tx.delete(table).where(where);
         }
-        await tx.delete(schedules).where(eq(schedules.serverId, id));
-        await tx.delete(backups).where(eq(backups.serverId, id));
-        await tx.delete(serverContent).where(eq(serverContent.serverId, id));
-        await tx.delete(serverPacks).where(eq(serverPacks.serverId, id));
-        await tx.delete(integrations).where(eq(integrations.serverId, id));
-        await tx.delete(playerEvents).where(eq(playerEvents.serverId, id));
-        await tx.delete(playerSessions).where(eq(playerSessions.serverId, id));
-        await tx
-          .delete(playerStatSnapshots)
-          .where(eq(playerStatSnapshots.serverId, id));
-        await tx.delete(crashReports).where(eq(crashReports.serverId, id));
-        await tx.delete(chatCommands).where(eq(chatCommands.serverId, id));
-        await tx
-          .delete(chatCommandSettings)
-          .where(eq(chatCommandSettings.serverId, id));
-        await tx
-          .delete(storageIndex)
-          .where(
-            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
-          );
         await tx
           .update(servers)
           .set({ deletedAt: sql`now()::text`, status: 'stopped' })
@@ -824,39 +827,9 @@ export class ServerLifecycleService {
       });
     } else {
       this.db.transaction((tx) => {
-        tx.delete(updateChecks)
-          .where(
-            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
-          )
-          .run();
-        for (const cid of contentIds) {
-          tx.delete(updateChecks)
-            .where(
-              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
-            )
-            .run();
+        for (const [table, where] of cascade) {
+          (tx.delete(table).where(where) as { run(): void }).run();
         }
-        tx.delete(schedules).where(eq(schedules.serverId, id)).run();
-        tx.delete(backups).where(eq(backups.serverId, id)).run();
-        tx.delete(serverContent).where(eq(serverContent.serverId, id)).run();
-        tx.delete(serverPacks).where(eq(serverPacks.serverId, id)).run();
-        tx.delete(integrations).where(eq(integrations.serverId, id)).run();
-        tx.delete(playerEvents).where(eq(playerEvents.serverId, id)).run();
-        tx.delete(playerSessions).where(eq(playerSessions.serverId, id)).run();
-        tx.delete(playerStatSnapshots)
-          .where(eq(playerStatSnapshots.serverId, id))
-          .run();
-        tx.delete(crashReports).where(eq(crashReports.serverId, id)).run();
-        // Added: these were previously leaked on delete (no FK cascade).
-        tx.delete(chatCommands).where(eq(chatCommands.serverId, id)).run();
-        tx.delete(chatCommandSettings)
-          .where(eq(chatCommandSettings.serverId, id))
-          .run();
-        tx.delete(storageIndex)
-          .where(
-            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
-          )
-          .run();
         // Keep the soft-deleted server row itself (history retains context).
         tx.update(servers)
           .set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' })

@@ -10,7 +10,7 @@ import {
 import { EventsService } from '../events/events.service';
 import { ContainerService } from '../docker/container.service';
 import { PLAYER_NAME_RE } from '../utils/player-name';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { PlayerRosterService } from './player-roster.service';
 import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
@@ -94,42 +94,6 @@ export class PlayerTeleportService {
       throw new BadRequestException(`Server must be running to ${what}`);
   }
 
-  private async rcon(
-    serverId: string,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    const out = await this.containers.execCapture(serverId, [
-      'rcon-cli',
-      '--',
-      ...args.map(String),
-    ]);
-    return String(out || '').trim();
-  }
-
-  // Same, but strip the ANSI/§ colour codes rcon-cli injects — REQUIRED before
-  // regex-parsing any rcon output.
-  private async rconClean(
-    serverId: string,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    return cleanAnsiText(await this.rcon(serverId, ...args));
-  }
-
-  // ANSI-clean rcon with an explicit timeout — /locate and spreadplayers can
-  // be slow on big modpacks; the default 15s would abandon them.
-  private async rconT(
-    serverId: string,
-    timeoutMs: number,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    const out = await this.containers.execCapture(
-      serverId,
-      ['rcon-cli', '--', ...args.map(String)],
-      { timeoutMs },
-    );
-    return cleanAnsiText(String(out || '').trim());
-  }
-
   // ---------------------------------------------------------------------- live position
 
   /**
@@ -154,8 +118,7 @@ export class PlayerTeleportService {
       /\[\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*\]/;
     const tag = `cd_pos_${Math.random().toString(36).slice(2, 10)}`;
     try {
-      const summon = await this.rconClean(
-        serverId,
+      const summon = await rcon(this.containers, serverId, [
         'execute',
         'at',
         player,
@@ -166,20 +129,19 @@ export class PlayerTeleportService {
         '~',
         '~',
         `{Tags:["${tag}"]}`,
-      );
+      ]);
       // No "Summoned …" line means `execute at <player>` matched nothing → offline
       // (an offline player also produces empty output, so check positively).
       if (!/Summoned/i.test(summon)) {
         throw new NotFoundException('That player is not online right now.');
       }
-      const posOut = await this.rconClean(
-        serverId,
+      const posOut = await rcon(this.containers, serverId, [
         'data',
         'get',
         'entity',
         `@e[type=minecraft:marker,tag=${tag},limit=1]`,
         'Pos',
-      );
+      ]);
       const pm = POS_RE.exec(posOut);
       if (!pm) {
         console.warn(
@@ -193,15 +155,14 @@ export class PlayerTeleportService {
       // removes the marker at the same time. Run all three so nothing is left behind.
       let dimension: string | null = null;
       for (const dim of ALL_DIMENSIONS) {
-        const k = await this.rconClean(
-          serverId,
+        const k = await rcon(this.containers, serverId, [
           'execute',
           'in',
           dim,
           'run',
           'kill',
           `@e[type=minecraft:marker,tag=${tag}]`,
-        ).catch(() => '');
+        ]).catch(() => '');
         if (!dimension && /Killed/i.test(k)) dimension = dim;
       }
       return {
@@ -213,15 +174,14 @@ export class PlayerTeleportService {
     } catch (err) {
       // Best-effort cleanup if we bailed before the kill loop.
       for (const dim of ALL_DIMENSIONS) {
-        this.rcon(
-          serverId,
+        rcon(this.containers, serverId, [
           'execute',
           'in',
           dim,
           'run',
           'kill',
           `@e[type=minecraft:marker,tag=${tag}]`,
-        ).catch(() => {});
+        ]).catch(() => {});
       }
       throw err;
     }
@@ -263,14 +223,11 @@ export class PlayerTeleportService {
     type: string,
     id: string,
   ): Promise<string> {
-    const located = await this.rconT(
+    const located = await rcon(
+      this.containers,
       serverId,
-      this.TP_TIMEOUT_MS,
-      ...prefix,
-      'run',
-      'locate',
-      type,
-      id,
+      [...prefix, 'run', 'locate', type, id],
+      { timeoutMs: this.TP_TIMEOUT_MS },
     );
     if (
       /there is no \w+ with type|isn'?t a valid|unknown \w+ type/i.test(located)
@@ -314,18 +271,21 @@ export class PlayerTeleportService {
     for (const range of [1, 96, 512]) {
       // In the Nether, cap the landing height below the bedrock roof.
       const cap = dimension === 'minecraft:the_nether' ? ['under', '120'] : [];
-      out = await this.rconT(
+      out = await rcon(
+        this.containers,
         serverId,
-        this.TP_TIMEOUT_MS,
-        ...prefix,
-        'spreadplayers',
-        String(x),
-        String(z),
-        '0',
-        String(range),
-        ...cap,
-        'false',
-        player,
+        [
+          ...prefix,
+          'spreadplayers',
+          String(x),
+          String(z),
+          '0',
+          String(range),
+          ...cap,
+          'false',
+          player,
+        ],
+        { timeoutMs: this.TP_TIMEOUT_MS },
       );
       if (/No entity was found|No player was found/i.test(out)) {
         throw new NotFoundException('That player is not online right now.');
@@ -650,8 +610,7 @@ export class PlayerTeleportService {
     } else {
       if (safe) {
         // Fatal-fall insurance for explicit altitudes: 15s of slow falling.
-        await this.rcon(
-          serverId,
+        await rcon(this.containers, serverId, [
           'effect',
           'give',
           player,
@@ -659,7 +618,7 @@ export class PlayerTeleportService {
           '15',
           '0',
           'true',
-        ).catch(() => {});
+        ]).catch(() => {});
       }
       const args = dimension
         ? [
@@ -674,7 +633,7 @@ export class PlayerTeleportService {
             String(z),
           ]
         : ['tp', player, String(x), String(y), String(z)];
-      out = await this.rcon(serverId, ...args);
+      out = await rcon(this.containers, serverId, args);
       this.assertTpOutput(out, player);
     }
 
@@ -714,7 +673,7 @@ export class PlayerTeleportService {
     this.assertName(player);
     this.assertName(target);
     this.assertRunning(running, 'teleport a player');
-    const out = await this.rcon(serverId, 'tp', player, target);
+    const out = await rcon(this.containers, serverId, ['tp', player, target]);
     this.assertTpOutput(out, player);
     this.events.recordEvent({
       serverId,

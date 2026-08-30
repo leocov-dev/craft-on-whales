@@ -9,7 +9,7 @@ import { ContainerService } from '../docker/container.service';
 import { EventsService } from '../events/events.service';
 import { PlayerRosterService } from '../players/player-roster.service';
 import { PlayerTeleportService } from '../players/player-teleport.service';
-import { cleanText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { PLAYER_NAME_RE } from '../utils/player-name';
 import {
   asString,
@@ -123,13 +123,9 @@ export class ChatCommandsRuntimeService {
       .slice(0, WHISPER_MAX);
     if (!text || !PLAYER_RE.test(player)) return;
     try {
-      await this.containers.execCapture(serverId, [
-        'rcon-cli',
-        '--',
-        'tell',
-        player,
-        text,
-      ]);
+      await rcon(this.containers, serverId, ['tell', player, text], {
+        clean: 'raw',
+      });
     } catch {
       /* server just stopped / rcon busy — nothing to do */
     }
@@ -273,13 +269,7 @@ export class ChatCommandsRuntimeService {
         )
         .trim();
       if (!line) continue;
-      const out = cleanText(
-        await this.containers.execCapture(serverId, [
-          'rcon-cli',
-          '--',
-          ...line.split(/\s+/),
-        ]),
-      );
+      const out = await rcon(this.containers, serverId, line.split(/\s+/));
       if (out.trim()) lastOut = out.trim();
     }
     return {

@@ -13,6 +13,7 @@ import { schedules, servers } from '../db/schema';
 import { EventsService } from '../events/events.service';
 import { SettingsService } from '../settings/settings.service';
 import { ContainerService } from '../docker/container.service';
+import { rcon } from '../utils/rcon';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { DataRootService } from '../storage/data-root.service';
 import { SessionService } from '../auth/session.service';
@@ -109,12 +110,11 @@ export class SchedulerService implements OnModuleInit {
       case 'rcon': {
         const command =
           typeof payload.command === 'string' ? payload.command : 'list';
-        // '--' stops rcon-cli parsing command words that start with '-' as flags.
-        const out = await this.containers.execCapture(job.serverId!, [
-          'rcon-cli',
-          '--',
-          ...command.split(/\s+/),
-        ]);
+        const out = await rcon(
+          this.containers,
+          job.serverId!,
+          command.split(/\s+/),
+        );
         this.events.recordEvent({
           serverId: job.serverId,
           actor,

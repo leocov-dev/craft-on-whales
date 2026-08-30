@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ContainerService } from '../docker/container.service';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 
 /**
  * Server structure registry: bundled vanilla structure list + (on running
@@ -106,16 +106,13 @@ export class StructureRegistryService {
           let page = 1;
           let totalPages = 1;
           do {
-            const out = cleanAnsiText(
-              await this.containers.execCapture(serverId, [
-                'rcon-cli',
-                prefix,
-                'tags',
-                'worldgen/structure',
-                'list',
-                String(page),
-              ]),
-            );
+            const out = await rcon(this.containers, serverId, [
+              prefix,
+              'tags',
+              'worldgen/structure',
+              'list',
+              String(page),
+            ]);
             const pm = /<page (\d+) \/ (\d+)>/.exec(out);
             totalPages = pm?.[2] ? Number(pm[2]) : 1;
             for (const m of out.matchAll(

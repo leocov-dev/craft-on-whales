@@ -11,7 +11,7 @@ import { ContainerService } from '../docker/container.service';
 import { MojangProfilesService } from './mojang-profiles.service';
 import { PLAYER_NAME_RE, isBedrockName } from '../utils/player-name';
 import { parsePlayerList } from '../utils/rcon-list';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import type {
   PlayerListEntry,
   BannedIpEntry,
@@ -128,22 +128,6 @@ export class PlayerRosterService {
     fs.renameSync(tmp, target);
   }
 
-  // ---------------------------------------------------------------------- RCON
-
-  private async rcon(
-    serverId: string,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    // '--' terminates flag parsing: args like '-5' (coords) or names starting
-    // with '-' would otherwise be eaten by rcon-cli as flags.
-    const out = await this.containers.execCapture(serverId, [
-      'rcon-cli',
-      '--',
-      ...args.map(String),
-    ]);
-    return String(out || '').trim();
-  }
-
   private assertRunning(running: boolean, what: string): void {
     if (!running)
       throw new BadRequestException(`Server must be running to ${what}`);
@@ -163,7 +147,7 @@ export class PlayerRosterService {
     try {
       // rcon-cli colorizes output — strip ANSI/§ codes before parsing, and only
       // accept strict Minecraft name shapes so escapes never become "players".
-      const out = cleanAnsiText(await this.rcon(serverId, 'list'));
+      const out = await rcon(this.containers, serverId, ['list']);
       const parsed = parsePlayerList(out);
       // Unparseable is "couldn't ask", not "confirmed nobody online" — see the
       // throwOnError note above.
@@ -323,7 +307,11 @@ export class PlayerRosterService {
   ): Promise<{ name: string; uuid: string; whitelisted: boolean }> {
     const who = await this.resolveIdentity(serverId, name);
     if (running) {
-      await this.rcon(serverId, 'whitelist', on ? 'add' : 'remove', who.name);
+      await rcon(this.containers, serverId, [
+        'whitelist',
+        on ? 'add' : 'remove',
+        who.name,
+      ]);
     } else {
       const list = this.readJson(serverId, 'whitelist.json').filter(
         (e) => e.uuid !== who.uuid,
@@ -353,7 +341,7 @@ export class PlayerRosterService {
     { running = false, actor = 'system' }: RunOptions = {},
   ): Promise<{ whitelistEnforced: boolean }> {
     if (running) {
-      await this.rcon(serverId, 'whitelist', on ? 'on' : 'off');
+      await rcon(this.containers, serverId, ['whitelist', on ? 'on' : 'off']);
     } else {
       const file = this.pathGuard.dataPath(
         'servers',
@@ -440,7 +428,7 @@ export class PlayerRosterService {
     };
 
     if (running) {
-      await this.rcon(serverId, on ? 'op' : 'deop', who.name);
+      await rcon(this.containers, serverId, [on ? 'op' : 'deop', who.name]);
       if (on && level !== 4) {
         // RCON `op` always grants level 4 — persist the requested level for next boot.
         patchOpsFile();
@@ -485,7 +473,7 @@ export class PlayerRosterService {
     const who = await this.resolveIdentity(serverId, name);
     const reason = this.cleanText(reasonInput, 'Banned by an operator.');
     if (running) {
-      await this.rcon(serverId, 'ban', who.name, reason);
+      await rcon(this.containers, serverId, ['ban', who.name, reason]);
     } else {
       const list = this.readJson(serverId, 'banned-players.json').filter(
         (e) => e.uuid !== who.uuid,
@@ -522,7 +510,7 @@ export class PlayerRosterService {
   ): Promise<{ name: string; uuid: string; banned: false }> {
     const who = await this.resolveIdentity(serverId, name);
     if (running) {
-      await this.rcon(serverId, 'pardon', who.name);
+      await rcon(this.containers, serverId, ['pardon', who.name]);
     } else {
       const list = this.readJson(serverId, 'banned-players.json').filter(
         (e) =>
@@ -554,7 +542,7 @@ export class PlayerRosterService {
     const ip = this.assertIp(ipInput);
     const reason = this.cleanText(reasonInput, 'Banned by an operator.');
     if (running) {
-      await this.rcon(serverId, 'ban-ip', ip, reason);
+      await rcon(this.containers, serverId, ['ban-ip', ip, reason]);
     } else {
       const list = this.readJson(serverId, 'banned-ips.json').filter(
         (e) => e.ip !== ip,
@@ -585,7 +573,7 @@ export class PlayerRosterService {
   ): Promise<{ ip: string; banned: false }> {
     const ip = this.assertIp(ipInput);
     if (running) {
-      await this.rcon(serverId, 'pardon-ip', ip);
+      await rcon(this.containers, serverId, ['pardon-ip', ip]);
     } else {
       this.writeJson(
         serverId,
@@ -614,7 +602,7 @@ export class PlayerRosterService {
     this.assertName(name);
     this.assertRunning(running, 'kick a player');
     const message = this.cleanText(messageInput, 'Kicked by an operator.');
-    const out = await this.rcon(serverId, 'kick', name, message);
+    const out = await rcon(this.containers, serverId, ['kick', name, message]);
     if (/No player was found/i.test(out))
       throw new NotFoundException(`${name} is not online`);
     this.events.recordEvent({

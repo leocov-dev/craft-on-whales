@@ -9,7 +9,7 @@ import {
 import { ContainerService } from '../docker/container.service';
 import { EventsService } from '../events/events.service';
 import type { PlayerRosterService } from '../players/player-roster.service';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { PlayerDataFileService } from './player-data-file.service';
 import { assertUuid, assertItemId } from './nbt-codec';
 import {
@@ -121,16 +121,6 @@ export class InventoryEditService {
     }
   }
 
-  private async rcon(serverId: string, ...args: unknown[]): Promise<string> {
-    // '--' terminates flag parsing so args like '-106' can never become flags.
-    const out = await this.containers.execCapture(serverId, [
-      'rcon-cli',
-      '--',
-      ...args.map(String),
-    ]);
-    return cleanAnsiText(String(out || '')).trim();
-  }
-
   /** Surface the server's own error text on command failures. */
   private assertRconOk(out: string, playerName: string): void {
     if (/No player was found|No entity was found/i.test(out))
@@ -155,7 +145,12 @@ export class InventoryEditService {
     const item = assertItemId(itemId);
     const n = Math.min(6400, Math.max(1, Math.trunc(Number(count) || 1)));
     await this.assertRunning(serverId, 'give items');
-    const out = await this.rcon(serverId, 'give', playerName, item, n);
+    const out = await rcon(this.containers, serverId, [
+      'give',
+      playerName,
+      item,
+      n,
+    ]);
     this.assertRconOk(out, playerName);
     this.events.recordEvent({
       serverId,
@@ -176,9 +171,10 @@ export class InventoryEditService {
   ): Promise<ClearResult> {
     const item = itemId ? assertItemId(itemId) : null;
     await this.assertRunning(serverId, 'clear items');
-    const out = await this.rcon(
+    const out = await rcon(
+      this.containers,
       serverId,
-      ...(item ? ['clear', playerName, item] : ['clear', playerName]),
+      item ? ['clear', playerName, item] : ['clear', playerName],
     );
     this.assertRconOk(out, playerName);
     const nothing = /No items were found/i.test(out);
@@ -246,7 +242,7 @@ export class InventoryEditService {
    */
   async flushPlayerData(serverId: string): Promise<boolean> {
     try {
-      await this.rcon(serverId, 'save-all', 'flush');
+      await rcon(this.containers, serverId, ['save-all', 'flush']);
       await new Promise((r) => setTimeout(r, 1200));
       return true;
     } catch {
@@ -275,14 +271,13 @@ export class InventoryEditService {
       spec.kind === 'equipment'
         ? `equipment.${spec.piece}`
         : `${spec.list}[{Slot:${spec.nbtSlot}b}]`;
-    const out = await this.rcon(
-      serverId,
+    const out = await rcon(this.containers, serverId, [
       'data',
       'get',
       'entity',
-      ctx.name,
+      ctx.name!,
       nbtPath,
-    );
+    ]);
     if (/No entity was found|No player was found/i.test(out)) {
       throw new BadRequestException(
         `${ctx.name} just went offline — reload and try again (the edit will use the save file instead)`,
@@ -326,8 +321,7 @@ export class InventoryEditService {
       const prev = await this.readSlotOnline(serverId, ctx, spec);
       if (!prev.exists)
         throw new NotFoundException(`${spec.rconSlot} is already empty`);
-      const out = await this.rcon(
-        serverId,
+      const out = await rcon(this.containers, serverId, [
         'item',
         'replace',
         'entity',
@@ -335,22 +329,21 @@ export class InventoryEditService {
         spec.rconSlot,
         'with',
         'minecraft:air',
-      );
+      ]);
       this.assertRconOk(out, name);
       return { item: prev.id ?? null, count: prev.count ?? 0, note: null };
     }
     if (op === 'set') {
-      const out = await this.rcon(
-        serverId,
+      const out = await rcon(this.containers, serverId, [
         'item',
         'replace',
         'entity',
         name,
         spec.rconSlot,
         'with',
-        item,
+        item!,
         count,
-      );
+      ]);
       this.assertRconOk(out, name);
       return { item, count, note: null };
     }
@@ -361,17 +354,16 @@ export class InventoryEditService {
       throw new NotFoundException(
         `${spec.rconSlot} is empty — nothing to re-count`,
       );
-    const out = await this.rcon(
-      serverId,
+    const out = await rcon(this.containers, serverId, [
       'item',
       'replace',
       'entity',
       name,
       spec.rconSlot,
       'with',
-      cur.id,
+      cur.id!,
       count,
-    );
+    ]);
     this.assertRconOk(out, name);
     return {
       item: cur.id ?? null,
@@ -401,8 +393,7 @@ export class InventoryEditService {
       );
     }
     // `from entity` copies the stack WITH its components, then the source is aired.
-    let out = await this.rcon(
-      serverId,
+    let out = await rcon(this.containers, serverId, [
       'item',
       'replace',
       'entity',
@@ -412,10 +403,9 @@ export class InventoryEditService {
       'entity',
       name,
       fromSpec.rconSlot,
-    );
+    ]);
     this.assertRconOk(out, name);
-    out = await this.rcon(
-      serverId,
+    out = await rcon(this.containers, serverId, [
       'item',
       'replace',
       'entity',
@@ -423,7 +413,7 @@ export class InventoryEditService {
       fromSpec.rconSlot,
       'with',
       'minecraft:air',
-    );
+    ]);
     this.assertRconOk(out, name);
     return { item: src.id ?? null, count: src.count ?? 0, swapped: false };
   }

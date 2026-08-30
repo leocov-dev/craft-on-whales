@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { ContainerService } from '../docker/container.service';
-import { cleanText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { GAMERULES, QUICK_ACTIONS } from './world-controls.constants';
@@ -42,12 +42,6 @@ export class WorldControlsService {
     private readonly pathGuard: PathGuardService,
   ) {}
 
-  private async rcon(serverId: string, args: string[]): Promise<string> {
-    return cleanText(
-      await this.containers.execCapture(serverId, ['rcon-cli', ...args]),
-    );
-  }
-
   /** Run modern args; fall back to legacy args when the syntax is rejected. */
   private async tryVariants(
     serverId: string,
@@ -55,7 +49,7 @@ export class WorldControlsService {
   ): Promise<string> {
     let out = '';
     for (const args of variants) {
-      out = await this.rcon(serverId, args);
+      out = await rcon(this.containers, serverId, args);
       if (!looksLikeError(out)) return out;
     }
     return out;
@@ -117,7 +111,11 @@ export class WorldControlsService {
 
   /** World day counter from total game time (works on ≤1.21 and 26.x). */
   private async queryDay(serverId: string): Promise<number | null> {
-    const out = await this.rcon(serverId, ['time', 'query', 'gametime']);
+    const out = await rcon(this.containers, serverId, [
+      'time',
+      'query',
+      'gametime',
+    ]);
     // ≤1.21: "The time is N" · 26.x: "The game time is N tick(s)"
     const m =
       /(?:game time is|The time is)\s*(\d+)/i.exec(out) ||
@@ -208,7 +206,7 @@ export class WorldControlsService {
       out = await this.tryVariants(serverId, quick.variants);
     else if ('rule' in quick)
       out = await this.setGamerule(serverId, quick.rule, quick.value);
-    else out = await this.rcon(serverId, quick.cmd);
+    else out = await rcon(this.containers, serverId, quick.cmd);
     // A server.properties edit isn't an RCON command — skip the RCON error gate.
     if (!('prop' in quick) && looksLikeError(out)) {
       throw new BadGatewayException(

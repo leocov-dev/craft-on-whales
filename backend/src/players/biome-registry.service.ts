@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ContainerService } from '../docker/container.service';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { biomes as VANILLA_BIOMES } from './biomes';
 
 /**
@@ -65,17 +65,14 @@ export class BiomeRegistryService {
     let page = 1;
     let totalPages = 1;
     do {
-      const out = cleanAnsiText(
-        await this.containers.execCapture(serverId, [
-          'rcon-cli',
-          prefix,
-          'tags',
-          'worldgen/biome',
-          'get',
-          tag,
-          String(page),
-        ]),
-      );
+      const out = await rcon(this.containers, serverId, [
+        prefix,
+        'tags',
+        'worldgen/biome',
+        'get',
+        tag,
+        String(page),
+      ]);
       const pm = /<page (\d+) \/ (\d+)>/.exec(out);
       totalPages = pm?.[2] ? Number(pm[2]) : 1;
       for (const m of out.matchAll(

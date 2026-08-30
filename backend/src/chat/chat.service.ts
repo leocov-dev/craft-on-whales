@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ContainerService } from '../docker/container.service';
 import { EventsService } from '../events/events.service';
-import { cleanText } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import { PLAYER_NAME_RE } from '../utils/player-name';
 import type {
   ChatOptions,
@@ -111,9 +111,7 @@ export class ChatService {
       ];
     }
 
-    const out = cleanText(
-      await this.containers.execCapture(serverId, ['rcon-cli', ...cmd]),
-    );
+    const out = await rcon(this.containers, serverId, cmd);
     if (
       out.trim() &&
       /Unknown or incomplete|Incorrect argument|Expected|No player was found|<--\[HERE\]/i.test(

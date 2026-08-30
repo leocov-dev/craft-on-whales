@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ContainerService } from '../docker/container.service';
+import { rcon } from '../utils/rcon';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldSaveLockService } from './world-save-lock.service';
 
@@ -34,19 +35,19 @@ export class WorldRuntimeService {
   ): Promise<T> {
     if (!running) return copy();
     return this.saveLock.withSaveLock(serverId, async () => {
-      await this.containers
-        .execCapture(serverId, ['rcon-cli', 'save-off'])
-        .catch(() => {});
-      await this.containers
-        .execCapture(serverId, ['rcon-cli', 'save-all', 'flush'])
-        .catch(() => {});
+      await rcon(this.containers, serverId, ['save-off'], {
+        clean: 'raw',
+      }).catch(() => {});
+      await rcon(this.containers, serverId, ['save-all', 'flush'], {
+        clean: 'raw',
+      }).catch(() => {});
       await this.archive.sleep(2000);
       try {
         return await copy();
       } finally {
-        await this.containers
-          .execCapture(serverId, ['rcon-cli', 'save-on'])
-          .catch(() => {});
+        await rcon(this.containers, serverId, ['save-on'], {
+          clean: 'raw',
+        }).catch(() => {});
       }
     });
   }

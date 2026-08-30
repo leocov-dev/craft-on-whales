@@ -16,7 +16,7 @@ import {
   type FollowLogsResult,
 } from '../docker/docker-logs.service';
 import { EventsService } from '../events/events.service';
-import { stripAnsi } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import type { PublicUser } from '../auth/auth.service';
 
 interface ConsoleSocketState {
@@ -165,20 +165,20 @@ export class ConsoleGateway
         });
         return;
       }
-      const raw = await this.containers.execCapture(serverId, [
-        'rcon-cli',
-        '--',
-        ...command.split(/\s+/),
-      ]);
-      const output = stripAnsi(raw);
-      this.send(client, { kind: 'cmd-result', command, output: output.trim() });
+      const output = await rcon(
+        this.containers,
+        serverId,
+        command.split(/\s+/),
+        { clean: 'ansi-only' },
+      );
+      this.send(client, { kind: 'cmd-result', command, output });
       this.announceConsoleAction(serverId, command).catch(() => {});
       this.events.recordEvent({
         serverId,
         actor: user.username,
         type: 'rcon',
         summary: `RCON: ${this.redact(command)}`,
-        details: { output: output.trim().slice(0, 2000) },
+        details: { output: output.slice(0, 2000) },
       });
     } catch (err) {
       this.send(client, {
@@ -268,14 +268,11 @@ export class ConsoleGateway
         { text: command, color: 'gray' },
       ],
     };
-    this.containers
-      .execCapture(serverId, [
-        'rcon-cli',
-        '--',
-        'tellraw',
-        '@a',
-        JSON.stringify(payload),
-      ])
-      .catch(() => {});
+    rcon(
+      this.containers,
+      serverId,
+      ['tellraw', '@a', JSON.stringify(payload)],
+      { clean: 'raw' },
+    ).catch(() => {});
   }
 }
