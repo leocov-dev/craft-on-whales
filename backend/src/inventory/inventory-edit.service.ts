@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  forwardRef,
   Inject,
   Injectable,
   NotFoundException,
@@ -8,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { ContainerService } from '../docker/container.service';
 import { EventsService } from '../events/events.service';
-import type { PlayerRosterService } from '../players/player-roster.service';
+import {
+  PLAYER_ROSTER_CONTRACT,
+  type PlayerRosterContract,
+} from './player-roster.contract';
 import { rcon } from '../utils/rcon';
 import { PlayerDataFileService } from './player-data-file.service';
 import { assertUuid, assertItemId } from './nbt-codec';
@@ -27,7 +29,7 @@ import {
 
 // Same reasoning as inventory.service.ts: this file reads/manipulates raw
 // prismarine-nbt trees — genuinely dynamic data.
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']); // rcon answers while unhealthy
 
@@ -85,8 +87,12 @@ export interface AddItemResult {
  * is a God class").
  *
  * Genuine bidirectional cycle with PlayersModule: `editContext` needs
- * `PlayersService.listOnlineNames` (to pick the RCON-vs-file mechanism),
- * resolved with `forwardRef()`.
+ * `PlayerRosterService.listOnlineNames` (to pick the RCON-vs-file
+ * mechanism) — injected via the `PLAYER_ROSTER_CONTRACT` token
+ * (`./player-roster.contract.ts`) rather than a direct forwardRef()+
+ * require() on the class itself; InventoryModule still needs one
+ * module-level `forwardRef(() => PlayersModule)` since the cycle itself is
+ * genuine, but this class no longer does.
  */
 @Injectable()
 export class InventoryEditService {
@@ -94,13 +100,8 @@ export class InventoryEditService {
     private readonly events: EventsService,
     private readonly containers: ContainerService,
     private readonly playerDataFiles: PlayerDataFileService,
-    @Inject(
-      forwardRef(
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        () => require('../players/player-roster.service').PlayerRosterService,
-      ),
-    )
-    private readonly players: PlayerRosterService,
+    @Inject(PLAYER_ROSTER_CONTRACT)
+    private readonly players: PlayerRosterContract,
   ) {}
 
   // -------------------------------------------------------------- RCON give/clear

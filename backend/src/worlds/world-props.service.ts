@@ -1,13 +1,13 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import type { Server } from '../servers/types';
 import { DIM_SUFFIXES } from './world-archive.service';
-// `import type` — see MapService's own doc comment on the
-// ServersModule<->MapModule<->WorldsModule cycle for why this must be a
-// lazy require() at the @Inject site, not a plain import.
-import type { MapService } from '../map/map.service';
+import {
+  MAP_SERVICE_CONTRACT,
+  type MapServiceContract,
+} from './map-service.contract';
 
 /**
  * server.properties + active-level bookkeeping. Ports the "server.properties
@@ -18,9 +18,8 @@ export class WorldPropsService {
   constructor(
     private readonly pathGuard: PathGuardService,
     private readonly lifecycle: ServerLifecycleService,
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-    @Inject(forwardRef(() => require('../map/map.service').MapService))
-    private readonly map: MapService,
+    @Inject(MAP_SERVICE_CONTRACT)
+    private readonly map: MapServiceContract,
   ) {}
 
   /** Active level name: LEVEL env wins, then server.properties, then 'world'. */

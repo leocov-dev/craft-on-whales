@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  forwardRef,
   Inject,
   Injectable,
   Logger,
@@ -41,18 +40,18 @@ import { DockerLogsService } from '../docker/docker-logs.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
-// `import type` (not a normal import) so this class doesn't join the
-// synchronous require() cycle ServersModule<->SchedulerModule creates at
-// the file level — a plain `import { SchedulerService }` here would drag
+// Injected via SCHEDULER_CONTRACT (below) instead of a direct SchedulerService
+// reference — a plain `import { SchedulerService }` here would drag
 // scheduler.service.ts's own require chain (StorageIndexService,
-// BackupsService, etc., several of which import ServerLifecycleService
-// back) into the middle of THIS file's still-unfinished module evaluation,
+// BackupsService, etc., several of which import ServerLifecycleService back)
+// into the middle of THIS file's still-unfinished module evaluation,
 // corrupting emitDecoratorMetadata for unrelated constructor params
-// elsewhere in the cycle. The runtime class reference for @Inject/forwardRef
-// below is obtained via a lazy require() instead, so nothing here is read
-// until Nest resolves it post-bootstrap, once every module has finished
-// loading.
-import type { SchedulerService } from '../scheduler/scheduler.service';
+// elsewhere in the cycle. The interface+token avoids needing a runtime
+// require() to sidestep that.
+import {
+  SCHEDULER_CONTRACT,
+  type SchedulerContract,
+} from './scheduler.contract';
 import type { Server, ServerExtraPort, ServerExtraBind } from './types';
 
 export interface CreateServerInput {
@@ -188,14 +187,8 @@ export class ServerLifecycleService {
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
-
-    @Inject(
-      forwardRef(
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-        () => require('../scheduler/scheduler.service').SchedulerService,
-      ),
-    )
-    private readonly scheduler: SchedulerService,
+    @Inject(SCHEDULER_CONTRACT)
+    private readonly scheduler: SchedulerContract,
   ) {}
 
   private get db() {

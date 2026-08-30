@@ -1,9 +1,7 @@
 import {
   BadRequestException,
-  forwardRef,
   HttpException,
   HttpStatus,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,13 +12,13 @@ import { rcon } from '../utils/rcon';
 import { PlayerRosterService } from './player-roster.service';
 import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
-// `import type` — InventoryService is the other half of the
-// InventoryModule<->PlayersModule cycle (this service needs
-// InventoryService.readPlayerData via getPlayerSavedPos; InventoryService
-// needs PlayerRosterService.listOnlineNames). Runtime class reference via
-// lazy require() in the @Inject/forwardRef below, matching the established
-// pattern in servers/server-lifecycle.service.ts <-> scheduler/scheduler.service.ts.
-import type { InventoryService } from '../inventory/inventory.service';
+// getPlayerSavedPos only ever needed InventoryService.readPlayerData, which
+// is itself a one-line delegate to PlayerDataFileService.readPlayerData —
+// injecting that directly instead of the whole InventoryService avoids the
+// InventoryModule<->PlayersModule cycle for this edge entirely.
+// PlayerDataFileService has no dependency back into players/, so this is a
+// plain, non-circular import (no forwardRef()/require() needed here).
+import { PlayerDataFileService } from '../inventory/player-data-file.service';
 
 interface RunOptions {
   running?: boolean;
@@ -71,13 +69,7 @@ export class PlayerTeleportService {
     private readonly roster: PlayerRosterService,
     private readonly structures: StructureRegistryService,
     private readonly biomeRegistry: BiomeRegistryService,
-    @Inject(
-      forwardRef(
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-        () => require('../inventory/inventory.service').InventoryService,
-      ),
-    )
-    private readonly inventory: InventoryService,
+    private readonly playerDataFiles: PlayerDataFileService,
   ) {}
 
   private assertName(name: unknown): string {
@@ -204,7 +196,10 @@ export class PlayerTeleportService {
         (p) => p.name.toLowerCase() === player.toLowerCase(),
       );
       if (!found || !found.uuid) return null;
-      const data = await this.inventory.readPlayerData(serverId, found.uuid);
+      const data = await this.playerDataFiles.readPlayerData(
+        serverId,
+        found.uuid,
+      );
       if (!data.pos) return null;
       return {
         x: Math.round(data.pos.x),

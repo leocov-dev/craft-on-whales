@@ -5,8 +5,10 @@ import { PathGuardModule } from '../storage/path-guard.module';
 import { StorageIndexModule } from '../storage/storage-index.module';
 import { LibraryModule } from '../library/library.module';
 import { MapModule } from '../map/map.module';
+import { MapService } from '../map/map.service';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldPropsService } from './world-props.service';
+import { MAP_SERVICE_CONTRACT } from './map-service.contract';
 import { WorldLibraryService } from './world-library.service';
 import { WorldSaveLockService } from './world-save-lock.service';
 import { WorldOperationsService } from './world-operations.service';
@@ -39,6 +41,7 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
     WorldTransferService,
     WorldLifecycleService,
     WorldOperationsService,
+    { provide: MAP_SERVICE_CONTRACT, useExisting: MapService },
   ],
   exports: [
     WorldArchiveService,
