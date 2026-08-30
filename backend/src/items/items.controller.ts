@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ItemRegistryService } from './item-registry.service';
 import { TasksService } from '../tasks/tasks.service';
+import { actorOf } from '../utils/request-actor';
 
 const searchSchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -60,7 +61,7 @@ export class ItemsController {
   @HttpCode(202)
   async rebuild(@Param('id') id: string, @Req() req: Request) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user ? req.user.username : 'admin';
+    const actor = actorOf(req);
     const taskId = this.tasks.run(
       `Rebuilding item registry for ${server.display_name}`,
       { serverId: server.id, actor },

@@ -16,16 +16,11 @@ import { PlayerTeleportService } from './player-teleport.service';
 import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
+import { playerNameSchema } from '../utils/player-name';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
-const nameSchema = z
-  .string()
-  .trim()
-  .regex(
-    /^[.*A-Za-z0-9_]{1,16}$/,
-    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
-  );
+const nameSchema = playerNameSchema;
 const reasonSchema = z.string().trim().max(256).optional();
 const ipSchema = z
   .string()

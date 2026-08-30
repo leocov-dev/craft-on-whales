@@ -14,6 +14,8 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { ItemRegistryService } from '../items/item-registry.service';
 import { InventoryService } from './inventory.service';
+import { playerNameSchema } from '../utils/player-name';
+import { actorOf } from '../utils/request-actor';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -24,13 +26,7 @@ const uuidSchema = z
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
     'Invalid player UUID',
   );
-const nameSchema = z
-  .string()
-  .trim()
-  .regex(
-    /^[.*A-Za-z0-9_]{1,16}$/,
-    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
-  );
+const nameSchema = playerNameSchema;
 const itemSchema = z
   .string()
   .trim()
@@ -98,10 +94,6 @@ const addSchema = z.object({
   item: itemSchema,
   count: z.coerce.number().int().min(1).max(99).optional(),
 });
-
-function actorOf(req: Request): string {
-  return req.user ? req.user.username : 'admin';
-}
 
 /** Ports legacy `src/web/routes/inventory.ts`, mounted at /api/servers/:id/inventory. */
 @Controller('api/servers/:id/inventory')

@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { PathGuardService } from '../storage/path-guard.service';
 import { CrashesService, type DecoratedCrash } from './crashes.service';
+import { crashAbsPathFor } from './crash-paths';
 import type { CrashReport } from '../../../shared/types/crashes';
 
 /**
@@ -58,9 +59,7 @@ export class CrashesController {
   ) {}
 
   private absPathFor(serverId: string, filename: string): string {
-    return filename.startsWith('hs_err')
-      ? this.pathGuard.dataPath('servers', serverId, filename)
-      : this.pathGuard.dataPath('servers', serverId, 'crash-reports', filename);
+    return crashAbsPathFor(this.pathGuard, serverId, filename);
   }
 
   private async ownedCrash(id: string, crashId: string) {

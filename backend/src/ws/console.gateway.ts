@@ -18,6 +18,7 @@ import {
 import { EventsService } from '../events/events.service';
 import { rcon } from '../utils/rcon';
 import type { PublicUser } from '../auth/auth.service';
+import { authenticateGatewayConnection } from './gateway-auth';
 
 interface ConsoleSocketState {
   follower: FollowLogsResult | null;
@@ -59,18 +60,13 @@ export class ConsoleGateway
       this.cleanup(client);
     });
 
-    const user = await this.sessions.authenticateFromCookieHeader(
-      client.handshake.headers.cookie,
+    const auth = await authenticateGatewayConnection(
+      this.sessions,
+      this.serverQuery,
+      client,
     );
-    if (!user) {
-      client.disconnect(true);
-      return;
-    }
-    const serverId = String(client.handshake.query.serverId || '');
-    if (!serverId || !(await this.serverQuery.getServer(serverId))) {
-      client.disconnect(true);
-      return;
-    }
+    if (!auth) return;
+    const { user, serverId } = auth;
 
     const state: ConsoleSocketState = {
       follower: null,

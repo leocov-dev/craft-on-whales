@@ -6,10 +6,11 @@ import {
   ResourceDefaultsResolver,
 } from './resource-defaults.resolver';
 import { SessionSecretProvider } from './session-secret.provider';
+import { resolveDbDriver, DbDriver } from '../utils/db-driver';
 
 export type TrustProxy = boolean | number | string;
 export type CookieSecure = boolean | 'auto';
-export type DbDriver = 'sqlite' | 'postgres';
+export type { DbDriver };
 
 export type { ResourceDefaults };
 
@@ -98,7 +99,7 @@ export class ConfigService {
       }),
     };
     this.defaults = this.resourceDefaultsResolver.resolve();
-    this.dbDriver = this.resolveDbDriver();
+    this.dbDriver = resolveDbDriver();
     this.databaseUrl = process.env.DATABASE_URL?.trim() || undefined;
     if (this.dbDriver === 'postgres' && !this.databaseUrl) {
       throw new Error(
@@ -127,12 +128,6 @@ export class ConfigService {
       );
     }
     return n;
-  }
-
-  private resolveDbDriver(): DbDriver {
-    const raw = (process.env.DB_DRIVER || 'sqlite').trim();
-    if (raw === 'sqlite' || raw === 'postgres') return raw;
-    throw new Error(`DB_DRIVER must be "sqlite" or "postgres" — got "${raw}".`);
   }
 
   private resolveTrustProxy(): TrustProxy {

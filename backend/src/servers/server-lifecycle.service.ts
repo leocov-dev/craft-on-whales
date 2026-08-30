@@ -122,6 +122,45 @@ export interface UpdateServerResult {
   needsRecreate: boolean;
 }
 
+// Typed field descriptor for `updateServer`'s diff logic — pairs an
+// `UpdateServerChanges` key with the Drizzle column it maps to and a typed
+// accessor for reading the corresponding value off `Server`, which uses
+// snake_case field names, so this replaces a stringly-indexed
+// `Record<string, unknown>` cast with a compile-checked mapping.
+interface UpdateFieldSpec<K extends keyof UpdateServerChanges> {
+  key: K;
+  column: keyof typeof servers.$inferInsert;
+  before: (s: Server) => unknown;
+}
+
+function field<K extends keyof UpdateServerChanges>(
+  key: K,
+  column: keyof typeof servers.$inferInsert,
+  before: (s: Server) => unknown,
+): UpdateFieldSpec<K> {
+  return { key, column, before };
+}
+
+const CONFIG_FIELDS = [
+  field('name', 'displayName', (s) => s.display_name),
+  field('description', 'description', (s) => s.description),
+  field('icon', 'icon', (s) => s.icon),
+  field('accent', 'accent', (s) => s.accent),
+  field('notes', 'notes', (s) => s.notes),
+  field('mcVersion', 'mcVersion', (s) => s.mc_version),
+  field('javaTag', 'javaTag', (s) => s.java_tag),
+  field('heapMb', 'heapMb', (s) => s.heap_mb),
+  field('containerMemoryMb', 'containerMemoryMb', (s) => s.container_memory_mb),
+  field('cpus', 'cpus', (s) => s.cpus),
+  field('updatePolicy', 'updatePolicy', (s) => s.update_policy),
+] as const satisfies readonly UpdateFieldSpec<keyof UpdateServerChanges>[];
+
+const FLAG_FIELDS = [
+  field('autoStart', 'autoStart', (s) => s.auto_start),
+  field('autoRestart', 'autoRestart', (s) => s.auto_restart),
+  field('quotaStrict', 'quotaStrict', (s) => s.quota_strict),
+] as const satisfies readonly UpdateFieldSpec<keyof UpdateServerChanges>[];
+
 /**
  * Server lifecycle: create/start/stop/restart/kill/recreate/delete/update,
  * plus status refresh. The plan's "hub" service for container-lifecycle-facing
@@ -552,41 +591,27 @@ export class ServerLifecycleService {
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<UpdateServerResult> {
     const before = await this.query.mustGet(id);
-    const RECREATE_FIELDS = new Set([
+    const RECREATE_FIELDS = new Set<keyof UpdateServerChanges>([
       'mcVersion',
       'javaTag',
       'heapMb',
       'containerMemoryMb',
       'cpus',
     ]);
-    const columns: Record<string, keyof typeof servers.$inferInsert> = {
-      name: 'displayName',
-      description: 'description',
-      icon: 'icon',
-      accent: 'accent',
-      notes: 'notes',
-      mcVersion: 'mcVersion',
-      javaTag: 'javaTag',
-      heapMb: 'heapMb',
-      containerMemoryMb: 'containerMemoryMb',
-      cpus: 'cpus',
-      updatePolicy: 'updatePolicy',
-    };
     const diff: Record<string, unknown> = {};
     const set: Record<string, unknown> = {};
     let needsRecreate = false;
 
-    const changesRec = changes as Record<string, unknown>;
-    const beforeRec = before as unknown as Record<string, unknown>;
-    for (const [key, col] of Object.entries(columns)) {
-      if (changesRec[key] === undefined) continue;
-      const beforeVal = key === 'name' ? before.display_name : beforeRec[col];
+    for (const f of CONFIG_FIELDS) {
+      const newVal = changes[f.key];
+      if (newVal === undefined) continue;
+      const beforeVal = f.before(before);
       const strOf = (v: unknown): string =>
         typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
-      if (strOf(beforeVal) === strOf(changesRec[key])) continue;
-      diff[key] = [beforeVal, changesRec[key]];
-      set[col] = changesRec[key];
-      if (RECREATE_FIELDS.has(key)) needsRecreate = true;
+      if (strOf(beforeVal) === strOf(newVal)) continue;
+      diff[f.key] = [beforeVal, newVal];
+      set[f.column] = newVal;
+      if (RECREATE_FIELDS.has(f.key)) needsRecreate = true;
     }
     if (changes.tags) {
       diff.tags = [before.tags, changes.tags];
@@ -659,21 +684,13 @@ export class ServerLifecycleService {
       ];
       set.diskQuotaBytes = changes.diskQuotaGb * 1024 ** 3;
     }
-    for (const flag of ['autoStart', 'autoRestart', 'quotaStrict'] as const) {
-      if (changesRec[flag] === undefined) continue;
-      const col = {
-        autoStart: 'autoStart',
-        autoRestart: 'autoRestart',
-        quotaStrict: 'quotaStrict',
-      }[flag];
-      const beforeBool = {
-        autoStart: before.auto_start,
-        autoRestart: before.auto_restart,
-        quotaStrict: before.quota_strict,
-      }[flag];
-      if (Boolean(beforeBool) === Boolean(changesRec[flag])) continue;
-      diff[flag] = [Boolean(beforeBool), Boolean(changesRec[flag])];
-      set[col] = Boolean(changesRec[flag]);
+    for (const f of FLAG_FIELDS) {
+      const newVal = changes[f.key];
+      if (newVal === undefined) continue;
+      const beforeBool = Boolean(f.before(before));
+      if (beforeBool === Boolean(newVal)) continue;
+      diff[f.key] = [beforeBool, Boolean(newVal)];
+      set[f.column] = Boolean(newVal);
     }
 
     if (!Object.keys(set).length)

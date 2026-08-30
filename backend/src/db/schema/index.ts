@@ -4,9 +4,10 @@
 // single, concrete set of TypeScript types regardless of the active driver.
 import * as sqliteSchema from './sqlite';
 import * as pgSchema from '../schema-pg';
+import { resolveDbDriver } from '../../utils/db-driver';
 
 const active: typeof sqliteSchema =
-  process.env.DB_DRIVER === 'postgres'
+  resolveDbDriver() === 'postgres'
     ? (pgSchema as unknown as typeof sqliteSchema)
     : sqliteSchema;
 

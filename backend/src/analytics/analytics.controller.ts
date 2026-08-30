@@ -14,6 +14,7 @@ import { StatsProfileService } from './stats-profile.service';
 import { StatsXrayService } from './stats-xray.service';
 import { StatsTimelineService } from './stats-timeline.service';
 import { LogIngestService } from './log-ingest.service';
+import { playerNameSchema } from '../utils/player-name';
 
 const timelineSchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -28,11 +29,7 @@ const timelineSchema = z.object({
 });
 
 const sessionsSchema = z.object({
-  player: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9_]{1,16}$/)
-    .optional(),
+  player: playerNameSchema.optional(),
 });
 
 const scoreboardSchema = z.object({
