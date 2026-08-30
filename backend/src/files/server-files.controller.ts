@@ -1,6 +1,4 @@
 import {
-  BadRequestException,
-  Body,
   Controller,
   Delete,
   Get,
@@ -13,26 +11,15 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  Body,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
-import * as fsp from 'node:fs/promises';
-import { z } from 'zod';
-import { parseBody } from '../utils/parse-body';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { ServerQueryService } from '../servers/server-query.service';
-import { FilesService } from './files.service';
 import { UploadPreflightInterceptor } from './upload-preflight.interceptor';
-import { currentUser } from '../auth/current-user';
-
-const pathSchema = z.string().max(4096).default('');
-const nameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(180)
-  .regex(/^[^\\/\0]+$/, 'Names cannot contain path separators');
+import { FilesRouteHandlersService } from './files-route-handlers.service';
 
 /** Server-scoped file manager. Ports the `serverFiles` branch of legacy `src/web/routes/files.ts`. */
 @Controller('api/servers/:id/files')
@@ -40,7 +27,7 @@ const nameSchema = z
 @Roles('admin', 'operator')
 export class ServerFilesController {
   constructor(
-    private readonly files: FilesService,
+    private readonly handlers: FilesRouteHandlersService,
     private readonly serverQuery: ServerQueryService,
   ) {}
 
@@ -52,15 +39,13 @@ export class ServerFilesController {
   @Get('list')
   async list(@Param('id') id: string, @Query('path') path?: string) {
     await this.mustExist(id);
-    const rel = parseBody(pathSchema, path ?? '');
-    return { ok: true, ...(await this.files.list(id, rel)) };
+    return this.handlers.list(id, path);
   }
 
   @Get('read')
   async read(@Param('id') id: string, @Query('path') path?: string) {
     await this.mustExist(id);
-    const rel = parseBody(pathSchema, path ?? '');
-    return { ok: true, path: rel, ...(await this.files.readText(id, rel)) };
+    return this.handlers.read(id, path);
   }
 
   @Get('download')
@@ -70,27 +55,13 @@ export class ServerFilesController {
     @Res() res: Response,
   ) {
     await this.mustExist(id);
-    const rel = parseBody(pathSchema, path ?? '');
-    const file = await this.files.statFile(id, rel);
-    res.download(file.abs, file.name);
+    return this.handlers.download(id, path, res);
   }
 
   @Post('write')
   async write(@Param('id') id: string, @Body() body: unknown) {
     await this.mustExist(id);
-    const { path: rel, content } = parseBody(
-      z.object({
-        path: pathSchema,
-        content: z
-          .string()
-          .max(2 * 1024 * 1024, 'Content exceeds the 2 MB editor limit'),
-      }),
-      body,
-    );
-    return {
-      ok: true,
-      ...(await this.files.writeText(id, rel, content, { actor: 'system' })),
-    };
+    return this.handlers.write(id, body);
   }
 
   @Post('mkdir')
@@ -100,13 +71,7 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    const { path: rel } = parseBody(z.object({ path: pathSchema }), body);
-    return {
-      ok: true,
-      ...(await this.files.mkdir(id, rel, {
-        actor: currentUser(req).username,
-      })),
-    };
+    return this.handlers.mkdir(id, body, req);
   }
 
   @Post('rename')
@@ -116,16 +81,7 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    const { path: rel, newName } = parseBody(
-      z.object({ path: pathSchema, newName: nameSchema }),
-      body,
-    );
-    return {
-      ok: true,
-      ...(await this.files.rename(id, rel, newName, {
-        actor: currentUser(req).username,
-      })),
-    };
+    return this.handlers.rename(id, body, req);
   }
 
   @Post('move')
@@ -135,16 +91,7 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    const { path: rel, dest } = parseBody(
-      z.object({ path: pathSchema, dest: pathSchema }),
-      body,
-    );
-    return {
-      ok: true,
-      ...(await this.files.move(id, rel, dest, {
-        actor: currentUser(req).username,
-      })),
-    };
+    return this.handlers.move(id, body, req);
   }
 
   @Post('copy')
@@ -154,16 +101,7 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    const { path: rel, dest } = parseBody(
-      z.object({ path: pathSchema, dest: pathSchema }),
-      body,
-    );
-    return {
-      ok: true,
-      ...(await this.files.copy(id, rel, dest, {
-        actor: currentUser(req).username,
-      })),
-    };
+    return this.handlers.copy(id, body, req);
   }
 
   @Delete()
@@ -173,13 +111,7 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    const rel = parseBody(pathSchema, path ?? '');
-    return {
-      ok: true,
-      ...(await this.files.remove(id, rel, {
-        actor: currentUser(req).username,
-      })),
-    };
+    return this.handlers.remove(id, path, req);
   }
 
   @Post('upload')
@@ -191,25 +123,6 @@ export class ServerFilesController {
     @Req() req: Request,
   ) {
     await this.mustExist(id);
-    try {
-      const rel = parseBody(pathSchema, path ?? '');
-      if (!uploadedFiles || !uploadedFiles.length)
-        throw new BadRequestException('No files attached');
-      const uploaded = [];
-      for (const f of uploadedFiles) {
-        uploaded.push(
-          await this.files.acceptUpload(id, rel, f.path, f.originalname, {
-            actor: currentUser(req).username,
-          }),
-        );
-      }
-      return { ok: true, uploaded };
-    } catch (err) {
-      if (uploadedFiles) {
-        for (const f of uploadedFiles)
-          await fsp.rm(f.path, { force: true }).catch(() => {});
-      }
-      throw err;
-    }
+    return this.handlers.upload(id, path, uploadedFiles, req);
   }
 }
