@@ -59,17 +59,23 @@ export class StorageCleanupService {
     return this.dbService.db;
   }
 
-  private async entrySize(abs: string): Promise<number> {
+  // Bounds recursion against a pathological directory tree — mirrors
+  // largestFiles's maxScan bound (this walk has no natural "items scanned"
+  // counter, so a depth cap is the equivalent guard).
+  private static readonly MAX_ENTRY_SIZE_DEPTH = 64;
+
+  private async entrySize(abs: string, depth = 0): Promise<number> {
     const st = await fsp.lstat(abs).catch(() => null);
     if (!st || st.isSymbolicLink()) return 0;
     if (st.isFile()) return st.size;
     if (!st.isDirectory()) return 0;
+    if (depth >= StorageCleanupService.MAX_ENTRY_SIZE_DEPTH) return 0;
     let total = 0;
     const entries = await fsp
       .readdir(abs, { withFileTypes: true })
       .catch(() => []);
     for (const e of entries)
-      total += await this.entrySize(path.join(abs, e.name));
+      total += await this.entrySize(path.join(abs, e.name), depth + 1);
     return total;
   }
 

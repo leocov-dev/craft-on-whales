@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { migrate as migrateSqlite } from 'drizzle-orm/node-sqlite/migrator';
 import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
@@ -8,6 +9,7 @@ import type { DbService } from './db.service';
 const MIGRATIONS_FOLDER = path.resolve(__dirname, '..', '..', 'drizzle');
 const PG_MIGRATIONS_FOLDER = path.resolve(__dirname, '..', '..', 'drizzle-pg');
 const MIGRATIONS_TABLE = '__drizzle_migrations';
+const logger = new Logger('Migrate');
 
 // Invoked explicitly from main.ts's bootstrap sequence, not from the DI
 // graph — migrations must run before any request-handling code touches db.
@@ -89,7 +91,7 @@ function baselineExistingSchema(dbService: DbService): void {
     );
   }
 
-  console.log(
-    `[migrate] adopted existing schema — baselined ${migrations.length} migration(s) without re-running them`,
+  logger.log(
+    `adopted existing schema — baselined ${migrations.length} migration(s) without re-running them`,
   );
 }

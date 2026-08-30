@@ -8,6 +8,7 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
@@ -199,7 +200,10 @@ export class FilesService {
     if (existing && existing.isDirectory())
       throw new BadRequestException('That path is a folder');
 
-    const tmp = path.join(parent, `.msm-write-${Date.now()}.tmp`);
+    const tmp = path.join(
+      parent,
+      `.msm-write-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`,
+    );
     await fsp.writeFile(tmp, content, 'utf8');
     await fsp.rename(tmp, abs);
 
@@ -245,7 +249,6 @@ export class FilesService {
     const clean = this.sanitizeName(newName);
     if (!fs.existsSync(abs)) throw new NotFoundException('Not found');
     const target = path.join(path.dirname(abs), clean);
-    this.resolvePath(serverId, path.posix.join(path.posix.dirname(rel), clean));
     if (fs.existsSync(target) && path.resolve(target) !== path.resolve(abs)) {
       throw new ConflictException(`"${clean}" already exists here`);
     }

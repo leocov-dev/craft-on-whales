@@ -100,20 +100,30 @@ export class InventorySnapshotService {
     const data = await this.playerDataFiles.readPlayerData(serverId, uuid);
     const dir = this.snapshotDir(serverId, uuid);
     await fsp.mkdir(dir, { recursive: true });
+    const cleanedReason = this.cleanReason(reason);
     let ts = Date.now();
-    while (
-      fs.existsSync(path.join(dir, `${ts}-${this.cleanReason(reason)}.json`))
-    )
-      ts += 1; // same-ms collision
-    const name = `${ts}-${this.cleanReason(reason)}.json`;
-    await fsp.writeFile(
-      path.join(dir, name),
-      JSON.stringify(
-        { ts, reason: this.cleanReason(reason), serverId, data },
-        null,
-        2,
-      ),
-    );
+    let name = `${ts}-${cleanedReason}.json`;
+    for (;;) {
+      try {
+        // `wx` fails atomically if the file already exists, closing the
+        // existsSync-then-write TOCTOU window a concurrent snapshot() call
+        // for the same player could otherwise race through.
+        await fsp.writeFile(
+          path.join(dir, name),
+          JSON.stringify(
+            { ts, reason: cleanedReason, serverId, data },
+            null,
+            2,
+          ),
+          { flag: 'wx' },
+        );
+        break;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        ts += 1; // same-ms collision
+        name = `${ts}-${cleanedReason}.json`;
+      }
+    }
     return {
       file: path.posix.join('logs', serverId, 'inventories', data.uuid, name),
       ts,

@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   PreconditionFailedException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
@@ -170,6 +171,8 @@ const FLAG_FIELDS = [
  */
 @Injectable()
 export class ServerLifecycleService {
+  private readonly logger = new Logger(ServerLifecycleService.name);
+
   constructor(
     private readonly dbService: DbService,
     private readonly events: EventsService,
@@ -735,7 +738,9 @@ export class ServerLifecycleService {
       try {
         await this.scheduler.deleteSchedule(sched.id, { actor });
       } catch (err: unknown) {
-        console.error(`[delete] schedule ${sched.id}:`, (err as Error).message);
+        this.logger.error(
+          `delete schedule ${sched.id}: ${(err as Error).message}`,
+        );
       }
     }
     let freedBytes = 0;

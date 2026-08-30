@@ -174,7 +174,7 @@ export class ConsoleGateway
         actor: user.username,
         type: 'rcon',
         summary: `RCON: ${this.redact(command)}`,
-        details: { output: output.slice(0, 2000) },
+        details: { output: this.redact(output.slice(0, 2000)) },
       });
     } catch (err) {
       this.send(client, {

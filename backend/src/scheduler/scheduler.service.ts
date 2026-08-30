@@ -3,6 +3,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   OnModuleInit,
 } from '@nestjs/common';
 import { Cron } from 'croner';
@@ -61,6 +62,7 @@ export const TASK_TYPES = {
  */
 @Injectable()
 export class SchedulerService implements OnModuleInit {
+  private readonly logger = new Logger(SchedulerService.name);
   private readonly jobs = new Map<string, InstanceType<typeof Cron>>();
 
   constructor(
@@ -188,9 +190,14 @@ export class SchedulerService implements OnModuleInit {
       );
       this.jobs.set(job.id, cron);
     } catch (err) {
-      console.error(
-        `[scheduler] invalid cron "${job.cron}" for ${job.id}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`invalid cron "${job.cron}" for ${job.id}: ${message}`);
+      this.events.recordEvent({
+        serverId: job.serverId || null,
+        actor: 'scheduler',
+        type: 'schedule-failed',
+        summary: `Schedule "${TASK_TYPES[job.taskType as TaskType]?.label || job.taskType}" failed to arm: invalid cron "${job.cron}"`,
+      });
     }
   }
 
@@ -215,7 +222,7 @@ export class SchedulerService implements OnModuleInit {
     for (const job of await this.db.select().from(schedules))
       await this.schedule(job);
 
-    console.log(`[scheduler] ${this.jobs.size} job(s) armed`);
+    this.logger.log(`${this.jobs.size} job(s) armed`);
   }
 
   /** Global maintenance tasks exist from first boot; user can disable/edit. */
