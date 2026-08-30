@@ -28,18 +28,17 @@ interface FatalDiagnosis {
  * containers into history events, updates cached status, and drives crash
  * detection with auto-restart backoff.
  *
- * KNOWN GAP: the legacy watcher restarts a crashed server via the guarded
- * server lifecycle (`services/servers.ts`'s `startServer`), not
- * `ContainerService.startContainer` directly, so a watcher-triggered
- * restart can't race a user's own start/recreate/delete and honors
- * `pending_recreate`. `ServersModule` doesn't exist yet in this rewrite
- * (it's next after AuthModule per the plan's migration order) — see the
- * `// TODO(ServersModule)` below. Everything else (event stream, status
- * caching, crash diagnosis, backoff bookkeeping) is fully wired. Once
- * `ServersModule` exists, inject `ServersService` here via `forwardRef()`
- * (this is the one genuine cross-module cycle the plan's require-cycle
- * audit already anticipated for `DockerWatcherService`) and replace the
- * TODO with the real call.
+ * A crashed server is restarted via the guarded server lifecycle
+ * (`ServerLifecycleService.startServer`), not `ContainerService.startContainer`
+ * directly, so a watcher-triggered restart can't race a user's own
+ * start/recreate/delete and honors `pendingRecreate`. `DockerModule` is a
+ * widely-imported leaf module with no imports of its own — rather than give
+ * it a new module-level dependency on `ServersModule` (attempted, but that
+ * broke DI resolution elsewhere in the graph since so many modules plainly
+ * import `DockerModule`), the restart handler is wired the other direction:
+ * `setAutoRestartHandler()` lets `ServerLifecycleService` (which already
+ * depends on `DockerModule`, a one-directional edge) register itself here at
+ * boot via `onModuleInit`, with no new circular module dependency at all.
  */
 @Injectable()
 export class DockerWatcherService implements OnModuleInit {
@@ -48,6 +47,8 @@ export class DockerWatcherService implements OnModuleInit {
   private readonly crashWindows = new Map<string, number[]>();
   private stream: NodeJS.ReadableStream | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
+  private autoRestartHandler: ((serverId: string) => Promise<void>) | null =
+    null;
 
   constructor(
     private readonly connection: DockerConnectionService,
@@ -56,6 +57,11 @@ export class DockerWatcherService implements OnModuleInit {
     private readonly eventsService: EventsService,
     private readonly dbService: DbService,
   ) {}
+
+  /** Registers the guarded-lifecycle restart callback — see class doc comment. */
+  setAutoRestartHandler(handler: (serverId: string) => Promise<void>): void {
+    this.autoRestartHandler = handler;
+  }
 
   onModuleInit(): void {
     this.startWatcher().catch((err: Error) => {
@@ -245,19 +251,22 @@ export class DockerWatcherService implements OnModuleInit {
         try {
           const info = await this.containers.inspectStatus(serverId);
           if (info.exists && info.status === 'crashed') {
-            // TODO(ServersModule): go through the guarded lifecycle
-            // (ServersService.startServer), not ContainerService.startContainer
-            // directly, so this can't race a user start/recreate/delete and so
-            // pending config changes (pendingRecreate) are honored rather than
-            // starting a stale container. Wire via forwardRef() once
-            // ServersModule exists — see this file's class doc comment.
-            this.logger.warn(
-              `auto-restart for ${serverId} skipped: ServersModule not wired yet (TODO — see DockerWatcherService doc comment)`,
-            );
+            if (this.autoRestartHandler) {
+              await this.autoRestartHandler(serverId);
+            } else {
+              this.logger.warn(
+                `auto-restart for ${serverId} skipped: no handler registered`,
+              );
+            }
           }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           this.logger.error(`auto-restart failed: ${message}`);
+          this.eventsService.recordEvent({
+            serverId,
+            type: 'auto-restart-failed',
+            summary: `Auto-restart attempt failed: ${message}`,
+          });
         }
       })();
     }, delayMs).unref();

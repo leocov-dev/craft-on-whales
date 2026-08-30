@@ -3,6 +3,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  OnModuleInit,
   PreconditionFailedException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
@@ -37,6 +38,7 @@ import { ContainerService } from '../docker/container.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ROUTER_NETWORK_NAME } from '../docker/docker-networks.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
+import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
@@ -169,7 +171,7 @@ const FLAG_FIELDS = [
  * lifecycle-adjacent, not env assembly or preview.
  */
 @Injectable()
-export class ServerLifecycleService {
+export class ServerLifecycleService implements OnModuleInit {
   private readonly logger = new Logger(ServerLifecycleService.name);
 
   constructor(
@@ -184,12 +186,22 @@ export class ServerLifecycleService {
     private readonly containers: ContainerService,
     private readonly images: DockerImagesService,
     private readonly logs: DockerLogsService,
+    private readonly dockerWatcher: DockerWatcherService,
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
     @Inject(SCHEDULER_CONTRACT)
     private readonly scheduler: SchedulerContract,
   ) {}
+
+  // Wires the crash-auto-restart path (DockerWatcherService.setAutoRestartHandler
+  // — see its class doc comment) through the guarded lifecycle instead of a
+  // new circular module dependency.
+  onModuleInit(): void {
+    this.dockerWatcher.setAutoRestartHandler((serverId) =>
+      this.startServer(serverId, { actor: 'system' }),
+    );
+  }
 
   private get db() {
     return this.dbService.db;
