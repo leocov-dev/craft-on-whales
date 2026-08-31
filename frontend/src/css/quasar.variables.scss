@@ -18,14 +18,14 @@
 // properties), so stock Quasar component coloring stays constant across
 // both themes and only the CSS custom properties toggle with data-theme.
 
-$primary: #21a7ab; // diamond-500 — the single brand accent
+$primary: #2161ab; // ocean-500 — the single brand accent
 $secondary: #3fa62b; // grass-500
-$accent: #e99417; // gold-500
+$accent: #6ca2e0; // ocean-300 — light accent
 
 $dark: #1b1f23; // stone-900 (raised, dark theme)
 $dark-page: #0e1113; // stone-950 (canvas, dark theme)
 
 $positive: #3fa62b; // grass-500
 $negative: #e5484d; // redstone-500
-$info: #21a7ab; // diamond-500
+$info: #2161ab; // ocean-500
 $warning: #e99417; // gold-500

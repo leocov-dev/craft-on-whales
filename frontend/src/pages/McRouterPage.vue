@@ -1,23 +1,23 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="text-h6 q-mb-md">Router</div>
+    <PageHeader title="Router" icon="alt_route" />
 
     <div class="row q-col-gutter-md">
       <div class="col-12 col-lg-6">
         <q-card flat bordered class="q-pa-md">
           <div class="text-subtitle1 q-mb-sm">mc-router</div>
           <q-toggle v-model="config.enabled" label="Enable mc-router" />
-          <p class="text-caption text-ink-faint q-mt-sm" style="max-width: 60ch">
+          <q-item-label caption class="q-mt-sm" style="max-width: 60ch">
             Starts a managed <code>itzg/mc-router</code> container that proxies Minecraft client
             connections by hostname to your servers. It needs read-write access to the Docker socket
             to start/stop servers automatically — the same access level as this panel itself.
-          </p>
+          </q-item-label>
 
           <q-input
             v-model.number="config.listenPort"
             type="number"
             label="Listen port"
-            outlined
+            filled
             dense
             class="q-mt-md"
             hint="The public port players connect to."
@@ -37,7 +37,7 @@
           <q-input
             v-model="config.autoScaleDownAfter"
             label="Idle timeout"
-            outlined
+            filled
             dense
             class="q-mt-md"
             style="max-width: 160px"
@@ -46,7 +46,7 @@
           <q-input
             v-model="config.autoScaleAsleepMotd"
             label="Asleep MOTD"
-            outlined
+            filled
             dense
             class="q-mt-md"
             placeholder="Server is sleeping — connect to wake it"
@@ -54,7 +54,7 @@
           <q-input
             v-model="config.autoScaleLoadingMotd"
             label="Loading MOTD"
-            outlined
+            filled
             dense
             class="q-mt-md"
             placeholder="Server is starting…"
@@ -82,7 +82,7 @@
                 <q-input
                   v-model="route.hostname"
                   dense
-                  outlined
+                  filled
                   placeholder="mc.example.com"
                   class="font-mono"
                 />
@@ -91,7 +91,7 @@
                 <q-select
                   v-model="route.autoScale"
                   dense
-                  outlined
+                  filled
                   emit-value
                   map-options
                   :options="autoScaleOptions"
@@ -109,11 +109,11 @@
               </q-item-section>
             </q-item>
           </q-list>
-          <p class="text-caption text-ink-faint q-mt-md" style="max-width: 60ch">
+          <q-item-label caption class="q-mt-md" style="max-width: 60ch">
             Setting or clearing a hostname requires recreating that server's container to apply the
             new routing labels — it happens automatically the next time the server starts, or
             immediately if it's already running.
-          </p>
+          </q-item-label>
         </q-card>
       </div>
     </div>
@@ -124,6 +124,7 @@
 import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { mcRouterApi, type McRouterConfig, type RouterRoute } from '@/api/mcRouter';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 

@@ -1,6 +1,6 @@
 <template>
   <q-dialog :model-value="modelValue" @update:model-value="(v) => emit('update:modelValue', v)">
-    <q-card style="min-width: 420px; max-width: 640px; width: 100%">
+    <q-card bordered class="shadow-12" style="min-width: 420px; max-width: 900px; width: 100%">
       <q-card-section v-if="loading" class="text-center q-pa-lg">
         <q-spinner size="32px" color="primary" />
       </q-card-section>
@@ -15,39 +15,45 @@
           <q-icon v-else name="inventory_2" size="40px" />
           <div class="col min-width-0">
             <div class="text-subtitle1 ellipsis">{{ pack.name }}</div>
-            <div class="text-caption text-ink-faint">
+            <q-item-label caption>
               {{ pack.mcVersion || '—' }}
               <template v-if="pack.loaders?.length"> · {{ pack.loaders.join(', ') }}</template>
               <template v-if="pack.downloads != null">
                 · {{ pack.downloads.toLocaleString() }} downloads</template
               >
-            </div>
+            </q-item-label>
           </div>
-        </q-card-section>
-
-        <q-card-section v-if="pack.description" class="text-body2 q-pt-none">
-          <div v-html="pack.description" />
         </q-card-section>
 
         <q-separator />
 
-        <q-card-section class="q-pb-none">
-          <div class="text-subtitle2">Mods{{ mods.length ? ` (${mods.length})` : '' }}</div>
-        </q-card-section>
-        <q-card-section style="max-height: 360px; overflow-y: auto" class="q-pt-sm">
-          <div v-if="mods.length === 0" class="text-caption text-ink-faint">No mods found.</div>
-          <q-list v-else separator>
-            <q-item v-for="m in mods" :key="m.filename ?? m.file ?? m.name">
-              <q-item-section avatar>
-                <q-icon name="extension" />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>{{ m.name }}</q-item-label>
-                <q-item-label caption>{{ modCaption(m) }}</q-item-label>
-              </q-item-section>
-            </q-item>
-          </q-list>
-        </q-card-section>
+        <q-scroll-area style="height: 80vh">
+          <q-card-section v-if="pack.description" class="text-body2">
+            <div v-html="pack.description" />
+          </q-card-section>
+
+          <q-separator v-if="pack.description" />
+
+          <q-card-section class="q-pb-none">
+            <div class="text-subtitle2">Mods{{ mods.length ? ` (${mods.length})` : '' }}</div>
+          </q-card-section>
+          <q-card-section class="q-pt-sm">
+            <q-item-label v-if="mods.length === 0" caption>No mods found.</q-item-label>
+            <q-list v-else separator>
+              <q-item v-for="m in mods" :key="m.filename ?? m.file ?? m.name">
+                <q-item-section avatar>
+                  <q-icon name="extension" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label>{{ m.name }}</q-item-label>
+                  <q-item-label caption>{{ modCaption(m) }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-card-section>
+        </q-scroll-area>
+
+        <q-separator />
       </template>
 
       <q-card-actions align="right">

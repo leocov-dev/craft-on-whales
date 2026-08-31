@@ -13,7 +13,7 @@
         >
           {{ line.text }}
         </div>
-        <div v-if="socket.ended.value" class="text-ink-faint">— server not running —</div>
+        <q-item-label v-if="socket.ended.value" caption>— server not running —</q-item-label>
       </div>
     </q-card>
 
@@ -22,7 +22,7 @@
         v-model="command"
         class="col"
         dense
-        outlined
+        filled
         :disable="!canRunCommands"
         :placeholder="canRunCommands ? 'Type a command…' : 'Your role cannot run commands'"
         @keyup.up="historyUp"

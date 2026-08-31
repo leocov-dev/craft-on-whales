@@ -3,19 +3,19 @@
     <q-card flat bordered style="width: 100%; max-width: 560px">
       <q-card-section>
         <div class="text-h6">Create a server</div>
-        <div class="text-caption text-ink-faint q-mt-xs">
+        <q-item-label caption class="q-mt-xs">
           For a modpack, use
           <router-link to="/modpacks" class="text-primary">Modpacks</router-link> or
           <router-link to="/blueprints" class="text-primary">Blueprints</router-link> instead — this
           form is for a plain vanilla/plugin/modloader server.
-        </div>
+        </q-item-label>
       </q-card-section>
 
       <q-card-section class="q-gutter-md">
         <q-input
           v-model="form.name"
           label="Server name"
-          outlined
+          filled
           dense
           :rules="[(v) => !!v.trim() || 'Required']"
         />
@@ -27,7 +27,7 @@
           option-value="value"
           emit-value
           map-options
-          outlined
+          filled
           dense
           label="Server type"
         />
@@ -35,7 +35,7 @@
         <q-select
           v-model="form.mcVersion"
           :options="versionOptions"
-          outlined
+          filled
           dense
           use-input
           label="Minecraft version"
@@ -44,20 +44,14 @@
 
         <div class="row q-col-gutter-sm">
           <div class="col-6">
-            <q-input
-              v-model.number="form.portGame"
-              type="number"
-              label="Game port"
-              outlined
-              dense
-            />
+            <q-input v-model.number="form.portGame" type="number" label="Game port" filled dense />
           </div>
           <div class="col-6">
             <q-input
               v-model.number="form.diskQuotaGb"
               type="number"
               label="Disk quota (GB)"
-              outlined
+              filled
               dense
             />
           </div>
@@ -69,7 +63,7 @@
               v-model.number="form.heapMb"
               type="number"
               label="Java heap (MB)"
-              outlined
+              filled
               dense
             />
           </div>
@@ -78,7 +72,7 @@
               v-model.number="form.containerMemoryMb"
               type="number"
               label="Container memory (MB)"
-              outlined
+              filled
               dense
             />
           </div>

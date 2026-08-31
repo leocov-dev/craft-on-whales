@@ -7,7 +7,7 @@
         <q-input
           v-model="discordWebhook"
           label="Webhook URL"
-          outlined
+          filled
           dense
           :placeholder="discord.webhookMasked ?? 'https://discord.com/api/webhooks/…'"
           hint="Leave blank to keep the current webhook"
@@ -23,7 +23,7 @@
       <q-card flat bordered class="q-pa-md q-gutter-md">
         <div class="text-subtitle1">Public status page</div>
         <q-toggle v-model="statusPage.enabled" label="Enabled" />
-        <q-input v-model="statusSlug" label="Slug" outlined dense placeholder="my-server" />
+        <q-input v-model="statusSlug" label="Slug" filled dense placeholder="my-server" />
         <q-btn dense outline label="Save" :loading="savingStatus" @click="saveStatusPage" />
       </q-card>
     </div>

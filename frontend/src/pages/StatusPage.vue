@@ -17,23 +17,26 @@
             </div>
           </q-card-section>
           <q-card-section>
-            <div class="text-body2 text-ink-faint">{{ page.motd }}</div>
+            <q-item-label caption>{{ page.motd }}</q-item-label>
             <div class="row q-col-gutter-md q-mt-sm text-body2">
               <div class="col-6">
-                <div class="text-caption text-ink-faint">Version</div>
+                <q-item-label caption>Version</q-item-label>
                 <div>{{ page.mcVersion }}</div>
               </div>
               <div class="col-6">
-                <div class="text-caption text-ink-faint">Players</div>
+                <q-item-label caption>Players</q-item-label>
                 <div>{{ page.online }}/{{ page.max }}</div>
               </div>
             </div>
           </q-card-section>
         </q-card>
-        <div v-else class="text-center text-ink-faint">
+        <q-banner v-else rounded>
+          <template #avatar>
+            <q-icon name="info" color="primary" />
+          </template>
           <div class="text-h6">Not found</div>
           <div class="text-caption">This status page doesn't exist or was disabled.</div>
-        </div>
+        </q-banner>
       </q-page>
     </q-page-container>
   </q-layout>

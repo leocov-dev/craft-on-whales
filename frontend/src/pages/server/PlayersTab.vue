@@ -61,9 +61,9 @@
           </q-item-section>
         </q-item>
         <q-item v-if="players.length === 0">
-          <q-item-section class="text-center text-ink-faint"
-            >No players have connected yet.</q-item-section
-          >
+          <q-item-section class="text-center">
+            <q-item-label caption>No players have connected yet.</q-item-label>
+          </q-item-section>
         </q-item>
       </q-list>
     </q-card>

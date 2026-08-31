@@ -57,7 +57,7 @@
         dense
         no-caps
         align="left"
-        class="text-ink-faint q-mb-xs"
+        class="q-mb-xs"
         active-color="primary"
         indicator-color="primary"
         @update:model-value="onGroupChange"
@@ -71,7 +71,7 @@
         dense
         no-caps
         align="left"
-        class="text-ink-faint q-mb-md"
+        class="q-mb-md"
         active-color="primary"
         indicator-color="primary"
         @update:model-value="onTabChange"
@@ -83,7 +83,12 @@
       <router-view />
     </template>
 
-    <div v-else class="text-center text-ink-faint q-pa-xl">Server not found.</div>
+    <q-banner v-else rounded>
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
+      Server not found.
+    </q-banner>
   </q-page>
 </template>
 

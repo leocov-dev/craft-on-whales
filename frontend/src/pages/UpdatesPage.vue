@@ -1,25 +1,29 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="text-h6">Updates</div>
-      <q-space />
-      <div class="text-caption text-ink-faint q-mr-md">
-        {{
-          lastChecked ? `Last checked ${new Date(lastChecked).toLocaleString()}` : 'Never checked'
-        }}
-      </div>
-      <q-btn
-        color="primary"
-        icon="refresh"
-        label="Check all"
-        :loading="checking"
-        @click="checkAll"
-      />
-    </div>
+    <PageHeader
+      title="Updates"
+      icon="upgrade"
+      :subtitle="
+        lastChecked ? `Last checked ${new Date(lastChecked).toLocaleString()}` : 'Never checked'
+      "
+    >
+      <template #action>
+        <q-btn
+          color="primary"
+          icon="refresh"
+          label="Check all"
+          :loading="checking"
+          @click="checkAll"
+        />
+      </template>
+    </PageHeader>
 
-    <div v-if="updates.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="updates.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       Everything is up to date.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
@@ -32,8 +36,8 @@
             </q-item-label>
             <q-item-label caption>{{ u.kind }} · {{ u.subject }}</q-item-label>
           </q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">
-            {{ u.current ?? '—' }} → {{ u.latest ?? '—' }}
+          <q-item-section side>
+            <q-item-label caption>{{ u.current ?? '—' }} → {{ u.latest ?? '—' }}</q-item-label>
           </q-item-section>
           <q-item-section v-if="u.changelog" side>
             <a :href="u.changelog" target="_blank" rel="noopener" class="text-caption text-primary"
@@ -54,6 +58,7 @@ import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { updatesApi, type OutdatedRow } from '@/api/updates';
 import { tasksApi } from '@/api/tasks';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 

@@ -4,7 +4,7 @@
       <q-input
         v-model="addUrl"
         dense
-        outlined
+        filled
         class="col"
         placeholder="Modrinth/CurseForge URL or slug…"
         @keyup.enter="addMod"
@@ -19,9 +19,12 @@
       </q-banner>
     </div>
 
-    <div v-if="mods.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="mods.length === 0" rounded>
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No mods or plugins installed.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>

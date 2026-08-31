@@ -15,10 +15,10 @@
             :label="`${server.crashesUnread} crash${server.crashesUnread === 1 ? '' : 'es'}`"
           />
         </div>
-        <div class="text-caption text-ink-faint">
-          <span class="text-ink-soft">{{ server.flavor }}</span>
+        <q-item-label caption>
+          {{ server.flavor }}
           · {{ server.mcVersion }} · :{{ server.ports.game }}
-        </div>
+        </q-item-label>
       </div>
 
       <div class="column items-end">
@@ -39,23 +39,28 @@
     <q-card-section class="q-pt-none">
       <div class="row q-col-gutter-sm text-caption">
         <div class="col-4">
-          <div class="text-ink-faint">Players</div>
+          <q-item-label caption>Players</q-item-label>
           <div class="text-weight-medium">
-            {{ server.players.online }}<span class="text-ink-faint">/{{ server.players.max }}</span>
+            {{ server.players.online
+            }}<span class="q-item__label q-item__label--caption text-caption"
+              >/{{ server.players.max }}</span
+            >
           </div>
         </div>
         <div class="col-4">
-          <div class="text-ink-faint">CPU</div>
+          <q-item-label caption>CPU</q-item-label>
           <div class="text-weight-medium">
             {{ server.status === 'running' ? `${server.stats.cpuPct}%` : '—' }}
           </div>
         </div>
         <div class="col-4">
-          <div class="text-ink-faint">Memory</div>
+          <q-item-label caption>Memory</q-item-label>
           <div class="text-weight-medium">
             <template v-if="server.status === 'running'">
               {{ server.stats.memUsedMb
-              }}<span class="text-ink-faint"> / {{ server.resources.containerMemoryMb }} MB</span>
+              }}<span class="q-item__label q-item__label--caption text-caption">
+                / {{ server.resources.containerMemoryMb }} MB</span
+              >
             </template>
             <template v-else>—</template>
           </div>
@@ -63,10 +68,10 @@
       </div>
 
       <div class="q-mt-sm">
-        <div class="row justify-between text-caption text-ink-faint q-mb-xs">
+        <q-item-label caption class="row justify-between q-mb-xs">
           <span>Disk</span>
           <span>{{ formatBytes(server.disk.used) }} of {{ formatBytes(server.disk.quota) }}</span>
-        </div>
+        </q-item-label>
         <q-linear-progress
           :value="pctUsed(server.disk.used, server.disk.quota) / 100"
           :color="meterColor(server.disk.used, server.disk.quota)"
@@ -77,7 +82,15 @@
       </div>
 
       <div v-if="server.tags.length" class="q-mt-sm row q-gutter-xs">
-        <q-chip v-for="tag in server.tags" :key="tag" dense size="sm">{{ tag }}</q-chip>
+        <q-chip
+          v-for="tag in server.tags"
+          :key="tag"
+          dense
+          size="sm"
+          color="accent"
+          text-color="dark"
+          >{{ tag }}</q-chip
+        >
       </div>
     </q-card-section>
 

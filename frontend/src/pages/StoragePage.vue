@@ -1,25 +1,25 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="text-h6 q-mb-md">Storage</div>
+    <PageHeader title="Storage" icon="storage" />
 
     <div class="row q-col-gutter-md q-mb-md">
       <div class="col-12 col-lg-8">
         <q-card flat bordered class="q-pa-md">
           <div class="row items-baseline justify-between">
             <div class="text-subtitle1">Disk usage</div>
-            <div class="text-caption text-ink-faint">
+            <q-item-label caption>
               Last scanned
               {{ storage?.lastScan ? new Date(storage.lastScan).toLocaleString() : 'not yet' }} ·
               <a href="#" class="text-primary" @click.prevent="rescan">re-scan now</a>
-            </div>
+            </q-item-label>
           </div>
 
           <div v-if="storage" class="row items-end q-gutter-x-sm q-mt-sm">
             <div class="text-h4">{{ formatBytes(storage.totalUsed) }}</div>
-            <div class="text-caption text-ink-faint">
+            <q-item-label caption>
               panel data · {{ formatBytes(storage.diskFree) }} free of
               {{ formatBytes(storage.diskTotal) }} on drive
-            </div>
+            </q-item-label>
           </div>
           <q-linear-progress
             v-if="storage"
@@ -43,12 +43,12 @@
               :title="`${seg.label} — ${formatBytes(seg.size)}`"
             />
           </div>
-          <div v-if="storage" class="row q-gutter-x-md q-mt-xs text-caption text-ink-faint">
+          <q-item-label v-if="storage" caption class="row q-gutter-x-md q-mt-xs">
             <span v-for="seg in storage.breakdown" :key="seg.label">
               <q-badge :style="{ backgroundColor: segColor(seg.color) }" rounded class="q-mr-xs" />
               {{ seg.label }} · {{ formatBytes(seg.size) }}
             </span>
-          </div>
+          </q-item-label>
         </q-card>
       </div>
 
@@ -68,7 +68,12 @@
               :style="{ height: `${v}%` }"
             />
           </div>
-          <div v-else class="text-center text-ink-faint q-py-lg">No scans recorded yet.</div>
+          <q-banner v-else rounded>
+            <template #avatar>
+              <q-icon name="info" color="primary" />
+            </template>
+            No scans recorded yet.
+          </q-banner>
         </q-card>
       </div>
     </div>
@@ -101,7 +106,7 @@
             <q-item v-for="c in storage?.cleanup ?? []" :key="c.key">
               <q-item-section>
                 {{ c.action }}
-                <span v-if="c.count" class="text-caption text-ink-faint"
+                <span v-if="c.count" class="q-item__label q-item__label--caption text-caption"
                   >({{ c.count }} items)</span
                 >
               </q-item-section>
@@ -139,12 +144,16 @@
                   size="6px"
                 />
               </q-item-section>
-              <q-item-section side class="text-caption text-ink-faint">
-                {{ formatBytes(s.disk.used) }} / {{ formatBytes(s.disk.quota) }}
+              <q-item-section side>
+                <q-item-label caption>
+                  {{ formatBytes(s.disk.used) }} / {{ formatBytes(s.disk.quota) }}
+                </q-item-label>
               </q-item-section>
             </q-item>
             <q-item v-if="servers.servers.length === 0">
-              <q-item-section class="text-center text-ink-faint">No servers yet.</q-item-section>
+              <q-item-section class="text-center">
+                <q-item-label caption>No servers yet.</q-item-label>
+              </q-item-section>
             </q-item>
           </q-list>
         </q-card>
@@ -162,9 +171,12 @@
           </q-item-section>
         </q-item>
       </q-list>
-      <div v-else class="text-center text-ink-faint q-pa-lg">
+      <q-banner v-else rounded class="q-ma-md">
+        <template #avatar>
+          <q-icon name="info" color="primary" />
+        </template>
         Run a re-scan above to index the largest files under ./data.
-      </div>
+      </q-banner>
     </q-card>
   </q-page>
 </template>
@@ -180,6 +192,7 @@ import {
 } from '@/api/storage';
 import { useServersStore } from '@/stores/servers';
 import { formatBytes, pctUsed, meterColor } from '@/composables/useServerStatus';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const servers = useServersStore();
