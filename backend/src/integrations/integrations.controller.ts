@@ -20,6 +20,17 @@ import { InvitesService } from './invites.service';
 
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
+// Hostname/IPv4 literal with an optional ":port" — the shape a servers.dat
+// address should actually take, tighter than a bare length/trim check.
+const mrpackHostSchema = z
+  .string()
+  .trim()
+  .max(260)
+  .regex(
+    /^[a-zA-Z0-9.-]{1,253}(:\d{1,5})?$/,
+    'Host must look like host or host:port',
+  );
+
 const discordSchema = z.object({
   enabled: z.boolean(),
   webhookUrl: z
@@ -121,9 +132,7 @@ export class IntegrationsController {
     @Res() res: Response,
   ) {
     const server = await this.mustGet(id);
-    const host = hostQuery
-      ? parseBody(z.string().trim().max(260), hostQuery)
-      : undefined;
+    const host = hostQuery ? parseBody(mrpackHostSchema, hostQuery) : undefined;
     const pack = await this.invites.generateMrpack(server.id, { host });
     res.download(pack.absPath, pack.filename, () => {
       fs.unlink(pack.absPath, () => {});

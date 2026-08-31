@@ -211,6 +211,9 @@ export class ConsoleGateway
    * backpressure is skipped for those (matches legacy's behavior, which
    * only ever ran over a raw websocket in the first place).
    */
+  /** True once we've logged that `bufferedAmount` went missing — logged once, not per-tick. */
+  private warnedMissingBufferedAmount = false;
+
   private maybeApplyBackpressure(
     client: Socket,
     active: FollowLogsResult,
@@ -218,6 +221,15 @@ export class ConsoleGateway
     const transport = client.conn?.transport as
       { name?: string; socket?: { bufferedAmount?: number } } | undefined;
     if (transport?.name !== 'websocket') return;
+    if (
+      transport.socket?.bufferedAmount === undefined &&
+      !this.warnedMissingBufferedAmount
+    ) {
+      this.warnedMissingBufferedAmount = true;
+      this.logger.warn(
+        'console backpressure: engine.io socket no longer exposes bufferedAmount — backpressure is silently disabled until this is fixed (likely a socket.io/engine.io upgrade)',
+      );
+    }
     const bufferedAmount = transport.socket?.bufferedAmount ?? 0;
     if (bufferedAmount > 1_000_000 && !active.stream.isPaused()) {
       active.stream.pause();

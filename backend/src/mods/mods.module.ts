@@ -14,7 +14,8 @@ import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { ModsService } from './mods.service';
 import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
-import { ModsController, ModBrowserController } from './mods.controller';
+import { ModsController } from './mods.controller';
+import { ModBrowserController } from './mod-browser.controller';
 
 // forwardRef: ModsModule sits on the ServersModule -> SchedulerModule ->
 // UpdatesModule -> ModsModule -> ServersModule cycle created once

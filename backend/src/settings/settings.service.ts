@@ -26,7 +26,10 @@ export class SettingsService {
     return this.dbService.db;
   }
 
-  async get(key: string, fallback: unknown = null): Promise<unknown> {
+  async get<T = unknown>(
+    key: string,
+    fallback: T | null = null,
+  ): Promise<T | null> {
     const [row] = await this.db
       .select()
       .from(settings)
@@ -34,7 +37,7 @@ export class SettingsService {
       .limit(1);
     if (!row) return fallback;
     try {
-      return JSON.parse(row.valueJson);
+      return JSON.parse(row.valueJson) as T;
     } catch {
       return fallback;
     }
