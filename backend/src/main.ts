@@ -8,10 +8,14 @@ import { DbService } from './db/db.service';
 import { runMigrations } from './db/migrate';
 import { SessionService } from './auth/session.service';
 import { DataRootService } from './storage/data-root.service';
+import { requestLoggerMiddleware } from './common/request-logger.middleware';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
+  app.use(requestLoggerMiddleware);
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   // Nest's default WS adapter speaks raw `ws`, not socket.io — installing
   // @nestjs/platform-socket.io alone doesn't change that. @WebSocketGateway()
