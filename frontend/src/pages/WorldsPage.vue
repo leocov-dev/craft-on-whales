@@ -5,13 +5,7 @@
         <q-btn color="primary" icon="upload" label="Upload world" @click="pickFile" />
       </template>
     </PageHeader>
-    <input
-      ref="fileInput"
-      type="file"
-      accept=".zip"
-      class="hidden-input"
-      @change="onFileChosen"
-    />
+    <input ref="fileInput" type="file" accept=".zip" class="hidden-input" @change="onFileChosen" />
 
     <q-banner v-if="worlds.length === 0" rounded class="q-mb-lg">
       <template #avatar>

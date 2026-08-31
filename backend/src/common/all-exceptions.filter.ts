@@ -43,10 +43,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
       ? exception.getResponse()
       : { statusCode: status, message: 'Internal server error' };
 
-    res.status(status).json(
-      typeof body === 'object' && body !== null
-        ? body
-        : { statusCode: status, message: body },
-    );
+    res
+      .status(status)
+      .json(
+        typeof body === 'object' && body !== null
+          ? body
+          : { statusCode: status, message: body },
+      );
   }
 }

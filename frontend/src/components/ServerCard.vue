@@ -42,7 +42,9 @@
           <q-item-label caption>Players</q-item-label>
           <div class="text-weight-medium">
             {{ server.players.online
-            }}<span class="q-item__label q-item__label--caption text-caption">/{{ server.players.max }}</span>
+            }}<span class="q-item__label q-item__label--caption text-caption"
+              >/{{ server.players.max }}</span
+            >
           </div>
         </div>
         <div class="col-4">
@@ -80,9 +82,15 @@
       </div>
 
       <div v-if="server.tags.length" class="q-mt-sm row q-gutter-xs">
-        <q-chip v-for="tag in server.tags" :key="tag" dense size="sm" color="accent" text-color="dark">{{
-          tag
-        }}</q-chip>
+        <q-chip
+          v-for="tag in server.tags"
+          :key="tag"
+          dense
+          size="sm"
+          color="accent"
+          text-color="dark"
+          >{{ tag }}</q-chip
+        >
       </div>
     </q-card-section>
 

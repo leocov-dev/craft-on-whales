@@ -41,13 +41,7 @@
                 placeholder="minecraft:diamond"
                 style="width: 220px"
               />
-              <q-input
-                v-model.number="giveCount"
-                dense
-                filled
-                type="number"
-                style="width: 90px"
-              />
+              <q-input v-model.number="giveCount" dense filled type="number" style="width: 90px" />
               <q-btn dense outline label="Give" @click="giveToPlayer" />
               <q-btn dense outline color="negative" label="Clear all" @click="clearPlayer" />
             </div>

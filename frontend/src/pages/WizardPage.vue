@@ -44,13 +44,7 @@
 
         <div class="row q-col-gutter-sm">
           <div class="col-6">
-            <q-input
-              v-model.number="form.portGame"
-              type="number"
-              label="Game port"
-              filled
-              dense
-            />
+            <q-input v-model.number="form.portGame" type="number" label="Game port" filled dense />
           </div>
           <div class="col-6">
             <q-input

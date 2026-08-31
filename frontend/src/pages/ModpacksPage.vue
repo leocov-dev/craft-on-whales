@@ -46,7 +46,13 @@
 
     <q-separator class="q-mb-md" />
 
-    <q-tabs v-model="installTab" dense align="left" active-color="primary" indicator-color="primary">
+    <q-tabs
+      v-model="installTab"
+      dense
+      align="left"
+      active-color="primary"
+      indicator-color="primary"
+    >
       <q-tab name="packwiz" label="Packwiz URL" />
       <q-tab name="browse" label="Browse packs" />
     </q-tabs>

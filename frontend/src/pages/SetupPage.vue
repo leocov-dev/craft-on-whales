@@ -176,7 +176,11 @@ const overallIcon = computed(() =>
       : 'block',
 );
 const overallColor = computed(() =>
-  overallLevel.value === 'pass' ? 'positive' : overallLevel.value === 'warn' ? 'warning' : 'negative',
+  overallLevel.value === 'pass'
+    ? 'positive'
+    : overallLevel.value === 'warn'
+      ? 'warning'
+      : 'negative',
 );
 const overallText = computed(() =>
   overallLevel.value === 'pass'

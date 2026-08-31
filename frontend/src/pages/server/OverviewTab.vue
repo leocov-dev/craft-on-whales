@@ -63,9 +63,15 @@
         <div class="text-subtitle1 q-mb-sm">Description</div>
         <q-item-label caption>{{ server.description || 'No description.' }}</q-item-label>
         <div v-if="server.tags.length" class="row q-gutter-xs q-mt-sm">
-          <q-chip v-for="tag in server.tags" :key="tag" dense size="sm" color="accent" text-color="dark">{{
-            tag
-          }}</q-chip>
+          <q-chip
+            v-for="tag in server.tags"
+            :key="tag"
+            dense
+            size="sm"
+            color="accent"
+            text-color="dark"
+            >{{ tag }}</q-chip
+          >
         </div>
       </q-card>
     </div>
