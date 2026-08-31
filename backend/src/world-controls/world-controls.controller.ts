@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
 import { WorldControlsService } from './world-controls.service';
 import { QUICK_ACTIONS } from './world-controls.constants';
+import { currentUser } from '../auth/current-user';
 
 const quickSchema = z.object({
   action: z.enum(Object.keys(QUICK_ACTIONS) as [string, ...string[]]),
@@ -40,7 +41,7 @@ export class WorldControlsController {
     await this.serverQuery.mustGet(id);
     const { action } = quickSchema.parse(body);
     const result = await this.worldControls.runQuick(id, action, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true, ...result };
   }

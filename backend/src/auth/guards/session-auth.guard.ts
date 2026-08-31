@@ -28,12 +28,13 @@ export class SessionAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    if (isPublic) return true;
+
     const req = context.switchToHttp().getRequest<Request>();
 
-    if ((await this.authService.firstRunNeeded()) && !isPublic) {
+    if (await this.authService.firstRunNeeded()) {
       throw new UnauthorizedException('Panel setup incomplete');
     }
-    if (isPublic) return true;
 
     const userId = req.session?.userId;
     if (userId) {

@@ -1,8 +1,6 @@
 import {
-  BadRequestException,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -17,10 +15,13 @@ import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import multer from 'multer';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { nanoid } from 'nanoid';
 import { PathGuardService } from '../storage/path-guard.service';
+import { requireAdminForOverrides } from '../api/docker-overrides.schema';
 import type { Server } from '../servers/types';
 import { BlueprintExportService } from './blueprint-export.service';
 import { BlueprintImportService } from './blueprint-import.service';
@@ -29,18 +30,7 @@ import {
   type DecoratedBlueprint,
 } from './blueprints-library.service';
 import type { BlueprintViewModel } from '../../../shared/types/blueprints';
-
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
+import { currentUser } from '../auth/current-user';
 
 // Shared "Advanced Docker Settings" fields — ports `dockerOverridesSchema.ts`.
 const dockerOverridesSchema = {
@@ -77,29 +67,6 @@ const dockerOverridesSchema = {
     .max(20)
     .optional(),
 };
-
-interface OverridesInput {
-  containerName?: string;
-  networkName?: string;
-  extraPorts?: unknown;
-  extraBinds?: unknown;
-}
-function overridesPresent(input: OverridesInput): boolean {
-  return (
-    input.containerName !== undefined ||
-    input.networkName !== undefined ||
-    input.extraPorts !== undefined ||
-    input.extraBinds !== undefined
-  );
-}
-/** Throw 403 unless override-carrying input comes from an admin. */
-function requireAdminForOverrides(req: Request, input: OverridesInput): void {
-  if (overridesPresent(input) && req.user?.role !== 'admin') {
-    throw new ForbiddenException(
-      'Advanced Docker settings (container name, network, extra ports/binds) require the admin role.',
-    );
-  }
-}
 
 const overridesSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
@@ -200,7 +167,7 @@ export class BlueprintsController {
         embedFiles: input.embedFiles,
         includeWorld: input.includeWorld,
       },
-      { actor: req.user!.username },
+      { actor: currentUser(req).username },
     );
     return {
       ok: true,
@@ -262,21 +229,26 @@ export class BlueprintsController {
 
     let zipRef = input.blueprintId;
     if (input.uploadToken) {
-      zipRef = this.pathGuard.dataPath('tmp', input.uploadToken);
+      // Uploads land in os.tmpdir() (see the `import-preview` multer config
+      // above), not DATA_DIR/tmp — uploadToken is just the basename.
+      zipRef = path.join(os.tmpdir(), input.uploadToken);
       if (!fs.existsSync(zipRef))
         throw new NotFoundException(
           'Uploaded blueprint expired — upload it again',
         );
     }
     if (input.overrides) requireAdminForOverrides(req, input.overrides);
-    const { server, report } = await this.importService.importBlueprint(
-      zipRef as string,
-      input.overrides || {},
-      { actor: req.user!.username },
-    );
-    if (input.uploadToken)
-      await fsp.rm(zipRef as string, { force: true }).catch(() => {});
-    return { ok: true, server: publicServer(server), report };
+    try {
+      const { server, report } = await this.importService.importBlueprint(
+        zipRef as string,
+        input.overrides || {},
+        { actor: currentUser(req).username },
+      );
+      return { ok: true, server: publicServer(server), report };
+    } finally {
+      if (input.uploadToken)
+        await fsp.rm(zipRef as string, { force: true }).catch(() => {});
+    }
   }
 
   @Post('clone')
@@ -290,7 +262,7 @@ export class BlueprintsController {
     );
     const { server, report, blueprint } = await this.importService.cloneServer(
       input.serverId,
-      { includeWorld: input.includeWorld, actor: req.user!.username },
+      { includeWorld: input.includeWorld, actor: currentUser(req).username },
     );
     return {
       ok: true,
@@ -312,7 +284,7 @@ export class BlueprintsController {
     return {
       ok: true,
       ...(await this.library.deleteBlueprint(id, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }

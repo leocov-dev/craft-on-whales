@@ -8,7 +8,7 @@
 # panel data (worlds, mods, backups, DB) should live. Set it in a `.env` file
 # next to this compose file (or in your Portainer/Dockge stack environment):
 #
-#   DATA_DIR_HOST=/opt/msm/data
+#   DATA_DIR_HOST=/opt/craft-on-whales/data
 #
 # It is used twice on purpose: as the bind-mount source, and passed into the
 # panel so the paths it hands the Docker daemon are host paths, not
@@ -30,7 +30,7 @@ services:
       # explicitly. Requires Docker Engine 20.10+.
       - 'host.docker.internal:host-gateway'
     environment:
-      DATA_DIR_HOST: ${DATA_DIR_HOST:?Set DATA_DIR_HOST to the absolute host path for panel data, e.g. /opt/msm/data}
+      DATA_DIR_HOST: ${DATA_DIR_HOST:?Set DATA_DIR_HOST to the absolute host path for panel data, e.g. /opt/craft-on-whales/data}
       # Behind a TLS-terminating reverse proxy? See the README env table:
       # TRUST_PROXY: '1'
       # COOKIE_SECURE: auto

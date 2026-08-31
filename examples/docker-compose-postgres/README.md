@@ -6,17 +6,23 @@ Uses the published image, plus a `db` service.
 ## Requirements
 
 - Docker with Compose v2 (`docker compose`, not the older `docker-compose`)
-- `DATA_DIR_HOST` — the absolute host path where panel data (worlds, mods,
-  backups) should live
 
 ## Run it
 
 ```bash
 cd examples/docker-compose-postgres
-DATA_DIR_HOST=/opt/msm/data docker compose up
+docker compose up
 ```
 
-Or put `DATA_DIR_HOST=/opt/msm/data` in a `.env` file next to the compose
+Panel data (worlds, mods, backups) defaults to `./data`, next to this compose file, if
+you don't set anything. Point `DATA_DIR_HOST` elsewhere if you'd rather keep it
+somewhere else:
+
+```bash
+DATA_DIR_HOST=/opt/craft-on-whales/data docker compose up
+```
+
+Or put `DATA_DIR_HOST=/opt/craft-on-whales/data` in a `.env` file next to the compose
 file and just run `docker compose up`.
 
 Then open **http://localhost:3000** and follow the first-run setup.

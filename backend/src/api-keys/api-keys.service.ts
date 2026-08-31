@@ -6,6 +6,11 @@ import { EventsService } from '../events/events.service';
 import { SecretsService } from '../auth/secrets.service';
 import { ConfigService } from '../config/config.service';
 
+// The only provider stored today; a union (rather than a bare `string`)
+// catches a typo'd provider name at compile time instead of silently
+// inserting an unreachable row.
+export type ApiKeyProvider = 'curseforge';
+
 /**
  * Third-party API key storage (encrypted at rest) + validity testing. The
  * CurseForge key from .env is imported once on boot if none is stored.
@@ -25,7 +30,7 @@ export class ApiKeysService {
     return this.dbService.db;
   }
 
-  async getKey(provider: string): Promise<string | null> {
+  async getKey(provider: ApiKeyProvider): Promise<string | null> {
     const [row] = await this.db
       .select()
       .from(apiKeys)
@@ -42,7 +47,7 @@ export class ApiKeysService {
   }
 
   async setKey(
-    provider: string,
+    provider: ApiKeyProvider,
     key: string,
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<void> {
@@ -94,7 +99,7 @@ export class ApiKeysService {
   }
 
   async deleteKey(
-    provider: string,
+    provider: ApiKeyProvider,
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<void> {
     await this.db.delete(apiKeys).where(eq(apiKeys.provider, provider));
@@ -105,7 +110,7 @@ export class ApiKeysService {
     });
   }
 
-  async maskedKey(provider: string): Promise<string | null> {
+  async maskedKey(provider: ApiKeyProvider): Promise<string | null> {
     const key = await this.getKey(provider);
     if (!key) return null;
     return key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••';
@@ -156,7 +161,7 @@ export class ApiKeysService {
     if (existing) return;
     await this.setKey(
       'curseforge',
-      this.config.cfApiKeySeed.replace(/^'|'$/g, ''),
+      this.config.cfApiKeySeed.replace(/^['"]|['"]$/g, ''),
       { actor: 'system' },
     );
     this.logger.log(

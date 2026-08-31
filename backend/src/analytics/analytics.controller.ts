@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -7,22 +6,15 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
-import { StatsService } from './stats.service';
+import { StatsIngestService } from './stats-ingest.service';
+import { StatsProfileService } from './stats-profile.service';
+import { StatsXrayService } from './stats-xray.service';
+import { StatsTimelineService } from './stats-timeline.service';
 import { LogIngestService } from './log-ingest.service';
-
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
+import { playerNameSchema } from '../utils/player-name';
 
 const timelineSchema = z.object({
   q: z.string().trim().max(200).optional(),
@@ -37,11 +29,7 @@ const timelineSchema = z.object({
 });
 
 const sessionsSchema = z.object({
-  player: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9_]{1,16}$/)
-    .optional(),
+  player: playerNameSchema.optional(),
 });
 
 const scoreboardSchema = z.object({
@@ -71,7 +59,10 @@ const scoreboardSchema = z.object({
 export class AnalyticsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
-    private readonly stats: StatsService,
+    private readonly statsIngest: StatsIngestService,
+    private readonly statsProfile: StatsProfileService,
+    private readonly statsXray: StatsXrayService,
+    private readonly statsTimeline: StatsTimelineService,
     private readonly ingest: LogIngestService,
   ) {}
 
@@ -83,40 +74,43 @@ export class AnalyticsController {
   @Get('timeline')
   async timeline(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const q = parse(timelineSchema, query);
-    return { ok: true, ...(await this.stats.timeline(id, q)) };
+    const q = parseBody(timelineSchema, query);
+    return { ok: true, ...(await this.statsTimeline.timeline(id, q)) };
   }
 
   @Get('sessions')
   async sessions(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const { player } = parse(sessionsSchema, query);
-    return { ok: true, sessions: await this.stats.sessionsList(id, player) };
+    const { player } = parseBody(sessionsSchema, query);
+    return {
+      ok: true,
+      sessions: await this.statsTimeline.sessionsList(id, player),
+    };
   }
 
   @Get('scoreboard')
   async scoreboard(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
-    const { metric, window } = parse(scoreboardSchema, query);
+    const { metric, window } = parseBody(scoreboardSchema, query);
     return {
       ok: true,
       metric,
       window,
-      rows: await this.stats.scoreboard(id, { metric, window }),
+      rows: await this.statsProfile.scoreboard(id, { metric, window }),
     };
   }
 
   @Get('profile/:uuid')
   async profile(@Param('id') id: string, @Param('uuid') uuidParam: string) {
     await this.mustServer(id);
-    const uuid = parse(
+    const uuid = parseBody(
       z
         .string()
         .trim()
         .regex(/^[0-9a-fA-F-]{32,36}$/),
       uuidParam,
     );
-    const data = await this.stats.profile(id, uuid);
+    const data = await this.statsProfile.profile(id, uuid);
     if (!data)
       throw new NotFoundException('No stats recorded for this player yet');
     return { ok: true, profile: data };
@@ -125,13 +119,13 @@ export class AnalyticsController {
   @Get('players')
   async players(@Param('id') id: string) {
     await this.mustServer(id);
-    return { ok: true, players: await this.stats.playersList(id) };
+    return { ok: true, players: await this.statsProfile.playersList(id) };
   }
 
   @Get('xray')
   async xray(@Param('id') id: string) {
     await this.mustServer(id);
-    return { ok: true, report: await this.stats.xrayReport(id) };
+    return { ok: true, report: await this.statsXray.xrayReport(id) };
   }
 
   @Post('ingest-now')
@@ -140,7 +134,7 @@ export class AnalyticsController {
     const backfill = await this.ingest
       .backfillFromLogs(id)
       .catch(() => ({ inserted: 0 }));
-    const statResult = await this.stats.ingestStats(id);
+    const statResult = await this.statsIngest.ingestStats(id);
     return { ok: true, events: backfill.inserted, ...statResult };
   }
 }

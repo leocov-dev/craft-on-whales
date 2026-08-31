@@ -6,6 +6,7 @@ import {
   BadGatewayException,
   PreconditionFailedException,
 } from '@nestjs/common';
+import type { ZodType } from 'zod';
 import { ApiCacheService } from './api-cache.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import type {
@@ -13,6 +14,15 @@ import type {
   CurseforgeFile,
   CurseforgeResolved,
 } from './mods.types';
+import {
+  modSearchResponseSchema,
+  modResponseSchema,
+  fileListResponseSchema,
+  fileResponseSchema,
+  descriptionResponseSchema,
+  type RawCfMod,
+  type RawCfFile,
+} from './curseforge-api.schemas';
 
 const BASE = 'https://api.curseforge.com/v1';
 const GAME_MINECRAFT = 432;
@@ -25,38 +35,6 @@ interface CfFetchOptions {
   ttlMs?: number;
   method?: 'GET' | 'POST';
   body?: unknown;
-}
-
-interface RawCfLogo {
-  thumbnailUrl?: string | null;
-  url?: string | null;
-}
-interface RawCfMod {
-  id: number;
-  slug: string;
-  name: string;
-  summary: string;
-  logo?: RawCfLogo | null;
-  downloadCount: number;
-  classId: number;
-  latestFiles?: RawCfFile[];
-}
-interface RawCfDependency {
-  modId: number;
-  relationType: number;
-}
-interface RawCfFile {
-  id: number;
-  displayName: string;
-  fileName: string;
-  downloadUrl?: string | null;
-  gameVersions?: string[];
-  releaseType?: number;
-  fileDate: string;
-  fileLength: number;
-  hashes?: unknown[];
-  serverPackFileId?: number | null;
-  dependencies?: RawCfDependency[];
 }
 
 export interface CurseforgeSearchParams {
@@ -76,8 +54,9 @@ export class CurseforgeApiService {
     private readonly apiKeys: ApiKeysService,
   ) {}
 
-  private async cfFetch<T = unknown>(
+  private async cfFetch<T>(
     pathname: string,
+    schema: ZodType<T>,
     {
       search,
       ttlMs = 10 * 60 * 1000,
@@ -97,7 +76,7 @@ export class CurseforgeApiService {
         url.searchParams.set(k, String(v));
     const cacheKey = `curseforge:${method}:${url.pathname}${url.search}:${body ? JSON.stringify(body) : ''}`;
     const cached = method === 'GET' ? await this.cache.get(cacheKey) : null;
-    if (cached && cached.ageMs < ttlMs) return cached.value as T;
+    if (cached && cached.ageMs < ttlMs) return schema.parse(cached.value);
     const res = await fetch(url, {
       method,
       headers: {
@@ -109,7 +88,7 @@ export class CurseforgeApiService {
       signal: AbortSignal.timeout(15000),
     });
     if (res.status === 429) {
-      if (cached) return cached.value as T;
+      if (cached) return schema.parse(cached.value);
       throw new HttpException(
         'CurseForge rate limit hit — try again in a minute',
         429,
@@ -123,9 +102,17 @@ export class CurseforgeApiService {
       throw new NotFoundException('Not found on CurseForge');
     if (!res.ok)
       throw new BadGatewayException(`CurseForge answered HTTP ${res.status}`);
-    const data = (await res.json()) as T;
+    const json: unknown = await res.json();
+    let data: T;
+    try {
+      data = schema.parse(json);
+    } catch {
+      throw new BadGatewayException(
+        `CurseForge returned an unexpected response shape for ${pathname}`,
+      );
+    }
     if (method === 'GET')
-      void this.cache.set(cacheKey, data).catch(() => undefined);
+      void this.cache.set(cacheKey, json).catch(() => undefined);
     return data;
   }
 
@@ -154,7 +141,7 @@ export class CurseforgeApiService {
     };
     if (mcVersion) params.gameVersion = mcVersion;
     if (loader) params.modLoaderType = this.loaderTypeId(loader);
-    const data = await this.cfFetch<{ data: RawCfMod[] }>('/mods/search', {
+    const data = await this.cfFetch('/mods/search', modSearchResponseSchema, {
       search: params,
       ttlMs: 5 * 60 * 1000,
     });
@@ -162,7 +149,7 @@ export class CurseforgeApiService {
   }
 
   async getMod(modId: number): Promise<CurseforgeMod> {
-    const data = await this.cfFetch<{ data: RawCfMod }>(`/mods/${modId}`);
+    const data = await this.cfFetch(`/mods/${modId}`, modResponseSchema);
     return this.normalizeMod(data.data);
   }
 
@@ -171,7 +158,7 @@ export class CurseforgeApiService {
     slug: string,
     { classId = CLASS_MODPACKS }: { classId?: number } = {},
   ): Promise<CurseforgeMod | null> {
-    const data = await this.cfFetch<{ data: RawCfMod[] }>('/mods/search', {
+    const data = await this.cfFetch('/mods/search', modSearchResponseSchema, {
       search: { gameId: GAME_MINECRAFT, classId, slug },
     });
     return data.data.length ? this.normalizeMod(data.data[0]!) : null;
@@ -189,16 +176,18 @@ export class CurseforgeApiService {
     const params: Record<string, string | number> = { pageSize };
     if (mcVersion) params.gameVersion = mcVersion;
     if (loader) params.modLoaderType = this.loaderTypeId(loader);
-    const data = await this.cfFetch<{ data: RawCfFile[] }>(
+    const data = await this.cfFetch(
       `/mods/${modId}/files`,
+      fileListResponseSchema,
       { search: params, ttlMs: 10 * 60 * 1000 },
     );
     return data.data.map((f) => this.normalizeFile(f));
   }
 
   async getFile(modId: number, fileId: number): Promise<CurseforgeFile> {
-    const data = await this.cfFetch<{ data: RawCfFile }>(
+    const data = await this.cfFetch(
       `/mods/${modId}/files/${fileId}`,
+      fileResponseSchema,
       { ttlMs: 60 * 60 * 1000 },
     );
     return this.normalizeFile(data.data);
@@ -209,8 +198,9 @@ export class CurseforgeApiService {
    * CurseForge serves raw author HTML — callers MUST sanitize before rendering.
    */
   async getDescription(modId: number): Promise<string> {
-    const data = await this.cfFetch<{ data: unknown }>(
+    const data = await this.cfFetch(
       `/mods/${modId}/description`,
+      descriptionResponseSchema,
       { ttlMs: 30 * 60 * 1000 },
     );
     return typeof data.data === 'string' ? data.data : '';

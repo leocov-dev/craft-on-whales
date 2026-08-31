@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Controller,
   Delete,
@@ -12,13 +11,16 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { ChatCommandsService } from './chat-commands.service';
+import { ChatCommandsRuntimeService } from './chat-commands-runtime.service';
 import { PLAYER_NAME_RE } from '../utils/player-name';
 import type { HydratedCommand } from './chat.types';
 import type { ChatCommand } from '../../../shared/types/chat-commands';
+import { currentUser } from '../auth/current-user';
 
 /**
  * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
@@ -46,18 +48,6 @@ function publicCommand(c: HydratedCommand, actionSummary: string): ChatCommand {
     msg_failure: c.msgFailure,
     actionSummary,
   };
-}
-
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
 }
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']); // rcon still answers while unhealthy
@@ -105,6 +95,7 @@ export class ChatCommandsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly chatCommands: ChatCommandsService,
+    private readonly chatCommandsRuntime: ChatCommandsRuntimeService,
     private readonly containers: ContainerService,
   ) {}
 
@@ -143,9 +134,9 @@ export class ChatCommandsController {
   @Post()
   async create(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
-    const input = parse(createSchema, req.body);
+    const input = parseBody(createSchema, req.body);
     const command = await this.chatCommands.createCommand(id, input, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return {
       ok: true,
@@ -162,9 +153,9 @@ export class ChatCommandsController {
     @Req() req: Request,
   ) {
     await this.requireServer(id);
-    const changes = parse(patchSchema, req.body);
+    const changes = parseBody(patchSchema, req.body);
     const command = await this.chatCommands.updateCommand(id, cmdId, changes, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return {
       ok: true,
@@ -182,7 +173,7 @@ export class ChatCommandsController {
   ) {
     await this.requireServer(id);
     await this.chatCommands.deleteCommand(id, cmdId, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true };
   }
@@ -194,7 +185,7 @@ export class ChatCommandsController {
     @Req() req: Request,
   ) {
     await this.requireServer(id);
-    const { player } = parse(
+    const { player } = parseBody(
       z.object({
         player: z
           .string()
@@ -211,23 +202,28 @@ export class ChatCommandsController {
         'The server must be running to test a chat command',
       );
     }
-    const result = await this.chatCommands.testCommand(id, cmdId, player, {
-      actor: req.user!.username,
-    });
+    const result = await this.chatCommandsRuntime.testCommand(
+      id,
+      cmdId,
+      player,
+      {
+        actor: currentUser(req).username,
+      },
+    );
     return { ok: true, ...result };
   }
 
   @Put('prefix')
   async setPrefix(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
-    const { prefix } = parse(
+    const { prefix } = parseBody(
       z.object({ prefix: z.string().trim().min(1).max(2) }),
       req.body,
     );
     return {
       ok: true,
       ...(await this.chatCommands.setPrefix(id, prefix, {
-        actor: req.user!.username,
+        actor: currentUser(req).username,
       })),
     };
   }

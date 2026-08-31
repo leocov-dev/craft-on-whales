@@ -46,6 +46,7 @@ export interface TaskHandle {
   step(label: string): void;
   progress(current: number, total?: number): void;
   log(line: unknown): void;
+  /** `result` is stored verbatim and returned by `GET /api/tasks/:id` to any admin/operator — never pass secrets, tokens, or decrypted values here. */
   done(result?: unknown): void;
   fail(error: unknown): void;
 }

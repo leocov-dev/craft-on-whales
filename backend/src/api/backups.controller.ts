@@ -14,6 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { z } from 'zod';
 import { desc, eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
@@ -23,7 +24,13 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { TasksService } from '../tasks/tasks.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { parseBody } from '../utils/parse-body';
 import type { BackupRow, ServerBackupRow } from '../../../shared/types/backups';
+import { currentUser } from '../auth/current-user';
+
+const createSchema = z.object({
+  note: z.string().trim().max(500).optional(),
+});
 
 /** Ports the "Backups" section of legacy `src/web/routes/api.ts`. */
 @Controller('api')
@@ -105,11 +112,11 @@ export class BackupsController {
   async create(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() body: { note?: string } = {},
+    @Body() body: unknown,
   ) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
-    const note = String(body?.note || '');
+    const actor = currentUser(req).username;
+    const { note = '' } = parseBody(createSchema, body ?? {});
     const taskId = this.tasks.run(
       `Backing up ${server.display_name}`,
       { serverId: server.id, actor },
@@ -140,7 +147,7 @@ export class BackupsController {
     @Param('backupId') backupId: string,
   ) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       `Restoring backup on ${server.display_name}`,
       { serverId: server.id, actor },
@@ -172,7 +179,7 @@ export class BackupsController {
   @Delete('backups/:backupId')
   async remove(@Req() req: Request, @Param('backupId') backupId: string) {
     const result = await this.backupsService.deleteBackup(backupId, {
-      actor: req.user!.username,
+      actor: currentUser(req).username,
     });
     return { ok: true, ...result };
   }

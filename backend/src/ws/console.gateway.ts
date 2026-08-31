@@ -16,14 +16,16 @@ import {
   type FollowLogsResult,
 } from '../docker/docker-logs.service';
 import { EventsService } from '../events/events.service';
-import { stripAnsi } from '../utils/ansi';
+import { rcon } from '../utils/rcon';
 import type { PublicUser } from '../auth/auth.service';
+import { authenticateGatewayConnection } from './gateway-auth';
 
 interface ConsoleSocketState {
   follower: FollowLogsResult | null;
   closed: boolean;
   user: PublicUser;
   serverId: string;
+  lastCmdMs: number;
 }
 
 /**
@@ -38,6 +40,8 @@ export class ConsoleGateway
 {
   private readonly logger = new Logger(ConsoleGateway.name);
   private readonly state = new WeakMap<Socket, ConsoleSocketState>();
+  // Matches ChatCommandsRuntimeService's per-player spam guard.
+  private static readonly CMD_THROTTLE_MS = 400;
 
   constructor(
     private readonly sessions: SessionService,
@@ -56,24 +60,20 @@ export class ConsoleGateway
       this.cleanup(client);
     });
 
-    const user = await this.sessions.authenticateFromCookieHeader(
-      client.handshake.headers.cookie,
+    const auth = await authenticateGatewayConnection(
+      this.sessions,
+      this.serverQuery,
+      client,
     );
-    if (!user) {
-      client.disconnect(true);
-      return;
-    }
-    const serverId = String(client.handshake.query.serverId || '');
-    if (!serverId || !(await this.serverQuery.getServer(serverId))) {
-      client.disconnect(true);
-      return;
-    }
+    if (!auth) return;
+    const { user, serverId } = auth;
 
     const state: ConsoleSocketState = {
       follower: null,
       closed: false,
       user,
       serverId,
+      lastCmdMs: 0,
     };
     this.state.set(client, state);
 
@@ -135,6 +135,18 @@ export class ConsoleGateway
     const command = body.command.trim().replace(/^\//, '').slice(0, 500);
     if (!command) return;
 
+    const now = Date.now();
+    if (now - state.lastCmdMs < ConsoleGateway.CMD_THROTTLE_MS) {
+      this.send(client, {
+        kind: 'cmd-result',
+        command,
+        output: '',
+        error: 'Too many commands — slow down.',
+      });
+      return;
+    }
+    state.lastCmdMs = now;
+
     try {
       const info = await this.containers.inspectStatus(serverId);
       if (
@@ -149,20 +161,20 @@ export class ConsoleGateway
         });
         return;
       }
-      const raw = await this.containers.execCapture(serverId, [
-        'rcon-cli',
-        '--',
-        ...command.split(/\s+/),
-      ]);
-      const output = stripAnsi(raw);
-      this.send(client, { kind: 'cmd-result', command, output: output.trim() });
+      const output = await rcon(
+        this.containers,
+        serverId,
+        command.split(/\s+/),
+        { clean: 'ansi-only' },
+      );
+      this.send(client, { kind: 'cmd-result', command, output });
       this.announceConsoleAction(serverId, command).catch(() => {});
       this.events.recordEvent({
         serverId,
         actor: user.username,
         type: 'rcon',
         summary: `RCON: ${this.redact(command)}`,
-        details: { output: output.trim().slice(0, 2000) },
+        details: { output: this.redact(output.slice(0, 2000)) },
       });
     } catch (err) {
       this.send(client, {
@@ -199,6 +211,9 @@ export class ConsoleGateway
    * backpressure is skipped for those (matches legacy's behavior, which
    * only ever ran over a raw websocket in the first place).
    */
+  /** True once we've logged that `bufferedAmount` went missing — logged once, not per-tick. */
+  private warnedMissingBufferedAmount = false;
+
   private maybeApplyBackpressure(
     client: Socket,
     active: FollowLogsResult,
@@ -206,6 +221,15 @@ export class ConsoleGateway
     const transport = client.conn?.transport as
       { name?: string; socket?: { bufferedAmount?: number } } | undefined;
     if (transport?.name !== 'websocket') return;
+    if (
+      transport.socket?.bufferedAmount === undefined &&
+      !this.warnedMissingBufferedAmount
+    ) {
+      this.warnedMissingBufferedAmount = true;
+      this.logger.warn(
+        'console backpressure: engine.io socket no longer exposes bufferedAmount — backpressure is silently disabled until this is fixed (likely a socket.io/engine.io upgrade)',
+      );
+    }
     const bufferedAmount = transport.socket?.bufferedAmount ?? 0;
     if (bufferedAmount > 1_000_000 && !active.stream.isPaused()) {
       active.stream.pause();
@@ -252,14 +276,11 @@ export class ConsoleGateway
         { text: command, color: 'gray' },
       ],
     };
-    this.containers
-      .execCapture(serverId, [
-        'rcon-cli',
-        '--',
-        'tellraw',
-        '@a',
-        JSON.stringify(payload),
-      ])
-      .catch(() => {});
+    rcon(
+      this.containers,
+      serverId,
+      ['tellraw', '@a', JSON.stringify(payload)],
+      { clean: 'raw' },
+    ).catch(() => {});
   }
 }

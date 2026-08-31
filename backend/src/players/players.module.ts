@@ -8,6 +8,8 @@ import { MojangService } from './mojang.service';
 import { MojangProfilesService } from './mojang-profiles.service';
 import { PlayerRosterService } from './player-roster.service';
 import { PlayerTeleportService } from './player-teleport.service';
+import { StructureRegistryService } from './structure-registry.service';
+import { BiomeRegistryService } from './biome-registry.service';
 import { PlayersController } from './players.controller';
 import { ServersModule } from '../servers/servers.module';
 
@@ -26,12 +28,16 @@ import { ServersModule } from '../servers/servers.module';
     MojangProfilesService,
     PlayerRosterService,
     PlayerTeleportService,
+    StructureRegistryService,
+    BiomeRegistryService,
   ],
   exports: [
     MojangService,
     MojangProfilesService,
     PlayerRosterService,
     PlayerTeleportService,
+    StructureRegistryService,
+    BiomeRegistryService,
   ],
 })
 export class PlayersModule {}

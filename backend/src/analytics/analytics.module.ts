@@ -6,7 +6,10 @@ import { WorldsModule } from '../worlds/worlds.module';
 import { ChatModule } from '../chat/chat.module';
 import { LogClassifierService } from './log-classifier.service';
 import { LogIngestService } from './log-ingest.service';
-import { StatsService } from './stats.service';
+import { StatsIngestService } from './stats-ingest.service';
+import { StatsProfileService } from './stats-profile.service';
+import { StatsXrayService } from './stats-xray.service';
+import { StatsTimelineService } from './stats-timeline.service';
 import { AnalyticsController } from './analytics.controller';
 
 @Module({
@@ -18,7 +21,21 @@ import { AnalyticsController } from './analytics.controller';
     ChatModule,
   ],
   controllers: [AnalyticsController],
-  providers: [LogClassifierService, LogIngestService, StatsService],
-  exports: [LogClassifierService, LogIngestService, StatsService],
+  providers: [
+    LogClassifierService,
+    LogIngestService,
+    StatsIngestService,
+    StatsProfileService,
+    StatsXrayService,
+    StatsTimelineService,
+  ],
+  exports: [
+    LogClassifierService,
+    LogIngestService,
+    StatsIngestService,
+    StatsProfileService,
+    StatsXrayService,
+    StatsTimelineService,
+  ],
 })
 export class AnalyticsModule {}

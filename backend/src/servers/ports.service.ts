@@ -48,9 +48,15 @@ export class PortsService {
       used.add(r.portGame);
       used.add(r.portRcon);
       if (r.portBedrock) used.add(r.portBedrock);
-      for (const p of JSON.parse(r.extraPortsJson || '[]') as {
-        hostPort?: number;
-      }[]) {
+      let extraPorts: { hostPort?: number }[];
+      try {
+        extraPorts = JSON.parse(r.extraPortsJson || '[]') as {
+          hostPort?: number;
+        }[];
+      } catch {
+        extraPorts = [];
+      }
+      for (const p of extraPorts) {
         if (p && p.hostPort) used.add(p.hostPort);
       }
     }

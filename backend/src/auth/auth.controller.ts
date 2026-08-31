@@ -15,7 +15,8 @@ import * as path from 'node:path';
 // qrcode ships no types of its own — see backend/src/types/qrcode.d.ts for
 // the minimal hand-rolled declaration covering the surface area used here.
 import QRCode from 'qrcode';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
 import { DockerConnectionService } from '../docker/docker-connection.service';
@@ -23,7 +24,12 @@ import { AuthService } from './auth.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
 import { Public } from './public.decorator';
 import { AllowViewerWrite } from './allow-viewer-write.decorator';
-import type { SessionUser, SetupChecks } from '../../../shared/types/auth';
+import type {
+  AuthStatus,
+  SessionUser,
+  SetupChecks,
+} from '../../../shared/types/auth';
+import { currentUser } from './current-user';
 
 const loginSchema = z.object({
   username: z.string().trim().min(1).max(64),
@@ -73,7 +79,29 @@ export class AuthController {
     );
     recent.push(nowMs);
     this.setupHits.set(userId, recent);
+    // Evict once the window has fully elapsed — otherwise this Map grows by
+    // one stale empty-array entry per distinct userId for the life of the
+    // process. A stale entry is worth pruning on any hit, not just this
+    // user's own, since it's a cheap opportunistic sweep.
+    for (const [id, hits] of this.setupHits) {
+      if (hits.every((t) => nowMs - t >= SETUP_WINDOW_MS))
+        this.setupHits.delete(id);
+    }
     return recent.length <= SETUP_MAX;
+  }
+
+  /**
+   * Lets the SPA decide, before any login attempt, whether to route a
+   * visitor to /setup instead of /login. Unlike /setup/checks (which 400s
+   * once setup is done) this is safe to poll unconditionally.
+   */
+  @Public()
+  @Get('auth/status')
+  async authStatus(): Promise<{ ok: true; status: AuthStatus }> {
+    return {
+      ok: true,
+      status: { firstRunNeeded: await this.authService.firstRunNeeded() },
+    };
   }
 
   /**
@@ -114,11 +142,6 @@ export class AuthController {
           level: docker.available ? 'pass' : 'warn', // panel works without Docker; lifecycle features just wait
           available: docker.available,
           version: docker.version,
-          os: docker.os,
-          ncpu: docker.ncpu,
-          memTotal: docker.memTotal,
-          installed: docker.installed,
-          isDockerDesktop: docker.isDockerDesktop,
           error: docker.error,
         },
         node: {
@@ -259,7 +282,7 @@ export class AuthController {
   // requests, so a successful response here always has req.user populated.
   @Get('api/session')
   session(@Req() req: Request): { ok: true; user: SessionUser } {
-    const user = req.user!;
+    const user = currentUser(req);
     return {
       ok: true,
       user: {
@@ -280,14 +303,14 @@ export class AuthController {
   @AllowViewerWrite()
   @Post('api/account/totp/setup')
   async totpSetup(@Req() req: Request) {
-    if (!this.throttleSetup(req.user!.id, Date.now())) {
+    if (!this.throttleSetup(currentUser(req).id, Date.now())) {
       throw new HttpException(
         'Too many 2FA setup attempts — wait a minute and try again.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
     const { secret, otpauthUrl } = await this.authService.beginTotpEnrollment(
-      req.user!.id,
+      currentUser(req).id,
     );
     const qrDataUrl = await QRCode.toDataURL(otpauthUrl, {
       margin: 1,
@@ -302,22 +325,22 @@ export class AuthController {
   @Post('api/account/totp/confirm')
   async confirmTotp(@Req() req: Request) {
     const { secret, code, password } = parseBody(confirmTotpSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     let result: { backupCodes: string[] };
     try {
       result = await this.authService.confirmTotp(
-        req.user!.id,
+        currentUser(req).id,
         secret,
         code,
         password,
-        { actor: req.user!.username },
+        { actor: currentUser(req).username },
       );
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true, backupCodes: result.backupCodes };
   }
 
@@ -325,17 +348,17 @@ export class AuthController {
   @Post('api/account/totp/disable')
   async disableTotp(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     try {
-      await this.authService.disableTotp(req.user!.id, password, {
-        actor: req.user!.username,
+      await this.authService.disableTotp(currentUser(req).id, password, {
+        actor: currentUser(req).username,
       });
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true };
   }
 
@@ -343,34 +366,21 @@ export class AuthController {
   @Post('api/account/totp/backup-codes/regenerate')
   async regenerateBackupCodes(@Req() req: Request) {
     const { password } = parseBody(passwordSchema, req.body);
-    this.rateLimit.checkLoginAllowed(req.user!.username, req.ip);
+    this.rateLimit.checkLoginAllowed(currentUser(req).username, req.ip);
     let result: { backupCodes: string[] };
     try {
       result = await this.authService.regenerateBackupCodes(
-        req.user!.id,
+        currentUser(req).id,
         password,
-        { actor: req.user!.username },
+        { actor: currentUser(req).username },
       );
     } catch (err) {
       if (err instanceof UnauthorizedException)
-        this.rateLimit.recordLoginFailure(req.user!.username, req.ip);
+        this.rateLimit.recordLoginFailure(currentUser(req).username, req.ip);
       throw err;
     }
-    this.rateLimit.clearLoginFailures(req.user!.username, req.ip);
+    this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
     return { ok: true, backupCodes: result.backupCodes };
-  }
-}
-
-/** schema.parse() that turns a ZodError into the same 400 + first-issue-message shape legacy returned. */
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
   }
 }
 

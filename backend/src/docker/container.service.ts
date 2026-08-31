@@ -308,7 +308,7 @@ export class ContainerService {
       out.on('data', (b: Buffer) => chunks.push(b));
       this.connection.getDocker().modem.demuxStream(stream, out, out);
       let settled = false;
-      const finish = (fn: (arg: any) => void, arg: unknown) => {
+      const finish = <T>(fn: (arg: T) => void, arg: T) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);

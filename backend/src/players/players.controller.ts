@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -8,22 +7,21 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { PlayerRosterService } from './player-roster.service';
 import { PlayerTeleportService } from './player-teleport.service';
+import { StructureRegistryService } from './structure-registry.service';
+import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
+import { playerNameSchema } from '../utils/player-name';
+import { currentUser } from '../auth/current-user';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
-const nameSchema = z
-  .string()
-  .trim()
-  .regex(
-    /^[.*A-Za-z0-9_]{1,16}$/,
-    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
-  );
+const nameSchema = playerNameSchema;
 const reasonSchema = z.string().trim().max(256).optional();
 const ipSchema = z
   .string()
@@ -97,18 +95,6 @@ const teleportSchema = z.discriminatedUnion('mode', [
   }),
 ]);
 
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-
 /** Ports legacy `src/web/routes/players.ts`, mounted at /api/servers/:id/players. */
 @Controller('api/servers/:id/players')
 export class PlayersController {
@@ -117,6 +103,8 @@ export class PlayersController {
     private readonly containers: ContainerService,
     private readonly roster: PlayerRosterService,
     private readonly teleport: PlayerTeleportService,
+    private readonly structureRegistry: StructureRegistryService,
+    private readonly biomeRegistry: BiomeRegistryService,
   ) {}
 
   private async loadContext(id: string, req: Request) {
@@ -129,7 +117,7 @@ export class PlayersController {
     } catch {
       /* docker down — fall back to file edits */
     }
-    return { server, ctx: { running, actor: req.user!.username } };
+    return { server, ctx: { running, actor: currentUser(req).username } };
   }
 
   @Get()
@@ -153,7 +141,7 @@ export class PlayersController {
       const { ctx } = await this.loadContext(id, req);
       return {
         ok: true,
-        structures: await this.teleport.getServerStructures(id, {
+        structures: await this.structureRegistry.getServerStructures(id, {
           running: ctx.running,
         }),
       };
@@ -166,7 +154,7 @@ export class PlayersController {
   async biomesList(@Param('id') id: string, @Req() req: Request) {
     try {
       const { ctx } = await this.loadContext(id, req);
-      const registry = await this.teleport.getServerBiomes(id, {
+      const registry = await this.biomeRegistry.getServerBiomes(id, {
         running: ctx.running,
       });
       const seen = new Map<string, { id: string; dimension: string }>();

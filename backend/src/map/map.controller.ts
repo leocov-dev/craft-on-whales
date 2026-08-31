@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { ServerQueryService } from '../servers/server-query.service';
 import { MapService } from './map.service';
 import type { MapConfig } from '../../../shared/types/map';
+import { currentUser } from '../auth/current-user';
 
 /** Live map (BlueMap). Ports the `/servers/:id/map*` cluster of `api.ts`. */
 @Controller('api/servers/:id/map')
@@ -29,14 +30,14 @@ export class MapController {
     await this.serverQuery.mustGet(id);
     return {
       ok: true,
-      ...(await this.map.enableMap(id, { actor: req.user!.username })),
+      ...(await this.map.enableMap(id, { actor: currentUser(req).username })),
     };
   }
 
   @Post('disable')
   async disable(@Param('id') id: string, @Req() req: Request) {
     await this.serverQuery.mustGet(id);
-    await this.map.disableMap(id, { actor: req.user!.username });
+    await this.map.disableMap(id, { actor: currentUser(req).username });
     return { ok: true };
   }
 }

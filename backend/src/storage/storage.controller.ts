@@ -45,6 +45,8 @@ export class StorageController {
   }
 
   @Post('scan')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
   async scan() {
     return { ok: true, ...(await this.indexer.scan()) };
   }

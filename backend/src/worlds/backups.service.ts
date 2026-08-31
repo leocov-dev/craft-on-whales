@@ -12,6 +12,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DbService } from '../db/db.service';
 import { ContainerService } from '../docker/container.service';
+import { rcon } from '../utils/rcon';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
@@ -118,8 +119,9 @@ export class BackupsService {
       // concurrent backup or world export can't re-enable writes mid-copy.
       await this.saveLock.withSaveLock(serverId, async () => {
         if (task) task.step('Pausing world saves');
-        const paused = await this.containers
-          .execCapture(serverId, ['rcon-cli', 'save-off'])
+        const paused = await rcon(this.containers, serverId, ['save-off'], {
+          clean: 'raw',
+        })
           .then(() => true)
           .catch((err: Error) => {
             console.warn(
@@ -128,16 +130,16 @@ export class BackupsService {
             return false;
           });
         inconsistent = !paused;
-        await this.containers
-          .execCapture(serverId, ['rcon-cli', 'save-all', 'flush'])
-          .catch(() => {});
+        await rcon(this.containers, serverId, ['save-all', 'flush'], {
+          clean: 'raw',
+        }).catch(() => {});
         await this.archive.sleep(2000);
         try {
           await doArchive();
         } finally {
-          await this.containers
-            .execCapture(serverId, ['rcon-cli', 'save-on'])
-            .catch(() => {});
+          await rcon(this.containers, serverId, ['save-on'], {
+            clean: 'raw',
+          }).catch(() => {});
         }
       });
     } else {

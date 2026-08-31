@@ -129,6 +129,12 @@ const MOB_NAMES = new Set([
   'breeze',
   'bogged',
   'creaking',
+  'frog',
+  'tadpole',
+  'allay',
+  'camel',
+  'sniffer',
+  'armadillo',
 ]);
 
 /**

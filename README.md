@@ -177,8 +177,8 @@ A pre-built multi-arch image (amd64 + arm64) is published to GHCR on every relea
 Grab the [docker-compose.yml](docker-compose.yml) from the repo root, set **one** variable, and start:
 
 ```bash
-mkdir -p /opt/msm/data
-echo "DATA_DIR_HOST=/opt/msm/data" > .env   # ABSOLUTE host path for all panel data
+mkdir -p /opt/craft-on-whales/data
+echo "DATA_DIR_HOST=/opt/craft-on-whales/data" > .env   # ABSOLUTE host path for all panel data
 docker compose up -d
 ```
 

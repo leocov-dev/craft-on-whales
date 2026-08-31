@@ -5,11 +5,16 @@ import { PathGuardModule } from '../storage/path-guard.module';
 import { StorageIndexModule } from '../storage/storage-index.module';
 import { LibraryModule } from '../library/library.module';
 import { MapModule } from '../map/map.module';
+import { MapService } from '../map/map.service';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldPropsService } from './world-props.service';
+import { MAP_SERVICE_CONTRACT } from './map-service.contract';
 import { WorldLibraryService } from './world-library.service';
 import { WorldSaveLockService } from './world-save-lock.service';
 import { WorldOperationsService } from './world-operations.service';
+import { WorldRuntimeService } from './world-runtime.service';
+import { WorldTransferService } from './world-transfer.service';
+import { WorldLifecycleService } from './world-lifecycle.service';
 import { BackupsService } from './backups.service';
 import { WorldsController, ServerWorldsController } from './worlds.controller';
 
@@ -32,7 +37,11 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
     WorldLibraryService,
     WorldSaveLockService,
     BackupsService,
+    WorldRuntimeService,
+    WorldTransferService,
+    WorldLifecycleService,
     WorldOperationsService,
+    { provide: MAP_SERVICE_CONTRACT, useExisting: MapService },
   ],
   exports: [
     WorldArchiveService,
@@ -40,6 +49,9 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
     WorldLibraryService,
     WorldSaveLockService,
     BackupsService,
+    WorldRuntimeService,
+    WorldTransferService,
+    WorldLifecycleService,
     WorldOperationsService,
   ],
 })

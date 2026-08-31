@@ -27,6 +27,11 @@ type UserRow = typeof users.$inferSelect;
  */
 @Injectable()
 export class AuthService {
+  // firstRunNeeded() can only ever flip true→false (once the first user
+  // exists it stays that way barring a direct DB edit), so once we observe
+  // `false` there's no need to keep hitting the DB for it on every request.
+  private firstRunComplete = false;
+
   constructor(
     private readonly dbService: DbService,
     private readonly events: EventsService,
@@ -39,10 +44,12 @@ export class AuthService {
   }
 
   async firstRunNeeded(): Promise<boolean> {
+    if (this.firstRunComplete) return false;
     const [row] = await this.db
       .select({ x: sql`1` })
       .from(users)
       .limit(1);
+    if (row) this.firstRunComplete = true;
     return !row;
   }
 

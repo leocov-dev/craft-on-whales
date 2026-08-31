@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -14,9 +13,11 @@ import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import archiver from 'archiver';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { PathGuardService } from '../storage/path-guard.service';
 import { CrashesService, type DecoratedCrash } from './crashes.service';
+import { crashAbsPathFor } from './crash-paths';
 import type { CrashReport } from '../../../shared/types/crashes';
 
 /**
@@ -44,18 +45,6 @@ function publicCrash(row: DecoratedCrash): CrashReport {
   };
 }
 
-function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 const crashIdSchema = z
   .string()
@@ -70,14 +59,12 @@ export class CrashesController {
   ) {}
 
   private absPathFor(serverId: string, filename: string): string {
-    return filename.startsWith('hs_err')
-      ? this.pathGuard.dataPath('servers', serverId, filename)
-      : this.pathGuard.dataPath('servers', serverId, 'crash-reports', filename);
+    return crashAbsPathFor(this.pathGuard, serverId, filename);
   }
 
   private async ownedCrash(id: string, crashId: string) {
-    const serverId = parse(serverIdSchema, id);
-    const cid = parse(crashIdSchema, crashId);
+    const serverId = parseBody(serverIdSchema, id);
+    const cid = parseBody(crashIdSchema, crashId);
     const row = await this.crashes.getCrash(cid);
     if (!row || row.serverId !== serverId)
       throw new NotFoundException('Crash report not found');
@@ -86,7 +73,7 @@ export class CrashesController {
 
   @Get()
   async list(@Param('id') id: string) {
-    const serverId = parse(serverIdSchema, id);
+    const serverId = parseBody(serverIdSchema, id);
     await this.crashes.scanServer(serverId).catch(() => {});
     return {
       ok: true,
@@ -97,7 +84,7 @@ export class CrashesController {
   // Must be declared before /:crashId routes (matches legacy ordering).
   @Get('export.zip')
   async exportZip(@Param('id') id: string, @Res() res: Response) {
-    const serverId = parse(serverIdSchema, id);
+    const serverId = parseBody(serverIdSchema, id);
     const rows = await this.crashes.listCrashes(serverId);
 
     res.setHeader('Content-Type', 'application/zip');
@@ -123,8 +110,11 @@ export class CrashesController {
     @Query('olderThanDays') olderThanDays: string,
     @Req() req: Request,
   ) {
-    const serverId = parse(serverIdSchema, id);
-    const days = parse(z.coerce.number().int().min(1).max(3650), olderThanDays);
+    const serverId = parseBody(serverIdSchema, id);
+    const days = parseBody(
+      z.coerce.number().int().min(1).max(3650),
+      olderThanDays,
+    );
     return {
       ok: true,
       ...(await this.crashes.deleteOlderThan(serverId, days, {

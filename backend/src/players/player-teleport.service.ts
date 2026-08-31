@@ -1,25 +1,24 @@
 import {
   BadRequestException,
-  forwardRef,
   HttpException,
   HttpStatus,
-  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { EventsService } from '../events/events.service';
 import { ContainerService } from '../docker/container.service';
 import { PLAYER_NAME_RE } from '../utils/player-name';
-import { cleanText as cleanAnsiText } from '../utils/ansi';
-import { biomes as VANILLA_BIOMES } from './biomes';
+import { rcon } from '../utils/rcon';
 import { PlayerRosterService } from './player-roster.service';
-// `import type` — InventoryService is the other half of the
-// InventoryModule<->PlayersModule cycle (this service needs
-// InventoryService.readPlayerData via getPlayerSavedPos; InventoryService
-// needs PlayerRosterService.listOnlineNames). Runtime class reference via
-// lazy require() in the @Inject/forwardRef below, matching the established
-// pattern in servers/server-lifecycle.service.ts <-> scheduler/scheduler.service.ts.
-import type { InventoryService } from '../inventory/inventory.service';
+import { StructureRegistryService } from './structure-registry.service';
+import { BiomeRegistryService } from './biome-registry.service';
+// getPlayerSavedPos only ever needed InventoryService.readPlayerData, which
+// is itself a one-line delegate to PlayerDataFileService.readPlayerData —
+// injecting that directly instead of the whole InventoryService avoids the
+// InventoryModule<->PlayersModule cycle for this edge entirely.
+// PlayerDataFileService has no dependency back into players/, so this is a
+// plain, non-circular import (no forwardRef()/require() needed here).
+import { PlayerDataFileService } from '../inventory/player-data-file.service';
 
 interface RunOptions {
   running?: boolean;
@@ -53,37 +52,24 @@ function prettyDimension(dim: string | null | undefined): string {
  * Player teleports, biome/structure locating, and RCON position reads.
  * RCON-only by nature — there is no safe offline equivalent. Ported from
  * the teleport/biome/structure section of src/services/players.ts.
+ *
+ * Structure/biome registry scanning + caching live in
+ * `StructureRegistryService` / `BiomeRegistryService` — this service only
+ * orchestrates the four teleport modes (coords/player/biome/structure/rtp)
+ * and reads live/saved player positions.
  */
 @Injectable()
 export class PlayerTeleportService {
   private readonly teleportBusy = new Set<string>();
-  private readonly structureCache = new Map<
-    string,
-    { at: number; structures: { id: string; dimension: string }[] }
-  >();
-  private readonly registryInflight = new Map<string, Promise<unknown>>(); // "biomes:<id>" / "structures:<id>" -> Promise
-  private readonly biomeCache = new Map<
-    string,
-    {
-      at: number;
-      biomes: { id: string; dimension: string }[];
-      byId: Map<string, string[]>;
-    }
-  >();
-  private readonly BIOME_CACHE_MS = 60 * 60 * 1000;
   private readonly TP_TIMEOUT_MS = 45000;
 
   constructor(
     private readonly events: EventsService,
     private readonly containers: ContainerService,
     private readonly roster: PlayerRosterService,
-    @Inject(
-      forwardRef(
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-        () => require('../inventory/inventory.service').InventoryService,
-      ),
-    )
-    private readonly inventory: InventoryService,
+    private readonly structures: StructureRegistryService,
+    private readonly biomeRegistry: BiomeRegistryService,
+    private readonly playerDataFiles: PlayerDataFileService,
   ) {}
 
   private assertName(name: unknown): string {
@@ -98,42 +84,6 @@ export class PlayerTeleportService {
   private assertRunning(running: boolean, what: string): void {
     if (!running)
       throw new BadRequestException(`Server must be running to ${what}`);
-  }
-
-  private async rcon(
-    serverId: string,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    const out = await this.containers.execCapture(serverId, [
-      'rcon-cli',
-      '--',
-      ...args.map(String),
-    ]);
-    return String(out || '').trim();
-  }
-
-  // Same, but strip the ANSI/§ colour codes rcon-cli injects — REQUIRED before
-  // regex-parsing any rcon output.
-  private async rconClean(
-    serverId: string,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    return cleanAnsiText(await this.rcon(serverId, ...args));
-  }
-
-  // ANSI-clean rcon with an explicit timeout — /locate and spreadplayers can
-  // be slow on big modpacks; the default 15s would abandon them.
-  private async rconT(
-    serverId: string,
-    timeoutMs: number,
-    ...args: (string | number)[]
-  ): Promise<string> {
-    const out = await this.containers.execCapture(
-      serverId,
-      ['rcon-cli', '--', ...args.map(String)],
-      { timeoutMs },
-    );
-    return cleanAnsiText(String(out || '').trim());
   }
 
   // ---------------------------------------------------------------------- live position
@@ -160,8 +110,7 @@ export class PlayerTeleportService {
       /\[\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*,\s*(-?\d+(?:\.\d+)?)[dfb]?\s*\]/;
     const tag = `cd_pos_${Math.random().toString(36).slice(2, 10)}`;
     try {
-      const summon = await this.rconClean(
-        serverId,
+      const summon = await rcon(this.containers, serverId, [
         'execute',
         'at',
         player,
@@ -172,20 +121,19 @@ export class PlayerTeleportService {
         '~',
         '~',
         `{Tags:["${tag}"]}`,
-      );
+      ]);
       // No "Summoned …" line means `execute at <player>` matched nothing → offline
       // (an offline player also produces empty output, so check positively).
       if (!/Summoned/i.test(summon)) {
         throw new NotFoundException('That player is not online right now.');
       }
-      const posOut = await this.rconClean(
-        serverId,
+      const posOut = await rcon(this.containers, serverId, [
         'data',
         'get',
         'entity',
         `@e[type=minecraft:marker,tag=${tag},limit=1]`,
         'Pos',
-      );
+      ]);
       const pm = POS_RE.exec(posOut);
       if (!pm) {
         console.warn(
@@ -199,15 +147,14 @@ export class PlayerTeleportService {
       // removes the marker at the same time. Run all three so nothing is left behind.
       let dimension: string | null = null;
       for (const dim of ALL_DIMENSIONS) {
-        const k = await this.rconClean(
-          serverId,
+        const k = await rcon(this.containers, serverId, [
           'execute',
           'in',
           dim,
           'run',
           'kill',
           `@e[type=minecraft:marker,tag=${tag}]`,
-        ).catch(() => '');
+        ]).catch(() => '');
         if (!dimension && /Killed/i.test(k)) dimension = dim;
       }
       return {
@@ -219,15 +166,14 @@ export class PlayerTeleportService {
     } catch (err) {
       // Best-effort cleanup if we bailed before the kill loop.
       for (const dim of ALL_DIMENSIONS) {
-        this.rcon(
-          serverId,
+        rcon(this.containers, serverId, [
           'execute',
           'in',
           dim,
           'run',
           'kill',
           `@e[type=minecraft:marker,tag=${tag}]`,
-        ).catch(() => {});
+        ]).catch(() => {});
       }
       throw err;
     }
@@ -250,7 +196,10 @@ export class PlayerTeleportService {
         (p) => p.name.toLowerCase() === player.toLowerCase(),
       );
       if (!found || !found.uuid) return null;
-      const data = await this.inventory.readPlayerData(serverId, found.uuid);
+      const data = await this.playerDataFiles.readPlayerData(
+        serverId,
+        found.uuid,
+      );
       if (!data.pos) return null;
       return {
         x: Math.round(data.pos.x),
@@ -269,14 +218,11 @@ export class PlayerTeleportService {
     type: string,
     id: string,
   ): Promise<string> {
-    const located = await this.rconT(
+    const located = await rcon(
+      this.containers,
       serverId,
-      this.TP_TIMEOUT_MS,
-      ...prefix,
-      'run',
-      'locate',
-      type,
-      id,
+      [...prefix, 'run', 'locate', type, id],
+      { timeoutMs: this.TP_TIMEOUT_MS },
     );
     if (
       /there is no \w+ with type|isn'?t a valid|unknown \w+ type/i.test(located)
@@ -320,18 +266,21 @@ export class PlayerTeleportService {
     for (const range of [1, 96, 512]) {
       // In the Nether, cap the landing height below the bedrock roof.
       const cap = dimension === 'minecraft:the_nether' ? ['under', '120'] : [];
-      out = await this.rconT(
+      out = await rcon(
+        this.containers,
         serverId,
-        this.TP_TIMEOUT_MS,
-        ...prefix,
-        'spreadplayers',
-        String(x),
-        String(z),
-        '0',
-        String(range),
-        ...cap,
-        'false',
-        player,
+        [
+          ...prefix,
+          'spreadplayers',
+          String(x),
+          String(z),
+          '0',
+          String(range),
+          ...cap,
+          'false',
+          player,
+        ],
+        { timeoutMs: this.TP_TIMEOUT_MS },
       );
       if (/No entity was found|No player was found/i.test(out)) {
         throw new NotFoundException('That player is not online right now.');
@@ -344,139 +293,6 @@ export class PlayerTeleportService {
   }
 
   // ---------------------------------------------------------------------- structures
-
-  // Home dimension per structure — `locate` must run IN it and the teleport
-  // carries the player across (a Village is Overworld even if you ask from the End).
-  private readonly STRUCTURE_DIMENSION = new Map<string, string>([
-    ['minecraft:fortress', 'minecraft:the_nether'],
-    ['minecraft:nether_fortress', 'minecraft:the_nether'],
-    ['minecraft:bastion_remnant', 'minecraft:the_nether'],
-    ['minecraft:nether_fossil', 'minecraft:the_nether'],
-    ['minecraft:end_city', 'minecraft:the_end'],
-  ]);
-
-  // Bundled vanilla structures + wildcard tags (usable as #tag in /locate).
-  private readonly VANILLA_STRUCTURES = [
-    '#minecraft:village',
-    'minecraft:village_plains',
-    'minecraft:village_desert',
-    'minecraft:village_savanna',
-    'minecraft:village_snowy',
-    'minecraft:village_taiga',
-    'minecraft:ancient_city',
-    'minecraft:stronghold',
-    'minecraft:mineshaft',
-    'minecraft:trial_chambers',
-    'minecraft:trail_ruins',
-    'minecraft:pillager_outpost',
-    'minecraft:woodland_mansion',
-    'minecraft:jungle_pyramid',
-    'minecraft:desert_pyramid',
-    'minecraft:igloo',
-    'minecraft:swamp_hut',
-    'minecraft:shipwreck',
-    'minecraft:ocean_monument',
-    'minecraft:buried_treasure',
-    '#minecraft:ruined_portal',
-    'minecraft:fortress',
-    'minecraft:bastion_remnant',
-    'minecraft:end_city',
-  ];
-
-  /** Best-effort home dimension for a structure id/#tag (defaults to Overworld). */
-  private structureDim(ref: unknown): string {
-    const id = (typeof ref === 'string' ? ref : '').replace(/^#/, '');
-    if (this.STRUCTURE_DIMENSION.has(id))
-      return this.STRUCTURE_DIMENSION.get(id)!;
-    const short = id.split(':').pop() || '';
-    if (/(^|_)(nether|bastion|fortress|fossil)($|_)/.test(short))
-      return 'minecraft:the_nether';
-    if (/(^|_)end($|_)|end_city/.test(short)) return 'minecraft:the_end';
-    return 'minecraft:overworld';
-  }
-
-  /** Structure options: server registry tags (usable as #tag) + bundled vanilla list. */
-  async getServerStructures(
-    serverId: string,
-    { running = false }: { running?: boolean } = {},
-  ): Promise<{ id: string; dimension: string }[]> {
-    const cached = this.structureCache.get(serverId);
-    if (cached && Date.now() - cached.at < this.BIOME_CACHE_MS)
-      return cached.structures;
-    // Single-flight: the tag scan is dozens of RCON round-trips — concurrent
-    // callers (rapid modal opens) share one scan instead of stacking storms.
-    const key = `structures:${serverId}`;
-    if (this.registryInflight.has(key))
-      return this.registryInflight.get(key) as Promise<
-        { id: string; dimension: string }[]
-      >;
-    const promise = this.scanServerStructures(serverId, running).finally(() =>
-      this.registryInflight.delete(key),
-    );
-    this.registryInflight.set(key, promise);
-    return promise;
-  }
-
-  private async scanServerStructures(
-    serverId: string,
-    running: boolean,
-  ): Promise<{ id: string; dimension: string }[]> {
-    let structures = [...this.VANILLA_STRUCTURES];
-    if (running) {
-      for (const prefix of ['neoforge', 'forge']) {
-        try {
-          const tags: string[] = [];
-          let page = 1;
-          let totalPages = 1;
-          do {
-            const out = cleanAnsiText(
-              await this.containers.execCapture(serverId, [
-                'rcon-cli',
-                prefix,
-                'tags',
-                'worldgen/structure',
-                'list',
-                String(page),
-              ]),
-            );
-            const pm = /<page (\d+) \/ (\d+)>/.exec(out);
-            totalPages = pm?.[2] ? Number(pm[2]) : 1;
-            for (const m of out.matchAll(
-              /^\s*-\s*([a-z0-9_.-]+:[a-z0-9_/.-]+)\s*$/gim,
-            ))
-              tags.push(`#${m[1]}`);
-            page += 1;
-          } while (page <= totalPages && page <= 20);
-          if (tags.length) {
-            // Registries are full of internal plumbing tags (blacklists,
-            // placement filters…) that aren't destinations — drop them, and
-            // list the familiar vanilla names before the modded tags.
-            const useful = tags.filter(
-              (t) =>
-                !/(blacklist|whitelist|filter|avoid|exclusion|cannot|_on_|has_structure)/.test(
-                  t,
-                ),
-            );
-            structures = [
-              ...new Set([...this.VANILLA_STRUCTURES, ...useful.sort()]),
-            ];
-            break;
-          }
-        } catch {
-          /* command unavailable */
-        }
-      }
-    }
-    const annotated = structures.map((id) => ({
-      id,
-      dimension: this.structureDim(id),
-    }));
-    this.structureCache.set(serverId, {
-      at: Date.now(),
-      structures: annotated,
-    });
-    return annotated;
-  }
 
   /**
    * Structure teleport: locate the nearest <structure> — from the player, or
@@ -505,7 +321,7 @@ export class PlayerTeleportService {
     if (!/^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/.test(String(structureRef)))
       throw new BadRequestException('Invalid structure id');
 
-    const searchDim = this.structureDim(structureRef);
+    const searchDim = this.structures.structureDim(structureRef);
     const saved = await this.getPlayerSavedPos(serverId, player);
     const sameDim = saved && saved.dimension === searchDim;
     let fromX = sameDim ? saved.x : 0;
@@ -660,138 +476,6 @@ export class PlayerTeleportService {
 
   // ---------------------------------------------------------------------- biomes
 
-  // Biomes that only exist outside the Overworld — locate must run IN their
-  // home dimension, and the teleport carries the player across.
-  private readonly BIOME_DIMENSION = new Map<string, string>([
-    ['minecraft:the_end', 'minecraft:the_end'],
-    ['minecraft:end_highlands', 'minecraft:the_end'],
-    ['minecraft:end_midlands', 'minecraft:the_end'],
-    ['minecraft:end_barrens', 'minecraft:the_end'],
-    ['minecraft:small_end_islands', 'minecraft:the_end'],
-    ['minecraft:nether_wastes', 'minecraft:the_nether'],
-    ['minecraft:crimson_forest', 'minecraft:the_nether'],
-    ['minecraft:warped_forest', 'minecraft:the_nether'],
-    ['minecraft:soul_sand_valley', 'minecraft:the_nether'],
-    ['minecraft:basalt_deltas', 'minecraft:the_nether'],
-  ]);
-
-  private readonly DIM_TAGS: [string, string][] = [
-    ['minecraft:is_overworld', 'minecraft:overworld'],
-    ['minecraft:is_nether', 'minecraft:the_nether'],
-    ['minecraft:is_end', 'minecraft:the_end'],
-  ];
-
-  private async fetchTagElements(
-    serverId: string,
-    prefix: string,
-    tag: string,
-  ): Promise<string[]> {
-    const ids: string[] = [];
-    let page = 1;
-    let totalPages = 1;
-    do {
-      const out = cleanAnsiText(
-        await this.containers.execCapture(serverId, [
-          'rcon-cli',
-          prefix,
-          'tags',
-          'worldgen/biome',
-          'get',
-          tag,
-          String(page),
-        ]),
-      );
-      const pm = /<page (\d+) \/ (\d+)>/.exec(out);
-      totalPages = pm?.[2] ? Number(pm[2]) : 1;
-      for (const m of out.matchAll(
-        /^\s*-\s*([a-z0-9_.-]+:[a-z0-9_/.-]+)\s*$/gim,
-      ))
-        ids.push(m[1]!);
-      page += 1;
-    } while (page <= totalPages && page <= 40);
-    return ids;
-  }
-
-  /** Server-derived biome registry (mods add biomes the bundled list can't know). */
-  async getServerBiomes(
-    serverId: string,
-    { running = false }: { running?: boolean } = {},
-  ): Promise<{
-    at: number;
-    biomes: { id: string; dimension: string }[];
-    byId: Map<string, string[]>;
-  }> {
-    const cached = this.biomeCache.get(serverId);
-    if (cached && Date.now() - cached.at < this.BIOME_CACHE_MS) return cached;
-    const key = `biomes:${serverId}`;
-    if (this.registryInflight.has(key))
-      return this.registryInflight.get(key) as Promise<{
-        at: number;
-        biomes: { id: string; dimension: string }[];
-        byId: Map<string, string[]>;
-      }>;
-    const promise = this.scanServerBiomes(serverId, running).finally(() =>
-      this.registryInflight.delete(key),
-    );
-    this.registryInflight.set(key, promise);
-    return promise;
-  }
-
-  private async scanServerBiomes(
-    serverId: string,
-    running: boolean,
-  ): Promise<{
-    at: number;
-    biomes: { id: string; dimension: string }[];
-    byId: Map<string, string[]>;
-  }> {
-    let biomes: { id: string; dimension: string }[] | null = null;
-    if (running) {
-      for (const prefix of ['neoforge', 'forge']) {
-        try {
-          const collected: { id: string; dimension: string }[] = [];
-          for (const [tag, dimension] of this.DIM_TAGS) {
-            const ids = await this.fetchTagElements(serverId, prefix, tag);
-            for (const id of ids) collected.push({ id, dimension });
-          }
-          if (collected.length > 10) {
-            biomes = collected;
-            break;
-          }
-        } catch {
-          /* command unavailable on this loader */
-        }
-      }
-    }
-    if (!biomes) {
-      // Fallback: bundled vanilla registry.
-      biomes = VANILLA_BIOMES.map((id) => ({
-        id,
-        dimension: this.BIOME_DIMENSION.get(id) || 'minecraft:overworld',
-      }));
-    }
-    // A biome can belong to several dimension tags — keep them all so the
-    // teleport can prefer the dimension the player is already standing in.
-    const byId = new Map<string, string[]>();
-    for (const b of biomes) {
-      const dims = byId.get(b.id) || [];
-      if (b.dimension && !dims.includes(b.dimension)) dims.push(b.dimension);
-      byId.set(b.id, dims);
-    }
-    const entry = { at: Date.now(), biomes, byId };
-    this.biomeCache.set(serverId, entry);
-    return entry;
-  }
-
-  /** Dimensions a biome generates in: server registry first, static vanilla fallback. */
-  private biomeDims(serverId: string, biomeId: string): string[] {
-    const cached = this.biomeCache.get(serverId);
-    const dims = cached && cached.byId.get(biomeId);
-    if (dims && dims.length) return dims;
-    const single = this.BIOME_DIMENSION.get(biomeId);
-    return single ? [single] : [];
-  }
-
   async tpToBiome(
     serverId: string,
     player: string,
@@ -814,8 +498,10 @@ export class PlayerTeleportService {
     // server registry first: biomeDims only READS the cache, and after a
     // panel restart it would otherwise fall back to a tiny static list and
     // lose most home dims.
-    await this.getServerBiomes(serverId, { running: true }).catch(() => {});
-    const dims = this.biomeDims(serverId, String(biomeId));
+    await this.biomeRegistry
+      .getServerBiomes(serverId, { running: true })
+      .catch(() => {});
+    const dims = this.biomeRegistry.biomeDims(serverId, String(biomeId));
     const saved = await this.getPlayerSavedPos(serverId, player);
     const playerDim = saved ? saved.dimension : null;
     const searchDim =
@@ -919,8 +605,7 @@ export class PlayerTeleportService {
     } else {
       if (safe) {
         // Fatal-fall insurance for explicit altitudes: 15s of slow falling.
-        await this.rcon(
-          serverId,
+        await rcon(this.containers, serverId, [
           'effect',
           'give',
           player,
@@ -928,7 +613,7 @@ export class PlayerTeleportService {
           '15',
           '0',
           'true',
-        ).catch(() => {});
+        ]).catch(() => {});
       }
       const args = dimension
         ? [
@@ -943,7 +628,7 @@ export class PlayerTeleportService {
             String(z),
           ]
         : ['tp', player, String(x), String(y), String(z)];
-      out = await this.rcon(serverId, ...args);
+      out = await rcon(this.containers, serverId, args);
       this.assertTpOutput(out, player);
     }
 
@@ -983,7 +668,7 @@ export class PlayerTeleportService {
     this.assertName(player);
     this.assertName(target);
     this.assertRunning(running, 'teleport a player');
-    const out = await this.rcon(serverId, 'tp', player, target);
+    const out = await rcon(this.containers, serverId, ['tp', player, target]);
     this.assertTpOutput(out, player);
     this.events.recordEvent({
       serverId,

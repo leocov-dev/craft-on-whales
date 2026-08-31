@@ -50,10 +50,10 @@ export class McRouterService {
   ) {}
 
   async getConfig(): Promise<McRouterConfig> {
-    const stored = (await this.settings.get(
+    const stored = await this.settings.get<Partial<McRouterConfig>>(
       SETTINGS_KEY,
       null,
-    )) as Partial<McRouterConfig> | null;
+    );
     return { ...DEFAULT_CONFIG, ...(stored || {}) };
   }
 

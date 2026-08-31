@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 // Java usernames are 1-16 chars of [A-Za-z0-9_] (Mojang requires 3-16 for new
 // accounts, but legacy/cracked names can be shorter, so this stays lenient —
 // matches the historical behavior every caller here already relied on).
@@ -15,6 +17,17 @@
 // PLAYER_NAME_RE is the anchored, ready-to-use form for standalone checks.
 export const NAME_PATTERN = '[.*]?[A-Za-z0-9_]{1,16}';
 export const PLAYER_NAME_RE = new RegExp(`^${NAME_PATTERN}$`);
+
+// Shared Zod schema for player-name request fields — every controller that
+// validates a player name should use this instead of hand-rolling its own
+// regex, so the Bedrock-prefix rule can't silently drift out of sync again.
+export const playerNameSchema = z
+  .string()
+  .trim()
+  .regex(
+    PLAYER_NAME_RE,
+    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
+  );
 
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';

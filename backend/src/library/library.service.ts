@@ -359,6 +359,10 @@ export class LibraryService {
   /**
    * Import a locally-uploaded file (e.g. a manually-downloaded mod jar) into the
    * library with sha256 dedupe. Mirrors downloadToLibrary but from a local path.
+   *
+   * `localPath` is read directly with no path-guard validation — it must come
+   * from a trusted/internal source (e.g. a multer-generated temp file path),
+   * never a raw user-supplied path.
    */
   async importFile(
     localPath: string,

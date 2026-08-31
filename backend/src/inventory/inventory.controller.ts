@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   NotFoundException,
@@ -9,11 +8,14 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { ItemRegistryService } from '../items/item-registry.service';
 import { InventoryService } from './inventory.service';
+import { playerNameSchema } from '../utils/player-name';
+import { actorOf } from '../utils/request-actor';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -24,13 +26,7 @@ const uuidSchema = z
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
     'Invalid player UUID',
   );
-const nameSchema = z
-  .string()
-  .trim()
-  .regex(
-    /^[.*A-Za-z0-9_]{1,16}$/,
-    'Player names are 1-16 letters, digits or _ (a leading . or * for Bedrock players is fine)',
-  );
+const nameSchema = playerNameSchema;
 const itemSchema = z
   .string()
   .trim()
@@ -99,36 +95,6 @@ const addSchema = z.object({
   count: z.coerce.number().int().min(1).max(99).optional(),
 });
 
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-function parseValue<T extends z.ZodType>(
-  schema: T,
-  value: unknown,
-): z.infer<T> {
-  try {
-    return schema.parse(value);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-
-function actorOf(req: Request): string {
-  return req.user ? req.user.username : 'admin';
-}
-
 /** Ports legacy `src/web/routes/inventory.ts`, mounted at /api/servers/:id/inventory. */
 @Controller('api/servers/:id/inventory')
 export class InventoryController {
@@ -168,7 +134,7 @@ export class InventoryController {
     @Param('uuid') uuidRaw: string,
     @Query('fresh') fresh?: string,
   ) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const { server, running } = await this.loadContext(id);
     if (running && fresh === '1')
       await this.inventory.flushPlayerData(server.id);
@@ -193,7 +159,7 @@ export class InventoryController {
     @Param('uuid') uuidRaw: string,
     @Req() req: Request,
   ) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const body = parseBody(slotEditSchema, req.body);
     const { server } = await this.loadContext(id);
     return {
@@ -210,7 +176,7 @@ export class InventoryController {
     @Param('uuid') uuidRaw: string,
     @Req() req: Request,
   ) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const { from, to } = parseBody(moveSchema, req.body);
     const { server } = await this.loadContext(id);
     return {
@@ -227,7 +193,7 @@ export class InventoryController {
     @Param('uuid') uuidRaw: string,
     @Req() req: Request,
   ) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const { item, count } = parseBody(addSchema, req.body);
     const { server } = await this.loadContext(id);
     return {
@@ -240,7 +206,7 @@ export class InventoryController {
 
   @Get('player/:uuid/snapshots')
   async snapshots(@Param('id') id: string, @Param('uuid') uuidRaw: string) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const { server } = await this.loadContext(id);
     return {
       ok: true,
@@ -250,7 +216,7 @@ export class InventoryController {
 
   @Post('player/:uuid/snapshot')
   async takeSnapshot(@Param('id') id: string, @Param('uuid') uuidRaw: string) {
-    const uuid = parseValue(uuidSchema, uuidRaw);
+    const uuid = parseBody(uuidSchema, uuidRaw);
     const { server } = await this.loadContext(id);
     const snap = await this.inventory.snapshot(server.id, uuid, 'manual');
     await this.inventory.pruneSnapshots(server.id);
@@ -259,7 +225,7 @@ export class InventoryController {
 
   @Get('snapshot')
   async getSnapshot(@Param('id') id: string, @Query('file') file: string) {
-    const f = parseValue(snapshotFileSchema, file);
+    const f = parseBody(snapshotFileSchema, file);
     await this.loadContext(id);
     return { ok: true, snapshot: this.inventory.getSnapshot(f) };
   }
@@ -270,15 +236,15 @@ export class InventoryController {
     @Query('a') a: string,
     @Query('b') b: string,
   ) {
-    const av = parseValue(snapshotFileSchema, a);
-    const bv = parseValue(snapshotFileSchema, b);
+    const av = parseBody(snapshotFileSchema, a);
+    const bv = parseBody(snapshotFileSchema, b);
     await this.loadContext(id);
     return { ok: true, diff: this.inventory.diffSnapshots(av, bv) };
   }
 
   @Get('search')
   async search(@Param('id') id: string, @Query('q') q: string) {
-    const query = parseValue(querySchema, q);
+    const query = parseBody(querySchema, q);
     const { server } = await this.loadContext(id);
     return {
       ok: true,
@@ -322,7 +288,7 @@ export class InventoryGlobalController {
 
   @Get('search')
   async search(@Query('q') q: string) {
-    const query = parseValue(querySchema, q);
+    const query = parseBody(querySchema, q);
     return { ok: true, results: await this.inventory.searchAllServers(query) };
   }
 }

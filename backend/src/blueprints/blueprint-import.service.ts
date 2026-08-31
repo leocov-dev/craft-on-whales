@@ -1,11 +1,15 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ConflictException,
+  type OnModuleDestroy,
+  type OnModuleInit,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
@@ -47,9 +51,18 @@ import {
 } from './blueprints.types';
 import { BlueprintExportService } from './blueprint-export.service';
 
+// Abandoned import-preview uploads (previewed but never imported) sit in
+// os.tmpdir() as `bpup-*.mcserver.zip` — see BlueprintsController.import.
+const ABANDONED_UPLOAD_RE = /^bpup-[A-Za-z0-9_-]{10}\.mcserver\.zip$/;
+const ABANDONED_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+const ABANDONED_UPLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
 /** Validate and apply `.mcserver.zip` blueprints — turns a manifest back into a running server. */
 @Injectable()
-export class BlueprintImportService {
+export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(BlueprintImportService.name);
+  private uploadSweepTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly dbService: DbService,
     private readonly events: EventsService,
@@ -67,6 +80,40 @@ export class BlueprintImportService {
 
   private get db() {
     return this.dbService.db;
+  }
+
+  onModuleInit() {
+    this.uploadSweepTimer = setInterval(() => {
+      this.sweepAbandonedUploads().catch((err) =>
+        this.logger.error(`Abandoned-upload sweep failed: ${String(err)}`),
+      );
+    }, ABANDONED_UPLOAD_SWEEP_INTERVAL_MS);
+    this.uploadSweepTimer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.uploadSweepTimer) {
+      clearInterval(this.uploadSweepTimer);
+      this.uploadSweepTimer = null;
+    }
+  }
+
+  /**
+   * Deletes orphaned import-preview uploads (`bpup-*.mcserver.zip` in
+   * os.tmpdir()) older than 24h — previews whose import was never
+   * confirmed otherwise leak disk space forever.
+   */
+  async sweepAbandonedUploads(): Promise<void> {
+    const dir = os.tmpdir();
+    const entries = await fsp.readdir(dir).catch(() => []);
+    const cutoff = Date.now() - ABANDONED_UPLOAD_TTL_MS;
+    for (const name of entries) {
+      if (!ABANDONED_UPLOAD_RE.test(name)) continue;
+      const abs = path.join(dir, name);
+      const st = await fsp.stat(abs).catch(() => null);
+      if (!st || st.mtimeMs >= cutoff) continue;
+      await fsp.rm(abs, { force: true }).catch(() => {});
+    }
   }
 
   /**
@@ -238,6 +285,12 @@ export class BlueprintImportService {
 
     try {
       if (hasPayload) {
+        const { free } = await this.storageIndex.diskFree();
+        if (free < entries.payloadBytes * 1.1) {
+          throw new BadRequestException(
+            `Not enough disk space to import this blueprint (~${(entries.payloadBytes / 1024 ** 3).toFixed(1)} GB needed)`,
+          );
+        }
         onProgress('Extracting blueprint payload…');
         await extractZipSafe(zipPath, tmpDir);
       }

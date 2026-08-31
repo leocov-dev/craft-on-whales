@@ -8,6 +8,7 @@ import { PathGuardModule } from '../storage/path-guard.module';
 import { StorageIndexModule } from '../storage/storage-index.module';
 import { ServersModule } from '../servers/servers.module';
 import { FilesService } from './files.service';
+import { FilesRouteHandlersService } from './files-route-handlers.service';
 import { UploadPreflightInterceptor } from './upload-preflight.interceptor';
 import { ServerFilesController } from './server-files.controller';
 import { GlobalFilesController } from './global-files.controller';
@@ -31,7 +32,11 @@ import { GlobalFilesController } from './global-files.controller';
     }),
   ],
   controllers: [ServerFilesController, GlobalFilesController],
-  providers: [FilesService, UploadPreflightInterceptor],
+  providers: [
+    FilesService,
+    FilesRouteHandlersService,
+    UploadPreflightInterceptor,
+  ],
   exports: [FilesService],
 })
 export class FilesModule {}

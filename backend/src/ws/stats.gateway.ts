@@ -8,6 +8,7 @@ import type { Socket } from 'socket.io';
 import { SessionService } from '../auth/session.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
+import { authenticateGatewayConnection } from './gateway-auth';
 
 /**
  * `/ws/stats` — replaces legacy `src/ws/index.ts`'s `/ws/stats/:serverId`
@@ -35,18 +36,13 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.cleanup(client);
     });
 
-    const user = await this.sessions.authenticateFromCookieHeader(
-      client.handshake.headers.cookie,
+    const auth = await authenticateGatewayConnection(
+      this.sessions,
+      this.serverQuery,
+      client,
     );
-    if (!user) {
-      client.disconnect(true);
-      return;
-    }
-    const serverId = String(client.handshake.query.serverId || '');
-    if (!serverId || !(await this.serverQuery.getServer(serverId))) {
-      client.disconnect(true);
-      return;
-    }
+    if (!auth) return;
+    const { serverId } = auth;
 
     const entry = { stop: null as (() => void) | null, closed: false };
     this.stoppers.set(client, entry);

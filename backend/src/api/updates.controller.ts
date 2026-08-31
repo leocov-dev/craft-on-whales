@@ -4,6 +4,7 @@ import { UpdateCheckerService } from '../updates/update-checker.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { TasksService } from '../tasks/tasks.service';
 import type { OutdatedRow } from '../../../shared/types/updates';
+import { currentUser } from '../auth/current-user';
 
 /** Ports the "Updates" section of legacy `src/web/routes/api.ts`. */
 @Controller('api')
@@ -36,7 +37,7 @@ export class UpdatesController {
   @Post('updates/check')
   @HttpCode(202)
   check(@Req() req: Request) {
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       'Checking for updates',
       { actor },
@@ -53,7 +54,7 @@ export class UpdatesController {
   @HttpCode(202)
   async checkForServer(@Req() req: Request, @Param('id') id: string) {
     const server = await this.serverQuery.mustGet(id);
-    const actor = req.user!.username;
+    const actor = currentUser(req).username;
     const taskId = this.tasks.run(
       `Checking updates for ${server.display_name}`,
       { serverId: server.id, actor },

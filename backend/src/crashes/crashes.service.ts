@@ -9,6 +9,7 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { crashReports } from '../db/schema';
 import { CrashParserService } from './crash-parser.service';
+import { crashAbsPathFor } from './crash-paths';
 
 type CrashRow = typeof crashReports.$inferSelect;
 
@@ -42,10 +43,7 @@ export class CrashesService implements OnModuleDestroy {
   }
 
   private absPathFor(serverId: string, filename: string): string {
-    // hs_err files live in the server root; crash reports in crash-reports/.
-    return filename.startsWith('hs_err')
-      ? this.pathGuard.dataPath('servers', serverId, filename)
-      : this.pathGuard.dataPath('servers', serverId, 'crash-reports', filename);
+    return crashAbsPathFor(this.pathGuard, serverId, filename);
   }
 
   private async listCandidateFiles(serverId: string): Promise<string[]> {

@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
@@ -12,10 +12,10 @@ import { DockerImagesService } from '../docker/docker-images.service';
 import { ContainerService } from '../docker/container.service';
 import { JavaMatrixService } from './java-matrix.service';
 import { ServerQueryService } from './server-query.service';
-// `import type` — see MapService's own doc comment on this same cycle
-// (ServersModule<->MapModule<->WorldsModule) for why this must be a lazy
-// require() at the @Inject site, not a plain import.
-import type { MapService } from '../map/map.service';
+import {
+  MAP_SERVICE_CONTRACT,
+  type MapServiceContract,
+} from './map-service.contract';
 import type { Server } from './types';
 
 interface ResolveImageOptions {
@@ -45,9 +45,8 @@ export class ServerEnvironmentService {
     private readonly containers: ContainerService,
     private readonly javaMatrix: JavaMatrixService,
     private readonly query: ServerQueryService,
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-    @Inject(forwardRef(() => require('../map/map.service').MapService))
-    private readonly map: MapService,
+    @Inject(MAP_SERVICE_CONTRACT)
+    private readonly map: MapServiceContract,
   ) {}
 
   private get db() {

@@ -1,7 +1,9 @@
 <template>
-  <q-card class="col-12" style="max-width: 380px">
-    <q-card-section class="column items-center q-gutter-y-sm">
-      <img src="/icons/splash.png" alt="Craft on Whales" width="120" height="120" />
+  <q-card class="full-width" style="max-width: 380px">
+    <q-card-section class="column items-center q-gutter-y-sm q-pa-lg">
+      <q-avatar size="120px">
+        <img src="/icons/craft-on-whales.png" alt="Craft on Whales" style="object-fit: contain" />
+      </q-avatar>
       <div class="text-subtitle1">Craft on Whales</div>
     </q-card-section>
 

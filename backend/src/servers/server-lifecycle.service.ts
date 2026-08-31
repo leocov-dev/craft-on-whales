@@ -1,14 +1,15 @@
 import {
   ConflictException,
-  forwardRef,
   Inject,
   Injectable,
+  Logger,
+  OnModuleInit,
   PreconditionFailedException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, type SQL } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import {
   servers,
@@ -37,21 +38,22 @@ import { ContainerService } from '../docker/container.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ROUTER_NETWORK_NAME } from '../docker/docker-networks.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
+import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
-// `import type` (not a normal import) so this class doesn't join the
-// synchronous require() cycle ServersModule<->SchedulerModule creates at
-// the file level — a plain `import { SchedulerService }` here would drag
+// Injected via SCHEDULER_CONTRACT (below) instead of a direct SchedulerService
+// reference — a plain `import { SchedulerService }` here would drag
 // scheduler.service.ts's own require chain (StorageIndexService,
-// BackupsService, etc., several of which import ServerLifecycleService
-// back) into the middle of THIS file's still-unfinished module evaluation,
+// BackupsService, etc., several of which import ServerLifecycleService back)
+// into the middle of THIS file's still-unfinished module evaluation,
 // corrupting emitDecoratorMetadata for unrelated constructor params
-// elsewhere in the cycle. The runtime class reference for @Inject/forwardRef
-// below is obtained via a lazy require() instead, so nothing here is read
-// until Nest resolves it post-bootstrap, once every module has finished
-// loading.
-import type { SchedulerService } from '../scheduler/scheduler.service';
+// elsewhere in the cycle. The interface+token avoids needing a runtime
+// require() to sidestep that.
+import {
+  SCHEDULER_CONTRACT,
+  type SchedulerContract,
+} from './scheduler.contract';
 import type { Server, ServerExtraPort, ServerExtraBind } from './types';
 
 export interface CreateServerInput {
@@ -122,6 +124,45 @@ export interface UpdateServerResult {
   needsRecreate: boolean;
 }
 
+// Typed field descriptor for `updateServer`'s diff logic — pairs an
+// `UpdateServerChanges` key with the Drizzle column it maps to and a typed
+// accessor for reading the corresponding value off `Server`, which uses
+// snake_case field names, so this replaces a stringly-indexed
+// `Record<string, unknown>` cast with a compile-checked mapping.
+interface UpdateFieldSpec<K extends keyof UpdateServerChanges> {
+  key: K;
+  column: keyof typeof servers.$inferInsert;
+  before: (s: Server) => unknown;
+}
+
+function field<K extends keyof UpdateServerChanges>(
+  key: K,
+  column: keyof typeof servers.$inferInsert,
+  before: (s: Server) => unknown,
+): UpdateFieldSpec<K> {
+  return { key, column, before };
+}
+
+const CONFIG_FIELDS = [
+  field('name', 'displayName', (s) => s.display_name),
+  field('description', 'description', (s) => s.description),
+  field('icon', 'icon', (s) => s.icon),
+  field('accent', 'accent', (s) => s.accent),
+  field('notes', 'notes', (s) => s.notes),
+  field('mcVersion', 'mcVersion', (s) => s.mc_version),
+  field('javaTag', 'javaTag', (s) => s.java_tag),
+  field('heapMb', 'heapMb', (s) => s.heap_mb),
+  field('containerMemoryMb', 'containerMemoryMb', (s) => s.container_memory_mb),
+  field('cpus', 'cpus', (s) => s.cpus),
+  field('updatePolicy', 'updatePolicy', (s) => s.update_policy),
+] as const satisfies readonly UpdateFieldSpec<keyof UpdateServerChanges>[];
+
+const FLAG_FIELDS = [
+  field('autoStart', 'autoStart', (s) => s.auto_start),
+  field('autoRestart', 'autoRestart', (s) => s.auto_restart),
+  field('quotaStrict', 'quotaStrict', (s) => s.quota_strict),
+] as const satisfies readonly UpdateFieldSpec<keyof UpdateServerChanges>[];
+
 /**
  * Server lifecycle: create/start/stop/restart/kill/recreate/delete/update,
  * plus status refresh. The plan's "hub" service for container-lifecycle-facing
@@ -130,7 +171,9 @@ export interface UpdateServerResult {
  * lifecycle-adjacent, not env assembly or preview.
  */
 @Injectable()
-export class ServerLifecycleService {
+export class ServerLifecycleService implements OnModuleInit {
+  private readonly logger = new Logger(ServerLifecycleService.name);
+
   constructor(
     private readonly dbService: DbService,
     private readonly events: EventsService,
@@ -143,18 +186,22 @@ export class ServerLifecycleService {
     private readonly containers: ContainerService,
     private readonly images: DockerImagesService,
     private readonly logs: DockerLogsService,
+    private readonly dockerWatcher: DockerWatcherService,
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
-
-    @Inject(
-      forwardRef(
-        // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access
-        () => require('../scheduler/scheduler.service').SchedulerService,
-      ),
-    )
-    private readonly scheduler: SchedulerService,
+    @Inject(SCHEDULER_CONTRACT)
+    private readonly scheduler: SchedulerContract,
   ) {}
+
+  // Wires the crash-auto-restart path (DockerWatcherService.setAutoRestartHandler
+  // — see its class doc comment) through the guarded lifecycle instead of a
+  // new circular module dependency.
+  onModuleInit(): void {
+    this.dockerWatcher.setAutoRestartHandler((serverId) =>
+      this.startServer(serverId, { actor: 'system' }),
+    );
+  }
 
   private get db() {
     return this.dbService.db;
@@ -552,41 +599,27 @@ export class ServerLifecycleService {
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<UpdateServerResult> {
     const before = await this.query.mustGet(id);
-    const RECREATE_FIELDS = new Set([
+    const RECREATE_FIELDS = new Set<keyof UpdateServerChanges>([
       'mcVersion',
       'javaTag',
       'heapMb',
       'containerMemoryMb',
       'cpus',
     ]);
-    const columns: Record<string, keyof typeof servers.$inferInsert> = {
-      name: 'displayName',
-      description: 'description',
-      icon: 'icon',
-      accent: 'accent',
-      notes: 'notes',
-      mcVersion: 'mcVersion',
-      javaTag: 'javaTag',
-      heapMb: 'heapMb',
-      containerMemoryMb: 'containerMemoryMb',
-      cpus: 'cpus',
-      updatePolicy: 'updatePolicy',
-    };
     const diff: Record<string, unknown> = {};
     const set: Record<string, unknown> = {};
     let needsRecreate = false;
 
-    const changesRec = changes as Record<string, unknown>;
-    const beforeRec = before as unknown as Record<string, unknown>;
-    for (const [key, col] of Object.entries(columns)) {
-      if (changesRec[key] === undefined) continue;
-      const beforeVal = key === 'name' ? before.display_name : beforeRec[col];
+    for (const f of CONFIG_FIELDS) {
+      const newVal = changes[f.key];
+      if (newVal === undefined) continue;
+      const beforeVal = f.before(before);
       const strOf = (v: unknown): string =>
         typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
-      if (strOf(beforeVal) === strOf(changesRec[key])) continue;
-      diff[key] = [beforeVal, changesRec[key]];
-      set[col] = changesRec[key];
-      if (RECREATE_FIELDS.has(key)) needsRecreate = true;
+      if (strOf(beforeVal) === strOf(newVal)) continue;
+      diff[f.key] = [beforeVal, newVal];
+      set[f.column] = newVal;
+      if (RECREATE_FIELDS.has(f.key)) needsRecreate = true;
     }
     if (changes.tags) {
       diff.tags = [before.tags, changes.tags];
@@ -659,21 +692,13 @@ export class ServerLifecycleService {
       ];
       set.diskQuotaBytes = changes.diskQuotaGb * 1024 ** 3;
     }
-    for (const flag of ['autoStart', 'autoRestart', 'quotaStrict'] as const) {
-      if (changesRec[flag] === undefined) continue;
-      const col = {
-        autoStart: 'autoStart',
-        autoRestart: 'autoRestart',
-        quotaStrict: 'quotaStrict',
-      }[flag];
-      const beforeBool = {
-        autoStart: before.auto_start,
-        autoRestart: before.auto_restart,
-        quotaStrict: before.quota_strict,
-      }[flag];
-      if (Boolean(beforeBool) === Boolean(changesRec[flag])) continue;
-      diff[flag] = [Boolean(beforeBool), Boolean(changesRec[flag])];
-      set[col] = Boolean(changesRec[flag]);
+    for (const f of FLAG_FIELDS) {
+      const newVal = changes[f.key];
+      if (newVal === undefined) continue;
+      const beforeBool = Boolean(f.before(before));
+      if (beforeBool === Boolean(newVal)) continue;
+      diff[f.key] = [beforeBool, Boolean(newVal)];
+      set[f.column] = Boolean(newVal);
     }
 
     if (!Object.keys(set).length)
@@ -718,7 +743,9 @@ export class ServerLifecycleService {
       try {
         await this.scheduler.deleteSchedule(sched.id, { actor });
       } catch (err: unknown) {
-        console.error(`[delete] schedule ${sched.id}:`, (err as Error).message);
+        this.logger.error(
+          `delete schedule ${sched.id}: ${(err as Error).message}`,
+        );
       }
     }
     let freedBytes = 0;
@@ -772,51 +799,54 @@ export class ServerLifecycleService {
       .from(serverContent)
       .where(eq(serverContent.serverId, id));
     const contentIds = contentRows.map((r) => r.id);
+    // Single source of truth for the delete-cascade: every table + its
+    // where-clause, in FK-safe order. Previously this list was hand-copied
+    // into both branches below — a table added to one and missed in the
+    // other would silently leak rows under that driver.
+    const cascade: Array<[any, SQL]> = [
+      [
+        updateChecks,
+        sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
+      ],
+      ...contentIds.map((cid): [any, SQL] => [
+        updateChecks,
+        sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
+      ]),
+      [schedules, eq(schedules.serverId, id)],
+      [backups, eq(backups.serverId, id)],
+      [serverContent, eq(serverContent.serverId, id)],
+      [serverPacks, eq(serverPacks.serverId, id)],
+      [integrations, eq(integrations.serverId, id)],
+      [playerEvents, eq(playerEvents.serverId, id)],
+      [playerSessions, eq(playerSessions.serverId, id)],
+      [playerStatSnapshots, eq(playerStatSnapshots.serverId, id)],
+      [crashReports, eq(crashReports.serverId, id)],
+      [chatCommands, eq(chatCommands.serverId, id)],
+      [chatCommandSettings, eq(chatCommandSettings.serverId, id)],
+      [
+        storageIndex,
+        sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
+      ],
+    ];
+
     // Drizzle's SQLite (sync-driver) transaction() rejects async callbacks at
     // the type level (DrizzleTypeError: "Sync drivers can't use async
     // functions in transactions!") — an async callback isn't awaited before
     // the sync wrapper commits, so results would land outside the
     // transaction. Postgres's transaction() requires the opposite: an async
     // callback with awaited statements. Branch on the real driver so each
-    // dialect gets the form Drizzle actually supports.
+    // dialect gets the form Drizzle actually supports; only the statement
+    // wrapper shape and the dialect-specific "now" expression differ — the
+    // table/where-clause list above is shared.
     if (this.dbService.driver === 'postgres') {
       await (
         this.db.transaction as unknown as (
           cb: (tx: typeof this.db) => Promise<void>,
         ) => Promise<void>
       )(async (tx) => {
-        await tx
-          .delete(updateChecks)
-          .where(
-            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
-          );
-        for (const cid of contentIds) {
-          await tx
-            .delete(updateChecks)
-            .where(
-              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
-            );
+        for (const [table, where] of cascade) {
+          await tx.delete(table).where(where);
         }
-        await tx.delete(schedules).where(eq(schedules.serverId, id));
-        await tx.delete(backups).where(eq(backups.serverId, id));
-        await tx.delete(serverContent).where(eq(serverContent.serverId, id));
-        await tx.delete(serverPacks).where(eq(serverPacks.serverId, id));
-        await tx.delete(integrations).where(eq(integrations.serverId, id));
-        await tx.delete(playerEvents).where(eq(playerEvents.serverId, id));
-        await tx.delete(playerSessions).where(eq(playerSessions.serverId, id));
-        await tx
-          .delete(playerStatSnapshots)
-          .where(eq(playerStatSnapshots.serverId, id));
-        await tx.delete(crashReports).where(eq(crashReports.serverId, id));
-        await tx.delete(chatCommands).where(eq(chatCommands.serverId, id));
-        await tx
-          .delete(chatCommandSettings)
-          .where(eq(chatCommandSettings.serverId, id));
-        await tx
-          .delete(storageIndex)
-          .where(
-            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
-          );
         await tx
           .update(servers)
           .set({ deletedAt: sql`now()::text`, status: 'stopped' })
@@ -824,39 +854,9 @@ export class ServerLifecycleService {
       });
     } else {
       this.db.transaction((tx) => {
-        tx.delete(updateChecks)
-          .where(
-            sql`${updateChecks.subjectType} = 'pack' AND ${updateChecks.subjectId} = ${id}`,
-          )
-          .run();
-        for (const cid of contentIds) {
-          tx.delete(updateChecks)
-            .where(
-              sql`${updateChecks.subjectType} = 'content' AND ${updateChecks.subjectId} = ${cid}`,
-            )
-            .run();
+        for (const [table, where] of cascade) {
+          (tx.delete(table).where(where) as { run(): void }).run();
         }
-        tx.delete(schedules).where(eq(schedules.serverId, id)).run();
-        tx.delete(backups).where(eq(backups.serverId, id)).run();
-        tx.delete(serverContent).where(eq(serverContent.serverId, id)).run();
-        tx.delete(serverPacks).where(eq(serverPacks.serverId, id)).run();
-        tx.delete(integrations).where(eq(integrations.serverId, id)).run();
-        tx.delete(playerEvents).where(eq(playerEvents.serverId, id)).run();
-        tx.delete(playerSessions).where(eq(playerSessions.serverId, id)).run();
-        tx.delete(playerStatSnapshots)
-          .where(eq(playerStatSnapshots.serverId, id))
-          .run();
-        tx.delete(crashReports).where(eq(crashReports.serverId, id)).run();
-        // Added: these were previously leaked on delete (no FK cascade).
-        tx.delete(chatCommands).where(eq(chatCommands.serverId, id)).run();
-        tx.delete(chatCommandSettings)
-          .where(eq(chatCommandSettings.serverId, id))
-          .run();
-        tx.delete(storageIndex)
-          .where(
-            sql`${storageIndex.relPath} = ${`servers/${id}`} OR ${storageIndex.relPath} LIKE ${`servers/${id}/%`}`,
-          )
-          .run();
         // Keep the soft-deleted server row itself (history retains context).
         tx.update(servers)
           .set({ deletedAt: sql`(datetime('now'))`, status: 'stopped' })

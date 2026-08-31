@@ -145,7 +145,10 @@ export class MapProxyController {
     } = req.headers;
     /* eslint-enable @typescript-eslint/no-unused-vars */
 
-    const upstreamPath = req.url.replace(new RegExp(`^/map/${id}`), '') || '/';
+    const prefix = `/map/${id}`;
+    const upstreamPath =
+      (req.url.startsWith(prefix) ? req.url.slice(prefix.length) : req.url) ||
+      '/';
     const upstream = http.request(
       {
         host: target.host,

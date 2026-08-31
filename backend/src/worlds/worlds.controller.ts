@@ -16,7 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
+import { parseBody } from '../utils/parse-body';
 import { eq, and } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { EventsService } from '../events/events.service';
@@ -25,22 +26,11 @@ import { libraryFiles } from '../db/schema';
 import { WorldOperationsService } from './world-operations.service';
 import { WorldLibraryService } from './world-library.service';
 import type { SimpleWorld } from '../../../shared/types/worlds';
+import { currentUser } from '../auth/current-user';
 
 function actorOf(req: Request): string {
-  return req.user!.username;
+  return currentUser(req).username;
 }
-function parseBody<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  try {
-    return schema.parse(body);
-  } catch (err) {
-    if (err instanceof ZodError)
-      throw new BadRequestException(
-        err.issues[0]?.message || 'Invalid request',
-      );
-    throw err;
-  }
-}
-
 const worldNameSchema = z
   .string()
   .trim()

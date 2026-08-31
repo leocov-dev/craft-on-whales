@@ -19,6 +19,8 @@ import { AuthModule } from '../auth/auth.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { ServerViewModelService } from './server-view-model.service';
 import { ServersController } from './servers.controller';
+import { DockerAdminController } from './docker-admin.controller';
+import { IconsController } from './icons.controller';
 import { EventsController } from './events.controller';
 import { SettingsController } from './settings.controller';
 import { ApiKeysController } from './api-keys.controller';
@@ -70,6 +72,8 @@ import { PacksController } from './packs.controller';
   ],
   controllers: [
     ServersController,
+    DockerAdminController,
+    IconsController,
     EventsController,
     SettingsController,
     ApiKeysController,

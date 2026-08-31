@@ -38,7 +38,10 @@ services:
       # SESSION_SECRET: change-me-to-a-long-random-string
       #
       # Optional: use Postgres instead of the default SQLite file (uncomment
-      # both this and the `db` service below, and add `depends_on: [db]`).
+      # both this and the `db` service below, and add:
+      #   depends_on:
+      #     db:
+      #       condition: service_healthy
       # Moving an EXISTING SQLite install over needs a one-time data copy —
       # see tools/sqlite-to-postgres/README.md.
       # DB_DRIVER: postgres
@@ -47,15 +50,3 @@ services:
       - ./data:/data
       # The panel manages servers through the host daemon (create/start/exec).
       - /var/run/docker.sock:/var/run/docker.sock
-
-  # Uncomment to run Postgres instead of the default SQLite file (see the
-  # panel service's DB_DRIVER/DATABASE_URL above).
-  # db:
-  #   image: postgres:16-alpine
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_USER: panel
-  #     POSTGRES_PASSWORD: panel
-  #     POSTGRES_DB: panel
-  #   volumes:
-  #     - ./pgdata:/var/lib/postgresql/data

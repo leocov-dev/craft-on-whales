@@ -5,6 +5,7 @@ import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { SettingsModule } from '../settings/settings.module';
 import { SchedulerModule } from '../scheduler/scheduler.module';
 import { MapModule } from '../map/map.module';
+import { MapService } from '../map/map.service';
 import { JavaMatrixService } from './java-matrix.service';
 import { PortsService } from './ports.service';
 import { DockerSpecService } from './docker-spec.service';
@@ -13,6 +14,9 @@ import { ServerEnvironmentService } from './server-environment.service';
 import { ServerPreviewService } from './server-preview.service';
 import { ServerLocksService } from './server-locks.service';
 import { ServerLifecycleService } from './server-lifecycle.service';
+import { MAP_SERVICE_CONTRACT } from './map-service.contract';
+import { SCHEDULER_CONTRACT } from './scheduler.contract';
+import { SchedulerService } from '../scheduler/scheduler.service';
 
 @Module({
   imports: [
@@ -32,6 +36,8 @@ import { ServerLifecycleService } from './server-lifecycle.service';
     ServerPreviewService,
     ServerLocksService,
     ServerLifecycleService,
+    { provide: MAP_SERVICE_CONTRACT, useExisting: MapService },
+    { provide: SCHEDULER_CONTRACT, useExisting: SchedulerService },
   ],
   exports: [
     JavaMatrixService,
