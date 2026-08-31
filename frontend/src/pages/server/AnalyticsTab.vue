@@ -15,13 +15,15 @@
             <q-item-section>{{
               e.message ?? `${e.player ?? ''} ${e.target ?? ''}`.trim()
             }}</q-item-section>
-            <q-item-section side class="text-caption text-ink-faint">{{
-              new Date(e.ts).toLocaleString()
-            }}</q-item-section>
+            <q-item-section side
+              ><q-item-label caption>{{
+                new Date(e.ts).toLocaleString()
+              }}</q-item-label></q-item-section
+            >
           </q-item>
           <q-item v-if="events.length === 0">
-            <q-item-section class="text-center text-ink-faint"
-              >No activity recorded yet.</q-item-section
+            <q-item-section class="text-center"
+              ><q-item-label caption>No activity recorded yet.</q-item-label></q-item-section
             >
           </q-item>
         </q-list>
@@ -35,7 +37,7 @@
         <q-select
           v-model="metric"
           dense
-          outlined
+          filled
           :options="metricOptions"
           emit-value
           map-options
@@ -55,7 +57,9 @@
             }}</q-item-section>
           </q-item>
           <q-item v-if="rows.length === 0">
-            <q-item-section class="text-center text-ink-faint">No data yet.</q-item-section>
+            <q-item-section class="text-center"
+              ><q-item-label caption>No data yet.</q-item-label></q-item-section
+            >
           </q-item>
         </q-list>
       </q-card>

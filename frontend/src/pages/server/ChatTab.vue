@@ -3,13 +3,13 @@
     <div class="col-12 col-md-7">
       <q-card flat bordered class="q-pa-md">
         <div class="text-subtitle1 q-mb-sm">Send</div>
-        <q-input v-model="text" label="Message" outlined dense type="textarea" autogrow />
+        <q-input v-model="text" label="Message" filled dense type="textarea" autogrow />
         <div class="row q-col-gutter-sm q-mt-sm">
           <div class="col-6">
-            <q-select v-model="mode" :options="['tellraw', 'say']" outlined dense label="Mode" />
+            <q-select v-model="mode" :options="['tellraw', 'say']" filled dense label="Mode" />
           </div>
           <div class="col-6">
-            <q-input v-model="target" label="Target" outlined dense placeholder="@a" />
+            <q-input v-model="target" label="Target" filled dense placeholder="@a" />
           </div>
         </div>
         <q-btn color="primary" label="Send" class="q-mt-sm" :loading="sending" @click="send" />
@@ -30,8 +30,8 @@
             </q-item-section>
           </q-item>
           <q-item v-if="history.length === 0">
-            <q-item-section class="text-center text-ink-faint"
-              >No messages sent yet.</q-item-section
+            <q-item-section class="text-center"
+              ><q-item-label caption>No messages sent yet.</q-item-label></q-item-section
             >
           </q-item>
         </q-list>

@@ -12,7 +12,7 @@
         {{ error }}
       </q-banner>
 
-      <q-form class="q-gutter-md" @submit="onSubmit">
+      <q-form class="q-gutter-y-md" @submit="onSubmit">
         <q-input
           v-model="username"
           label="Username"

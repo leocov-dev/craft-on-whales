@@ -10,21 +10,26 @@
       />
     </div>
 
-    <div v-if="backups.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="backups.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No backups yet.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
         <q-item v-for="b in backups" :key="b.id">
           <q-item-section class="font-mono">{{ b.file }}</q-item-section>
           <q-item-section side class="text-caption">{{ b.reason }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            formatBytes(b.size)
-          }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            new Date(b.ts).toLocaleString()
-          }}</q-item-section>
+          <q-item-section side
+            ><q-item-label caption>{{ formatBytes(b.size) }}</q-item-label></q-item-section
+          >
+          <q-item-section side
+            ><q-item-label caption>{{
+              new Date(b.ts).toLocaleString()
+            }}</q-item-label></q-item-section
+          >
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn dense outline label="Restore" :loading="busyId === b.id" @click="restore(b)" />

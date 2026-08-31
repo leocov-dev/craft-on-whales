@@ -1,8 +1,11 @@
 <template>
   <div>
-    <div v-if="worlds.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="worlds.length === 0" rounded>
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No worlds found.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
@@ -19,9 +22,9 @@
               >{{ w.dims.join(', ') || '—' }} · seed {{ w.seed ?? '—' }}</q-item-label
             >
           </q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            formatBytes(w.sizeBytes)
-          }}</q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ formatBytes(w.sizeBytes) }}</q-item-label>
+          </q-item-section>
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn v-if="!w.active" dense outline label="Activate" @click="activate(w)" />

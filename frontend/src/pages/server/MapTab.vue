@@ -2,13 +2,21 @@
   <div v-if="!config">
     <q-spinner color="primary" />
   </div>
-  <div v-else-if="!config.supported" class="text-center text-ink-faint q-pa-xl">
+  <q-banner v-else-if="!config.supported" rounded>
+    <template #avatar>
+      <q-icon name="info" color="primary" />
+    </template>
     BlueMap isn't supported for this server type.
-  </div>
-  <div v-else-if="!config.enabled" class="text-center q-pa-xl">
-    <p class="text-ink-faint">The live map isn't enabled for this server yet.</p>
-    <q-btn color="primary" label="Enable map" :loading="busy" @click="enable" />
-  </div>
+  </q-banner>
+  <q-banner v-else-if="!config.enabled" rounded>
+    <template #avatar>
+      <q-icon name="info" color="primary" />
+    </template>
+    The live map isn't enabled for this server yet.
+    <template #action>
+      <q-btn flat color="primary" label="Enable map" :loading="busy" @click="enable" />
+    </template>
+  </q-banner>
   <div v-else>
     <div class="row items-center q-mb-sm">
       <q-btn flat dense label="Disable" color="negative" :loading="busy" @click="disable" />

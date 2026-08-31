@@ -1,10 +1,12 @@
 <template>
-  <q-card class="col-12" style="max-width: 480px">
+  <q-card class="col-12" style="max-width: 720px">
     <q-stepper v-model="step" flat animated color="primary">
       <q-step :name="1" title="Welcome" icon="waving_hand">
-        <div class="text-body2 text-center q-mb-md">
-          Your control panel for Minecraft servers on Docker — create, configure, back up, and
-          manage modpacks, worlds, players, and more. Let's get a few things set up.
+        <div class="text-center q-mb-md">
+          <div class="text-h6">Welcome to Craft on Whales</div>
+          <q-item-label caption class="q-mt-sm">
+            Guided setup: we'll check your system and create your admin account.
+          </q-item-label>
         </div>
         <q-btn
           color="primary"
@@ -16,26 +18,40 @@
       </q-step>
 
       <q-step :name="2" title="System check" icon="fact_check">
-        <div v-if="checksLoading" class="row items-center q-gutter-sm text-ink-faint">
+        <div v-if="checksLoading" class="row items-center q-gutter-sm">
           <q-spinner color="primary" size="20px" />
-          <span>Running checks…</span>
+          <q-item-label caption>Running checks…</q-item-label>
         </div>
-        <q-list v-else-if="checks" separator>
-          <q-item v-for="row in checkRows" :key="row.label">
-            <q-item-section avatar>
-              <q-icon :name="levelIcon(row.level)" :color="levelColor(row.level)" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>{{ row.label }}</q-item-label>
-              <q-item-label caption>{{ row.detail }}</q-item-label>
-            </q-item-section>
-          </q-item>
-        </q-list>
+        <template v-else-if="checks">
+          <q-banner :class="`bg-${overallColor} text-white q-mb-md`" rounded dense>
+            <template #avatar>
+              <q-icon :name="overallIcon" />
+            </template>
+            {{ overallText }}
+          </q-banner>
+          <q-list separator>
+            <q-item v-for="row in checkRows" :key="row.label">
+              <q-item-section avatar>
+                <q-icon :name="levelIcon(row.level)" :color="levelColor(row.level)" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ row.label }}</q-item-label>
+                <q-item-label caption>{{ row.detail }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </template>
         <div class="row q-gutter-sm q-mt-md">
           <q-btn flat label="Back" icon="arrow_back" @click="step = 1" />
           <q-btn flat label="Re-check" icon="refresh" @click="loadChecks" />
           <q-space />
-          <q-btn color="primary" label="Continue" icon-right="arrow_forward" @click="step = 3" />
+          <q-btn
+            color="primary"
+            label="Continue"
+            icon-right="arrow_forward"
+            :disable="overallLevel === 'fail'"
+            @click="step = 3"
+          />
         </div>
       </q-step>
 
@@ -76,9 +92,9 @@
         <div class="column items-center text-center q-gutter-sm">
           <q-icon name="celebration" color="positive" size="48px" />
           <div class="text-subtitle1">You're all set!</div>
-          <div class="text-body2 text-ink-faint">
+          <q-item-label caption>
             Craft on Whales is ready. Spin up your first Minecraft server whenever you like.
-          </div>
+          </q-item-label>
         </div>
         <div class="column q-gutter-sm q-mt-md">
           <q-btn color="primary" label="Create your first server" icon="add" to="/servers/new" />
@@ -144,6 +160,31 @@ const checkRows = computed(() => {
     },
   ];
 });
+
+const overallLevel = computed<SetupCheckLevel>(() => {
+  const levels = checkRows.value.map((row) => row.level);
+  if (levels.includes('fail')) return 'fail';
+  if (levels.includes('warn')) return 'warn';
+  return 'pass';
+});
+
+const overallIcon = computed(() =>
+  overallLevel.value === 'pass'
+    ? 'check_circle'
+    : overallLevel.value === 'warn'
+      ? 'warning'
+      : 'block',
+);
+const overallColor = computed(() =>
+  overallLevel.value === 'pass' ? 'positive' : overallLevel.value === 'warn' ? 'warning' : 'negative',
+);
+const overallText = computed(() =>
+  overallLevel.value === 'pass'
+    ? "You're good to go."
+    : overallLevel.value === 'warn'
+      ? 'You can continue, but review the warnings below.'
+      : "Can't continue until this is fixed.",
+);
 
 function levelIcon(level: SetupCheckLevel) {
   return level === 'pass' ? 'check_circle' : level === 'warn' ? 'warning' : 'error';

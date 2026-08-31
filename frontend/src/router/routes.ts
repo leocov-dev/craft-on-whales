@@ -7,6 +7,7 @@ import type { RouteRecordRaw } from 'vue-router';
 declare module 'vue-router' {
   interface RouteMeta {
     public?: boolean;
+    adminOnly?: boolean;
   }
 }
 
@@ -55,6 +56,11 @@ const routes: RouteRecordRaw[] = [
       { path: 'mc-router', component: () => import('@/pages/McRouterPage.vue') },
       { path: 'storage', component: () => import('@/pages/StoragePage.vue') },
       { path: 'settings', component: () => import('@/pages/SettingsPage.vue') },
+      {
+        path: 'users',
+        component: () => import('@/pages/UsersPage.vue'),
+        meta: { adminOnly: true },
+      },
       { path: 'blueprints', component: () => import('@/pages/BlueprintsPage.vue') },
       { path: 'modpacks', component: () => import('@/pages/ModpacksPage.vue') },
       { path: 'worlds', component: () => import('@/pages/WorldsPage.vue') },

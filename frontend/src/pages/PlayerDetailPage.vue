@@ -8,9 +8,9 @@
         <q-icon name="person" size="32px" />
         <div>
           <div class="text-h6">{{ player.name }}</div>
-          <div class="text-caption" :class="player.online ? 'text-positive' : 'text-ink-faint'">
+          <q-item-label caption :style="player.online ? { color: 'var(--q-positive)' } : undefined">
             {{ player.online ? 'Online' : 'Offline' }}
-          </div>
+          </q-item-label>
         </div>
         <q-badge v-if="player.op" color="warning" label="op" />
         <q-badge v-if="player.banned" color="negative" label="banned" />
@@ -53,11 +53,11 @@
             <div class="text-subtitle1 q-mb-sm">Details</div>
             <div class="row q-col-gutter-md text-body2">
               <div class="col-6">
-                <div class="text-caption text-ink-faint">UUID</div>
+                <q-item-label caption>UUID</q-item-label>
                 <div class="font-mono" style="font-size: 11px">{{ player.uuid ?? '—' }}</div>
               </div>
               <div class="col-6">
-                <div class="text-caption text-ink-faint">Last seen</div>
+                <q-item-label caption>Last seen</q-item-label>
                 <div>{{ player.lastSeen ?? '—' }}</div>
               </div>
             </div>

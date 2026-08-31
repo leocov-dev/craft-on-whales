@@ -1,19 +1,22 @@
 <template>
   <div>
     <div class="row items-center q-mb-md">
-      <div class="text-caption text-ink-faint">
+      <q-item-label caption>
         Prefix: <span class="font-mono">{{ prefix }}</span> · {{ stats.enabled }}/{{
           stats.total
         }}
         enabled · {{ stats.uses }} total uses
-      </div>
+      </q-item-label>
       <q-space />
       <q-btn color="primary" icon="add" label="New command" @click="openCreate" />
     </div>
 
-    <div v-if="commands.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="commands.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No custom commands yet.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
@@ -43,19 +46,19 @@
           editing ? 'Edit command' : 'New command'
         }}</q-card-section>
         <q-card-section class="q-gutter-md">
-          <q-input v-model="form.trigger" label="Trigger (no prefix)" outlined dense />
-          <q-input v-model="form.description" label="Description" outlined dense />
+          <q-input v-model="form.trigger" label="Trigger (no prefix)" filled dense />
+          <q-input v-model="form.description" label="Description" filled dense />
           <q-select
             v-model="form.action"
             :options="['rtp', 'structure', 'biome', 'console']"
-            outlined
+            filled
             dense
             label="Action"
           />
           <q-select
             v-model="form.permission"
             :options="['everyone', 'whitelist', 'ops']"
-            outlined
+            filled
             dense
             label="Permission"
           />
@@ -63,7 +66,7 @@
             v-model.number="form.cooldownSec"
             type="number"
             label="Cooldown (seconds)"
-            outlined
+            filled
             dense
           />
         </q-card-section>

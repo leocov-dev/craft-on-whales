@@ -13,15 +13,20 @@
           <q-item-section>{{ p.name ?? p.uuid }}</q-item-section>
         </q-item>
         <q-item v-if="players.length === 0">
-          <q-item-section class="text-center text-ink-faint">No player data yet.</q-item-section>
+          <q-item-section class="text-center"
+            ><q-item-label caption>No player data yet.</q-item-label></q-item-section
+          >
         </q-item>
       </q-list>
     </div>
 
     <div class="col-12 col-md-8">
-      <div v-if="!detail" class="text-center text-ink-faint q-pa-xl">
+      <q-banner v-if="!detail" rounded class="q-mb-lg">
+        <template #avatar>
+          <q-icon name="info" color="primary" />
+        </template>
         Select a player to view their inventory.
-      </div>
+      </q-banner>
       <div v-else class="q-gutter-md">
         <q-card flat bordered class="q-pa-md">
           <div class="row items-center q-gutter-x-sm">
@@ -32,14 +37,14 @@
               <q-input
                 v-model="giveItem"
                 dense
-                outlined
+                filled
                 placeholder="minecraft:diamond"
                 style="width: 220px"
               />
               <q-input
                 v-model.number="giveCount"
                 dense
-                outlined
+                filled
                 type="number"
                 style="width: 90px"
               />
@@ -47,10 +52,10 @@
               <q-btn dense outline color="negative" label="Clear all" @click="clearPlayer" />
             </div>
           </div>
-          <div class="row q-col-gutter-md q-mt-sm text-caption text-ink-faint">
-            <div>Health: {{ detail.health ?? '—' }}</div>
-            <div>XP level: {{ detail.xpLevel ?? '—' }}</div>
-            <div>Dimension: {{ detail.pos?.dimension ?? '—' }}</div>
+          <div class="row q-col-gutter-md q-mt-sm">
+            <q-item-label caption>Health: {{ detail.health ?? '—' }}</q-item-label>
+            <q-item-label caption>XP level: {{ detail.xpLevel ?? '—' }}</q-item-label>
+            <q-item-label caption>Dimension: {{ detail.pos?.dimension ?? '—' }}</q-item-label>
           </div>
         </q-card>
 
@@ -73,9 +78,7 @@
             <q-chip v-for="(it, i) in detail.inventory" :key="i" outline dense>
               {{ it.count }}× {{ it.displayName ?? it.id }}
             </q-chip>
-            <div v-if="detail.inventory.length === 0" class="text-ink-faint text-caption">
-              Empty.
-            </div>
+            <q-item-label v-if="detail.inventory.length === 0" caption>Empty.</q-item-label>
           </div>
         </q-card>
 
@@ -87,9 +90,7 @@
             <q-chip v-for="(it, i) in detail.enderChest" :key="i" outline dense>
               {{ it.count }}× {{ it.displayName ?? it.id }}
             </q-chip>
-            <div v-if="detail.enderChest.length === 0" class="text-ink-faint text-caption">
-              Empty.
-            </div>
+            <q-item-label v-if="detail.enderChest.length === 0" caption>Empty.</q-item-label>
           </div>
         </q-card>
       </div>

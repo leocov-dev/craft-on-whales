@@ -60,16 +60,16 @@
   --color-grass-800: #22521c;
   --color-grass-900: #1e461b;
 
-  --color-diamond-50: #ecfdfb;
-  --color-diamond-100: #d0f7f4;
-  --color-diamond-200: #a6efeb;
-  --color-diamond-300: #6ce0dd;
-  --color-diamond-400: #3cc5c7;
-  --color-diamond-500: #21a7ab;
-  --color-diamond-600: #1b8589;
-  --color-diamond-700: #1a6a6e;
-  --color-diamond-800: #1a5558;
-  --color-diamond-900: #1a474a;
+  --color-ocean-50: #ecf4fd;
+  --color-ocean-100: #d0e2f7;
+  --color-ocean-200: #a6c8ef;
+  --color-ocean-300: #6ca2e0;
+  --color-ocean-400: #3c7dc7;
+  --color-ocean-500: #2161ab;
+  --color-ocean-600: #1b4e89;
+  --color-ocean-700: #1a416e;
+  --color-ocean-800: #1a3758;
+  --color-ocean-900: #1a304a;
 
   --color-redstone-50: #fef2f2;
   --color-redstone-100: #fee2e2;
@@ -128,7 +128,7 @@
   --color-ink-soft: var(--color-stone-300);
   --color-ink-faint: var(--color-stone-400);
 
-  --color-link: var(--color-diamond-400);
+  --color-link: var(--color-ocean-300);
   --color-ok: var(--color-grass-400);
   --color-warn: var(--color-gold-400);
   --color-danger: var(--color-redstone-400);
@@ -145,7 +145,7 @@
   --color-ink-soft: var(--color-stone-700);
   --color-ink-faint: var(--color-stone-600);
 
-  --color-link: var(--color-diamond-700);
+  --color-link: var(--color-ocean-600);
   --color-ok: var(--color-grass-700);
   --color-warn: var(--color-gold-700);
   --color-danger: var(--color-redstone-700);
@@ -155,4 +155,15 @@ body {
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-sans);
+}
+
+// Quasar has no equivalent for native browser form-control chrome (the
+// number-input spin arrows), so this is a deliberate exception to leaning on
+// Quasar's own theming rather than custom CSS — nothing Quasar-side can
+// substitute for the standard color-scheme property here.
+html[data-theme='dark'] input[type='number'] {
+  color-scheme: dark;
+}
+html[data-theme='light'] input[type='number'] {
+  color-scheme: light;
 }

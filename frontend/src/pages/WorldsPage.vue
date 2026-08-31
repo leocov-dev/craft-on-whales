@@ -1,21 +1,24 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="text-h6">Worlds</div>
-      <q-space />
-      <q-btn color="primary" icon="upload" label="Upload world" @click="pickFile" />
-      <input
-        ref="fileInput"
-        type="file"
-        accept=".zip"
-        class="hidden-input"
-        @change="onFileChosen"
-      />
-    </div>
+    <PageHeader title="Worlds" icon="public">
+      <template #action>
+        <q-btn color="primary" icon="upload" label="Upload world" @click="pickFile" />
+      </template>
+    </PageHeader>
+    <input
+      ref="fileInput"
+      type="file"
+      accept=".zip"
+      class="hidden-input"
+      @change="onFileChosen"
+    />
 
-    <div v-if="worlds.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="worlds.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No worlds in the library yet. Upload a .zip, or extract one from a server's World tab.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
@@ -29,10 +32,12 @@
               >{{ w.source }} · {{ w.flavor ?? '—' }} · {{ w.mcVersion ?? '—' }}</q-item-label
             >
           </q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            formatBytes(w.size)
-          }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{ w.created }}</q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ formatBytes(w.size) }}</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ w.created }}</q-item-label>
+          </q-item-section>
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn dense outline label="Install…" @click="openInstall(w)" />
@@ -56,7 +61,7 @@
             option-value="value"
             emit-value
             map-options
-            outlined
+            filled
             dense
             label="Target server"
           />
@@ -91,6 +96,7 @@ import { useQuasar } from 'quasar';
 import { worldsApi, type LibraryWorld } from '@/api/worlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const servers = useServersStore();

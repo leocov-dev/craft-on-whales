@@ -55,6 +55,10 @@ export default defineRouter((/* { store, ssrContext } */) => {
     if (!isPublic && !auth.isAuthenticated) {
       return { path: '/login', query: to.fullPath !== '/' ? { next: to.fullPath } : {} };
     }
+    const isAdminOnly = to.matched.some((record) => record.meta.adminOnly);
+    if (isAdminOnly && !auth.isAdmin) {
+      return { path: '/' };
+    }
     if (isPublic && auth.isAuthenticated && (to.path === '/login' || to.path === '/setup')) {
       return { path: '/' };
     }

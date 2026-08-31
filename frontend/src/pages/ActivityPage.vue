@@ -1,13 +1,13 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="text-h6 q-mb-md">Activity</div>
+    <PageHeader title="Activity" icon="history" />
 
     <div class="row q-col-gutter-sm items-center q-mb-md">
       <div class="col-12 col-sm-4">
         <q-input
           v-model="q"
           dense
-          outlined
+          filled
           placeholder="Search events…"
           clearable
           @keyup.enter="applyFilters"
@@ -18,7 +18,7 @@
         <q-select
           v-model="server"
           dense
-          outlined
+          filled
           emit-value
           map-options
           clearable
@@ -31,7 +31,7 @@
         <q-select
           v-model="type"
           dense
-          outlined
+          filled
           emit-value
           map-options
           clearable
@@ -77,10 +77,12 @@
             >
               {{ event.server }}
             </router-link>
-            <span v-else class="text-caption text-ink-faint">{{ event.server }}</span>
+            <q-item-label v-else caption>{{ event.server }}</q-item-label>
           </q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">
-            {{ event.actor }} · {{ new Date(event.ts).toLocaleString() }}
+          <q-item-section side>
+            <q-item-label caption>
+              {{ event.actor }} · {{ new Date(event.ts).toLocaleString() }}
+            </q-item-label>
           </q-item-section>
           <q-item-section v-if="event.hasLog" side>
             <q-btn flat dense round icon="description" @click="viewExcerpt(event.id)">
@@ -89,17 +91,14 @@
           </q-item-section>
         </q-item>
         <q-item v-if="!loading && events.length === 0">
-          <q-item-section class="text-center text-ink-faint"
-            >No events match these filters.</q-item-section
-          >
+          <q-item-section class="text-center">
+            <q-item-label caption>No events match these filters.</q-item-label>
+          </q-item-section>
         </q-item>
       </q-list>
 
-      <div
-        v-if="total > 0"
-        class="row items-center justify-between q-pa-sm text-caption text-ink-faint"
-      >
-        <span>Showing {{ from }}–{{ to }} of {{ total }} events</span>
+      <div v-if="total > 0" class="row items-center justify-between q-pa-sm">
+        <q-item-label caption>Showing {{ from }}–{{ to }} of {{ total }} events</q-item-label>
         <div class="row items-center q-gutter-x-sm">
           <q-btn
             flat
@@ -109,7 +108,7 @@
             :disable="page <= 1"
             @click="goToPage(page - 1)"
           />
-          <span>Page {{ page }} of {{ pages }}</span>
+          <q-item-label caption>Page {{ page }} of {{ pages }}</q-item-label>
           <q-btn
             flat
             dense
@@ -123,7 +122,7 @@
     </q-card>
 
     <q-dialog v-model="excerptOpen">
-      <q-card style="min-width: 500px; max-width: 90vw">
+      <q-card bordered class="shadow-12" style="min-width: 500px; max-width: 90vw">
         <q-card-section class="row items-center">
           <div class="text-subtitle1">Captured log excerpt</div>
           <q-space />
@@ -142,6 +141,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { eventsApi, type EventViewModel, type EventsFilters } from '@/api/events';
 import { useServersStore } from '@/stores/servers';
+import PageHeader from '@/components/PageHeader.vue';
 
 const servers = useServersStore();
 

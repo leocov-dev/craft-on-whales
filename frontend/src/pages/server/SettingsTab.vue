@@ -3,29 +3,29 @@
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md q-gutter-md">
         <div class="text-subtitle1">Identity</div>
-        <q-input v-model="form.name" label="Name" outlined dense />
+        <q-input v-model="form.name" label="Name" filled dense />
         <q-input
           v-model="form.description"
           label="Description"
-          outlined
+          filled
           dense
           type="textarea"
           autogrow
         />
-        <q-input v-model="tagsText" label="Tags (comma separated)" outlined dense />
-        <q-input v-model="form.notes" label="Notes" outlined dense type="textarea" autogrow />
+        <q-input v-model="tagsText" label="Tags (comma separated)" filled dense />
+        <q-input v-model="form.notes" label="Notes" filled dense type="textarea" autogrow />
       </q-card>
     </div>
 
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md q-gutter-md">
         <div class="text-subtitle1">Resources</div>
-        <q-input v-model.number="form.heapMb" type="number" label="Java heap (MB)" outlined dense />
+        <q-input v-model.number="form.heapMb" type="number" label="Java heap (MB)" filled dense />
         <q-input
           v-model.number="form.containerMemoryMb"
           type="number"
           label="Container memory limit (MB)"
-          outlined
+          filled
           dense
         />
         <q-input
@@ -33,14 +33,14 @@
           type="number"
           step="0.5"
           label="CPU limit (0 = unlimited)"
-          outlined
+          filled
           dense
         />
         <q-input
           v-model.number="form.diskQuotaGb"
           type="number"
           label="Disk quota (GB)"
-          outlined
+          filled
           dense
         />
       </q-card>
@@ -52,7 +52,7 @@
         <q-select
           v-model="form.updatePolicy"
           :options="['manual', 'notify', 'auto']"
-          outlined
+          filled
           dense
           label="Modpack update policy"
         />

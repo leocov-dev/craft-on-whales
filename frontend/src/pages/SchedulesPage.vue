@@ -1,10 +1,10 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="text-h6">Schedules</div>
-      <q-space />
-      <q-btn color="primary" icon="add" label="New task" @click="openCreate" />
-    </div>
+    <PageHeader title="Schedules" icon="schedule">
+      <template #action>
+        <q-btn color="primary" icon="add" label="New task" @click="openCreate" />
+      </template>
+    </PageHeader>
 
     <q-card v-if="schedules.length" flat bordered>
       <q-table
@@ -29,9 +29,12 @@
       </q-table>
     </q-card>
 
-    <div v-else class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-else rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No scheduled tasks yet. Automate restarts, backups, and console commands on a cron schedule.
-    </div>
+    </q-banner>
 
     <q-dialog v-model="dialogOpen">
       <q-card style="min-width: 420px">
@@ -49,7 +52,7 @@
             emit-value
             map-options
             label="Task"
-            outlined
+            filled
             dense
           />
           <q-select
@@ -61,24 +64,24 @@
             emit-value
             map-options
             label="Server"
-            outlined
+            filled
             dense
           />
           <q-input
             v-if="form.taskType === 'rcon'"
             v-model="form.command"
             label="RCON command"
-            outlined
+            filled
             dense
           />
           <q-input
             v-model="form.cron"
             label="Cron expression"
-            outlined
+            filled
             dense
             hint="e.g. 0 4 * * * (daily at 4am)"
           />
-          <div class="text-caption text-ink-faint">
+          <q-item-label caption>
             <span v-if="previewLoading">Checking…</span>
             <template v-else-if="previewRuns.length">
               Next runs:
@@ -87,7 +90,7 @@
               }}</span>
             </template>
             <span v-else-if="previewError" class="text-negative">{{ previewError }}</span>
-          </div>
+          </q-item-label>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
@@ -108,6 +111,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useQuasar, type QTableColumn } from 'quasar';
 import { schedulesApi, type ScheduleViewModel, type TaskTypeOption } from '@/api/schedules';
 import { useServersStore } from '@/stores/servers';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const serversStore = useServersStore();

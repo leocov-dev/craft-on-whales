@@ -1,7 +1,10 @@
 <template>
-  <div v-if="server?.status !== 'running'" class="text-center text-ink-faint q-pa-xl">
+  <q-banner v-if="server?.status !== 'running'" rounded>
+    <template #avatar>
+      <q-icon name="info" color="primary" />
+    </template>
     Metrics are only available while the server is running.
-  </div>
+  </q-banner>
   <div v-else class="row q-col-gutter-md">
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md">

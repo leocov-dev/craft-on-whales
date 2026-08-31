@@ -1,16 +1,17 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="text-h6">Backups</div>
-      <q-space />
-      <div class="text-caption text-ink-faint">
-        {{ totals.count }} backups · {{ formatBytes(totals.bytes) }} total
-      </div>
-    </div>
+    <PageHeader
+      title="Backups"
+      icon="archive"
+      :subtitle="`${totals.count} backups · ${formatBytes(totals.bytes)} total`"
+    />
 
-    <div v-if="backups.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="backups.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No backups yet. Create one from a server's Backups tab.
-    </div>
+    </q-banner>
 
     <q-card v-else flat bordered>
       <q-list separator>
@@ -24,12 +25,12 @@
             <q-item-label caption class="font-mono">{{ b.file }}</q-item-label>
           </q-item-section>
           <q-item-section side class="text-caption">{{ b.reason }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            formatBytes(b.size)
-          }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            new Date(b.ts).toLocaleString()
-          }}</q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ formatBytes(b.size) }}</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ new Date(b.ts).toLocaleString() }}</q-item-label>
+          </q-item-section>
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn dense outline label="Restore" :loading="busyId === b.id" @click="restore(b)" />
@@ -49,6 +50,7 @@ import { useQuasar } from 'quasar';
 import { backupsApi, type BackupRow } from '@/api/backups';
 import { tasksApi } from '@/api/tasks';
 import { formatBytes } from '@/composables/useServerStatus';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 

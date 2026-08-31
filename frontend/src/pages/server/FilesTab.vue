@@ -9,7 +9,7 @@
     <div class="row items-center q-gutter-x-xs q-mb-sm text-caption">
       <a href="#" class="text-primary" @click.prevent="navigate('')">server</a>
       <template v-for="(seg, i) in breadcrumbs" :key="i">
-        <span class="text-ink-faint">/</span>
+        <q-item-label caption>/</q-item-label>
         <a href="#" class="text-primary" @click.prevent="navigate(breadcrumbPath(i))">{{ seg }}</a>
       </template>
     </div>
@@ -28,12 +28,12 @@
             />
           </q-item-section>
           <q-item-section>{{ entry.name }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            entry.dir ? '' : formatBytes(entry.size)
-          }}</q-item-section>
-          <q-item-section side class="text-caption text-ink-faint">{{
-            entry.mtime
-          }}</q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ entry.dir ? '' : formatBytes(entry.size) }}</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-item-label caption>{{ entry.mtime }}</q-item-label>
+          </q-item-section>
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn
@@ -58,28 +58,34 @@
           </q-item-section>
         </q-item>
         <q-item v-if="entries.length === 0">
-          <q-item-section class="text-center text-ink-faint">Empty directory.</q-item-section>
+          <q-item-section class="text-center">
+            <q-item-label caption>Empty directory.</q-item-label>
+          </q-item-section>
         </q-item>
       </q-list>
     </q-card>
 
     <q-dialog v-model="editorOpen">
-      <q-card style="min-width: 600px; max-width: 90vw">
+      <q-card bordered class="shadow-12" style="min-width: 600px; max-width: 90vw">
         <q-card-section class="row items-center">
           <div class="text-subtitle1 font-mono">{{ editorPath }}</div>
           <q-space />
           <q-btn flat dense round icon="close" v-close-popup />
         </q-card-section>
-        <q-card-section>
-          <q-input
-            v-model="editorContent"
-            type="textarea"
-            outlined
-            autogrow
-            input-class="font-mono"
-            :rows="20"
-          />
-        </q-card-section>
+        <q-separator />
+        <q-scroll-area style="height: 60vh">
+          <q-card-section>
+            <q-input
+              v-model="editorContent"
+              type="textarea"
+              filled
+              autogrow
+              input-class="font-mono"
+              :rows="20"
+            />
+          </q-card-section>
+        </q-scroll-area>
+        <q-separator />
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn color="primary" label="Save" :loading="saving" @click="saveFile" />

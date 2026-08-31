@@ -1,21 +1,24 @@
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-mb-md">
-      <div class="text-h6">Blueprints</div>
-      <q-space />
-      <q-btn color="primary" icon="upload" label="Import blueprint" @click="pickFile" />
-      <input
-        ref="fileInput"
-        type="file"
-        accept=".zip,application/zip"
-        class="hidden-input"
-        @change="onFileChosen"
-      />
-    </div>
+    <PageHeader title="Blueprints" icon="architecture">
+      <template #action>
+        <q-btn color="primary" icon="upload" label="Import blueprint" @click="pickFile" />
+      </template>
+    </PageHeader>
+    <input
+      ref="fileInput"
+      type="file"
+      accept=".zip,application/zip"
+      class="hidden-input"
+      @change="onFileChosen"
+    />
 
-    <div v-if="blueprints.length === 0" class="text-center text-ink-faint q-pa-xl">
+    <q-banner v-if="blueprints.length === 0" rounded class="q-mb-lg">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
       No blueprints yet. Export one from a server's Settings tab, or import a .mcserver.zip above.
-    </div>
+    </q-banner>
 
     <div v-else class="row q-col-gutter-md">
       <div v-for="bp in blueprints" :key="bp.id" class="col-12 col-md-6 col-xl-4">
@@ -27,21 +30,21 @@
                 <div class="text-subtitle2 ellipsis">{{ bp.name }}</div>
                 <q-badge v-if="bp.builtin" color="info" label="starter" />
               </div>
-              <div class="text-caption text-ink-faint ellipsis-2-lines">{{ bp.notes }}</div>
+              <q-item-label caption class="ellipsis-2-lines">{{ bp.notes }}</q-item-label>
             </div>
           </div>
 
           <div class="row q-col-gutter-sm text-caption q-mt-md border-top q-pt-sm">
             <div class="col-4">
-              <div class="text-ink-faint">Pack</div>
+              <q-item-label caption>Pack</q-item-label>
               <div>{{ bp.pack ?? '—' }}</div>
             </div>
             <div class="col-4">
-              <div class="text-ink-faint">Overlay mods</div>
+              <q-item-label caption>Overlay mods</q-item-label>
               <div>{{ bp.overlayCount }}</div>
             </div>
             <div class="col-4">
-              <div class="text-ink-faint">Size</div>
+              <q-item-label caption>Size</q-item-label>
               <div>{{ formatBytes(bp.size_bytes) }}</div>
             </div>
           </div>
@@ -73,23 +76,27 @@
     </div>
 
     <q-dialog v-model="previewOpen" persistent>
-      <q-card style="min-width: 420px">
+      <q-card bordered class="shadow-12" style="min-width: 420px; max-width: 640px; width: 100%">
         <q-card-section class="text-subtitle1">Import blueprint</q-card-section>
-        <q-card-section v-if="preview">
-          <div class="text-body2">{{ preview.manifest.identity?.name ?? 'Blueprint' }}</div>
-          <div class="text-caption text-ink-faint q-mb-sm">
-            {{ preview.manifest.config.type }} · {{ preview.manifest.config.mcVersion }} ·
-            {{ preview.entries.count }} files
-          </div>
-          <q-banner
-            v-for="(w, i) in preview.warnings"
-            :key="i"
-            dense
-            class="bg-warning text-black q-mb-xs"
-          >
-            {{ w }}
-          </q-banner>
-        </q-card-section>
+        <q-separator />
+        <q-scroll-area v-if="preview" style="height: 50vh">
+          <q-card-section>
+            <div class="text-body2">{{ preview.manifest.identity?.name ?? 'Blueprint' }}</div>
+            <q-item-label caption class="q-mb-sm">
+              {{ preview.manifest.config.type }} · {{ preview.manifest.config.mcVersion }} ·
+              {{ preview.entries.count }} files
+            </q-item-label>
+            <q-banner
+              v-for="(w, i) in preview.warnings"
+              :key="i"
+              dense
+              class="bg-warning text-black q-mb-xs"
+            >
+              {{ w }}
+            </q-banner>
+          </q-card-section>
+        </q-scroll-area>
+        <q-separator />
         <q-card-actions align="right">
           <q-btn flat label="Cancel" :disable="importing" @click="cancelPreview" />
           <q-btn
@@ -111,6 +118,7 @@ import { useRouter } from 'vue-router';
 import { blueprintsApi, type BlueprintViewModel, type ImportPreview } from '@/api/blueprints';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
+import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const router = useRouter();

@@ -19,15 +19,15 @@
         <div class="text-subtitle1 q-mb-sm">Live usage</div>
         <div class="row q-col-gutter-md text-body2">
           <div class="col-4">
-            <div class="text-caption text-ink-faint">Players</div>
+            <q-item-label caption>Players</q-item-label>
             <div>{{ server.players.online }}/{{ server.players.max }}</div>
           </div>
           <div class="col-4">
-            <div class="text-caption text-ink-faint">CPU</div>
+            <q-item-label caption>CPU</q-item-label>
             <div>{{ server.status === 'running' ? `${server.stats.cpuPct}%` : '—' }}</div>
           </div>
           <div class="col-4">
-            <div class="text-caption text-ink-faint">Memory</div>
+            <q-item-label caption>Memory</q-item-label>
             <div>{{ server.status === 'running' ? `${server.stats.memUsedMb} MB` : '—' }}</div>
           </div>
         </div>
@@ -39,19 +39,19 @@
         <div class="text-subtitle1 q-mb-sm">Details</div>
         <div class="row q-col-gutter-md text-body2">
           <div class="col-6">
-            <div class="text-caption text-ink-faint">Type</div>
+            <q-item-label caption>Type</q-item-label>
             <div>{{ server.flavor }}</div>
           </div>
           <div class="col-6">
-            <div class="text-caption text-ink-faint">Version</div>
+            <q-item-label caption>Version</q-item-label>
             <div>{{ server.mcVersion }}</div>
           </div>
           <div class="col-6">
-            <div class="text-caption text-ink-faint">Java</div>
+            <q-item-label caption>Java</q-item-label>
             <div>{{ server.javaTag }}</div>
           </div>
           <div class="col-6">
-            <div class="text-caption text-ink-faint">Created</div>
+            <q-item-label caption>Created</q-item-label>
             <div>{{ new Date(server.created).toLocaleDateString() }}</div>
           </div>
         </div>
@@ -61,9 +61,11 @@
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md">
         <div class="text-subtitle1 q-mb-sm">Description</div>
-        <div class="text-body2 text-ink-faint">{{ server.description || 'No description.' }}</div>
+        <q-item-label caption>{{ server.description || 'No description.' }}</q-item-label>
         <div v-if="server.tags.length" class="row q-gutter-xs q-mt-sm">
-          <q-chip v-for="tag in server.tags" :key="tag" dense size="sm">{{ tag }}</q-chip>
+          <q-chip v-for="tag in server.tags" :key="tag" dense size="sm" color="accent" text-color="dark">{{
+            tag
+          }}</q-chip>
         </div>
       </q-card>
     </div>

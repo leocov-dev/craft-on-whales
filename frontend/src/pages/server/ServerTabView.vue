@@ -1,8 +1,11 @@
 <template>
   <component :is="tabComponent" v-if="tabComponent" />
-  <div v-else class="text-center text-ink-faint q-pa-xl">
+  <q-banner v-else rounded>
+    <template #avatar>
+      <q-icon name="info" color="primary" />
+    </template>
     This tab hasn't been ported to the new interface yet.
-  </div>
+  </q-banner>
 </template>
 
 <script setup lang="ts">
