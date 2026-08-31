@@ -23,6 +23,20 @@ npm install
 npm run dev          # Quasar/Vite dev server with HMR, proxies /api and /ws to the backend
 ```
 
+The backend's port defaults to 3000 but is fully driven by the `PANEL_PORT` env var
+(`backend/src/config/config.service.ts`); the frontend dev proxy's backend target follows the
+`BACKEND_PORT` env var (`frontend/quasar.config.ts`), defaulting to 3000 to match. To run both on a
+different port (e.g. because 3000 is already in use), set both consistently:
+
+```bash
+PANEL_PORT=3100 npm run start:dev      # in backend/
+BACKEND_PORT=3100 npm run dev          # in frontend/
+```
+
+**Coding agents testing the server should not bind port 3000** unless the user explicitly asks for
+it — pick another port via `PANEL_PORT`/`BACKEND_PORT` so you don't collide with a server the user
+may already have running there. See [AGENTS.md](AGENTS.md).
+
 You need **Node.js 24+** (for the flagless built-in `node:sqlite`) and Docker running to exercise
 anything that touches containers. First run creates the admin account.
 

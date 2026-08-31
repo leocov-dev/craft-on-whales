@@ -79,46 +79,67 @@ export default defineConfig((/* ctx */) => {
     },
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#devserver
-    devServer: {
-      // vueDevtools: true,
-      // https: true,
-      open: true, // opens browser window automatically
+    devServer: (() => {
+      // Backend port the dev proxy targets — defaults to 3000 (matching the
+      // backend's own PANEL_PORT default) but overridable via BACKEND_PORT
+      // so the backend can be run on a different port (e.g. by an agent
+      // testing the server, which should not bind 3000 unless the user says
+      // to — see AGENTS.md) without editing this file.
+      const backendPort = process.env.BACKEND_PORT || '3000';
+      const backendHttp = `http://localhost:${backendPort}`;
+      const backendWs = `ws://localhost:${backendPort}`;
 
-      // Proxy the JSON API, auth, and WS endpoints to the Express backend
-      // (npm run start / npm run dev at the repo root) so the SPA talks to
-      // one origin in dev, matching prod's same-origin session cookie setup.
-      //
-      // changeOrigin is deliberately OFF: it rewrites the proxied request's
-      // Host header to the backend's, but the browser's Origin header still
-      // says localhost:<vite-port> — that mismatch trips originGuard's CSRF
-      // check (src/web/middleware/auth.ts), which compares Origin against
-      // Host. Leaving Host as the browser sent it keeps them equal.
-      //
-      // /login, /logout, /setup are BOTH a backend action route (POST, JSON)
-      // and a client-side SPA page (GET, e.g. the login form itself) — bypass
-      // proxying GET requests on those paths so Vite serves the SPA shell
-      // instead of Express's own Handlebars/redirect handling for them.
-      proxy: {
-        '/api': { target: 'http://localhost:3000' },
-        // Only the JSON subpath — /status/:slug itself is a client-side SPA
-        // route (StatusPage.vue), not proxied, so Vite serves the SPA shell
-        // for a direct/shared link to it.
-        '/status/api': { target: 'http://localhost:3000' },
-        '/login': {
-          target: 'http://localhost:3000',
-          bypass: (req) => (req.method === 'GET' ? req.url : undefined),
+      return {
+        // vueDevtools: true,
+        // https: true,
+        open: true, // opens browser window automatically
+
+        // Proxy the JSON API, auth, and WS endpoints to the Express backend
+        // (npm run start / npm run dev at the repo root) so the SPA talks to
+        // one origin in dev, matching prod's same-origin session cookie setup.
+        //
+        // changeOrigin is deliberately OFF: it rewrites the proxied request's
+        // Host header to the backend's, but the browser's Origin header still
+        // says localhost:<vite-port> — that mismatch trips originGuard's CSRF
+        // check (src/web/middleware/auth.ts), which compares Origin against
+        // Host. Leaving Host as the browser sent it keeps them equal.
+        //
+        // /login, /logout, /setup are BOTH a backend action route (POST, JSON)
+        // and a client-side SPA page (GET, e.g. the login form itself) — bypass
+        // proxying GET requests on those paths so Vite serves the SPA shell
+        // instead of Express's own Handlebars/redirect handling for them.
+        proxy: {
+          '/api': { target: backendHttp },
+          // Only the JSON subpath — /status/:slug itself is a client-side SPA
+          // route (StatusPage.vue), not proxied, so Vite serves the SPA shell
+          // for a direct/shared link to it.
+          '/status/api': { target: backendHttp },
+          // auth/status, auth/login, auth/login/2fa — no client-side SPA route
+          // shares this prefix, so proxy it outright (no GET bypass needed).
+          '/auth': { target: backendHttp },
+          // BlueMap reverse-proxy (MapTab.vue's iframe) — no client-side SPA
+          // route shares this prefix, so proxy it outright.
+          '/map': { target: backendHttp },
+          '/login': {
+            target: backendHttp,
+            // Only bypass the page route itself — a JSON subpath (e.g.
+            // login/2fa) must still be proxied to the backend.
+            bypass: (req) => (req.method === 'GET' && req.url === '/login' ? req.url : undefined),
+          },
+          '/logout': {
+            target: backendHttp,
+            bypass: (req) => (req.method === 'GET' && req.url === '/logout' ? req.url : undefined),
+          },
+          '/setup': {
+            target: backendHttp,
+            // Only bypass the page route itself (GET /setup) — GET /setup/checks
+            // is a JSON API endpoint and must be proxied to the backend.
+            bypass: (req) => (req.method === 'GET' && req.url === '/setup' ? req.url : undefined),
+          },
+          '/ws': { target: backendWs, ws: true },
         },
-        '/logout': {
-          target: 'http://localhost:3000',
-          bypass: (req) => (req.method === 'GET' ? req.url : undefined),
-        },
-        '/setup': {
-          target: 'http://localhost:3000',
-          bypass: (req) => (req.method === 'GET' ? req.url : undefined),
-        },
-        '/ws': { target: 'ws://localhost:3000', ws: true },
-      },
-    },
+      };
+    })(),
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {

@@ -163,3 +163,9 @@ network-layer concern the proxy can substitute for.
 - **Don't add speculative configuration or feature flags.** This project favors sane, host-aware
   defaults (see README's `.env` table) over exposing every knob — only add an env var if there's a
   concrete case where the default is wrong for a real setup.
+- **Never test-run the server on port 3000 unless the user explicitly directs it.** Port 3000 is
+  the default the user runs their own instance on, and colliding with it can kill work they have in
+  progress (see CONTRIBUTING.md's setup section). When you need to boot the server yourself to
+  verify a change, pick a different port: `PANEL_PORT=<port>` for `backend/`, and — if you also need
+  the frontend dev proxy pointed at it — `BACKEND_PORT=<port>` for `frontend/` (`npm run dev`
+  there). Check with `lsof -nP -iTCP:<port> -sTCP:LISTEN` first if unsure whether a port is free.
