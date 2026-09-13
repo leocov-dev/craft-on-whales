@@ -19,11 +19,16 @@ Translation rules applied uniformly when porting a column:
 Timestamps stay `text`columns on the Postgres side too (not a native`timestamp` type) — application code already treats these as opaque
    ISO-ish strings, so this avoids any parsing/timezone translation risk.
 3. `integer('id').primaryKey({ autoIncrement: true })` → `serial('id').primaryKey()`.
-4. Everything else (`text`, `integer`, `real`, `.primaryKey()`, `.notNull()`,
+4. Byte size / disk quota columns (`disk_quota_bytes`, `size_bytes`, `total_bytes`)
+   use `bigint(col, { mode: 'number' })` instead of `integer(col)`. Postgres's
+   native `integer` is strictly 32-bit signed and overflows at 2 GB (2,147,483,647
+   bytes), whereas disk quotas and server backups routinely exceed that.
+   `mode: 'number'` preserves JS `number` typing for application consumers.
+5. Everything else (`text`, `integer`, `real`, `.primaryKey()`, `.notNull()`,
    `.default(...)`, `.references(...)`, `uniqueIndex(...)`, `index(...)`,
    `primaryKey({ columns: [...] })`) has a direct `pg-core` equivalent with
    the same call shape.
-5. The SQLite side's `COLLATE NOCASE` gap on `users.username` (see
+6. The SQLite side's `COLLATE NOCASE` gap on `users.username` (see
    `../DRIZZLE_NOTES.md`) has no equivalent applied here either — same known
    limitation on both sides, not reproduced or fixed by this port.
 

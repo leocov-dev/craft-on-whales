@@ -10,6 +10,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   serial,
   boolean,
   primaryKey,
@@ -40,7 +41,7 @@ export const apiCache = pgTable('api_cache', {
 
 export const storageIndex = pgTable('storage_index', {
   relPath: text('rel_path').primaryKey(), // directory path under DATA_DIR
-  sizeBytes: integer('size_bytes').notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
   fileCount: integer('file_count').notNull(),
   scannedAt: text('scanned_at')
     .notNull()
@@ -49,7 +50,7 @@ export const storageIndex = pgTable('storage_index', {
 
 export const storageSnapshots = pgTable('storage_snapshots', {
   id: serial('id').primaryKey(),
-  totalBytes: integer('total_bytes').notNull(),
+  totalBytes: bigint('total_bytes', { mode: 'number' }).notNull(),
   perServerJson: text('per_server_json').notNull().default('{}'),
   createdAt: text('created_at')
     .notNull()
