@@ -5,9 +5,33 @@ import {
   createWebHashHistory,
   createWebHistory,
 } from 'vue-router';
+import { Dialog } from 'quasar';
 
 import routes from './routes';
 import { useAuthStore } from '@/stores/auth';
+import { useWorldUploadStore } from '@/stores/world-upload';
+
+function confirmLeaveActiveUpload(): Promise<boolean> {
+  return new Promise((resolve) => {
+    Dialog.create({
+      title: 'World upload in progress',
+      message:
+        'A world archive is currently uploading or being processed. Navigating away may interrupt the transfer. Are you sure you want to leave?',
+      cancel: {
+        label: 'Stay',
+        flat: true,
+      },
+      ok: {
+        label: 'Leave',
+        color: 'negative',
+      },
+      persistent: true,
+    })
+      .onOk(() => resolve(true))
+      .onCancel(() => resolve(false))
+      .onDismiss(() => resolve(false));
+  });
+}
 
 /*
  * If not building with SSR mode, you can
@@ -35,7 +59,15 @@ export default defineRouter((/* { store, ssrContext } */) => {
     history: createHistory(import.meta.env.QUASAR_VUE_ROUTER_BASE),
   });
 
-  Router.beforeEach(async (to) => {
+  Router.beforeEach(async (to, from) => {
+    const uploadStore = useWorldUploadStore();
+    if (uploadStore.isActive && from.matched.length > 0 && to.fullPath !== from.fullPath) {
+      const confirmed = await confirmLeaveActiveUpload();
+      if (!confirmed) {
+        return false;
+      }
+    }
+
     const isPublic = to.matched.some((record) => record.meta.public);
     const auth = useAuthStore();
 
