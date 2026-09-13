@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
+import { ConfigService } from '../config/config.service';
 import { settings } from '../db/schema';
 
 export interface Localization {
@@ -20,10 +21,39 @@ export interface Localization {
  */
 @Injectable()
 export class SettingsService {
-  constructor(private readonly dbService: DbService) {}
+  constructor(
+    private readonly dbService: DbService,
+    private readonly config: ConfigService,
+  ) {}
 
   private get db() {
     return this.dbService.db;
+  }
+
+  async getStartingPort(): Promise<number> {
+    if (this.config.hasStartingPortEnv) {
+      return this.config.ports.gameStart;
+    }
+    const v = await this.get('starting_port', null);
+    if (
+      typeof v === 'number' &&
+      Number.isInteger(v) &&
+      v >= 1024 &&
+      v <= 65535
+    ) {
+      return v;
+    }
+    return this.config.ports.gameStart;
+  }
+
+  async setStartingPort(port: number): Promise<number> {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new BadRequestException(
+        'Starting port must be an integer between 1024 and 65535.',
+      );
+    }
+    await this.set('starting_port', port);
+    return port;
   }
 
   async get<T = unknown>(

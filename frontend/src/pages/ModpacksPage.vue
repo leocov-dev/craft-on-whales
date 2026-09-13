@@ -82,6 +82,9 @@
                   label="Game port"
                   filled
                   dense
+                  :error="Boolean(packwizPortError)"
+                  :error-message="packwizPortError || ''"
+                  :loading="packwizPortChecking"
                 />
               </div>
               <div class="col-6">
@@ -118,7 +121,7 @@
               color="primary"
               label="Preview"
               :loading="previewing"
-              :disable="!packwiz.url.trim()"
+              :disable="!packwiz.url.trim() || Boolean(packwizPortError)"
               @click="previewPackwiz"
             />
           </div>
@@ -195,12 +198,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { useRouter } from 'vue-router';
 import { packsApi, type PackSearchResult, type PackPlatform } from '@/api/packs';
 import { settingsApi } from '@/api/settings';
 import { tasksApi } from '@/api/tasks';
+import { wizardApi } from '@/api/wizard';
 import { useServersStore } from '@/stores/servers';
 import type { ServerViewModel } from '@/api/servers';
 import PackDetailsDialog from '@/components/PackDetailsDialog.vue';
@@ -231,6 +235,58 @@ const detailsSource = ref<'preview' | 'installed' | 'search' | null>(null);
 const detailsServerId = ref<string | null>(null);
 const detailsPlatform = ref<PackPlatform | undefined>(undefined);
 const detailsPackRef = ref<string | undefined>(undefined);
+
+const packwizPortChecking = ref(false);
+const packwizRemotePortInUse = ref(false);
+let packwizCheckDebounce: ReturnType<typeof setTimeout> | null = null;
+
+const packwizPortError = computed(() => {
+  const p = packwiz.value.portGame;
+  if (!p) return null;
+  if (!Number.isInteger(p) || p < 1024 || p > 65535) {
+    return 'Port must be an integer between 1024 and 65535';
+  }
+  const conflict = servers.servers.find(
+    (s: ServerViewModel) => s.ports?.game === p || s.ports?.rcon === p,
+  );
+  if (conflict) {
+    return `Port ${p} is already in use by server "${conflict.name}".`;
+  }
+  if (packwizRemotePortInUse.value) {
+    return `Port ${p} is already in use or unavailable on host.`;
+  }
+  return null;
+});
+
+watch(
+  () => packwiz.value.portGame,
+  (port) => {
+    packwizRemotePortInUse.value = false;
+    if (packwizCheckDebounce) clearTimeout(packwizCheckDebounce);
+    if (!port || !Number.isInteger(port) || port < 1024 || port > 65535) return;
+    if (
+      servers.servers.some((s: ServerViewModel) => s.ports?.game === port || s.ports?.rcon === port)
+    )
+      return;
+    packwizPortChecking.value = true;
+    packwizCheckDebounce = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await wizardApi.checkPort(port);
+          if (packwiz.value.portGame === port) {
+            packwizRemotePortInUse.value = !res.free;
+          }
+        } catch {
+          // best-effort
+        } finally {
+          if (packwiz.value.portGame === port) {
+            packwizPortChecking.value = false;
+          }
+        }
+      })();
+    }, 300);
+  },
+);
 
 const curseforgeConfigured = ref(true);
 
@@ -351,6 +407,10 @@ async function createFromPackwiz() {
     $q.notify({ type: 'negative', message: 'Enter a server name.' });
     return;
   }
+  if (packwizPortError.value) {
+    $q.notify({ type: 'negative', message: packwizPortError.value });
+    return;
+  }
   creating.value = true;
   try {
     const { taskId } = await packsApi.fromPack({
@@ -380,8 +440,14 @@ async function createFromPackwiz() {
 onMounted(async () => {
   if (!servers.loaded) await servers.fetchServers();
   try {
-    const settings = await settingsApi.get();
+    const [settings, portsRes] = await Promise.all([
+      settingsApi.get(),
+      wizardApi.suggestPorts().catch(() => null),
+    ]);
     curseforgeConfigured.value = !!settings.curseforge.masked;
+    if (portsRes?.ports?.game) {
+      packwiz.value.portGame = portsRes.ports.game;
+    }
   } catch {
     // best-effort — leave CurseForge enabled if we can't tell either way
   }

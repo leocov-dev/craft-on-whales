@@ -133,7 +133,7 @@ export class DockerWatcherService implements OnModuleInit {
     if (evt.status === 'start') {
       await this.dbService.db
         .update(servers)
-        .set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` })
+        .set({ status: 'starting', lastStartedAt: new Date().toISOString() })
         .where(eq(servers.id, serverId));
       return;
     }
@@ -156,6 +156,7 @@ export class DockerWatcherService implements OnModuleInit {
     if (evt.status !== 'die') return;
 
     const exitCode = Number(evt.Actor?.Attributes?.exitCode ?? -1);
+    const threeMinutesAgo = new Date(Date.now() - 3 * 60_000).toISOString();
     const [stopRequested] = await this.dbService.db
       .select({ x: sql<number>`1` })
       .from(eventsTable)
@@ -167,7 +168,7 @@ export class DockerWatcherService implements OnModuleInit {
             'restart-requested',
             'kill-requested',
           ]),
-          gt(eventsTable.createdAt, sql`datetime('now', '-3 minutes')`),
+          gt(eventsTable.createdAt, threeMinutesAgo),
         ),
       )
       .limit(1);

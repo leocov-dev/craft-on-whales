@@ -51,6 +51,7 @@ export class ConfigService {
   readonly mapProxyHost: string;
   readonly mcImageRepo: string;
   readonly mcRouterImage: string;
+  readonly hasStartingPortEnv: boolean;
   readonly ports: {
     gameStart: number;
     rconOffset: number;
@@ -84,8 +85,15 @@ export class ConfigService {
     this.mcRouterImage = (
       process.env.MC_ROUTER_IMAGE || 'itzg/mc-router:latest'
     ).trim();
+    this.hasStartingPortEnv =
+      process.env.STARTING_PORT !== undefined ||
+      process.env.PORT_GAME_START !== undefined;
+    const gameStartEnvName =
+      process.env.STARTING_PORT !== undefined
+        ? 'STARTING_PORT'
+        : 'PORT_GAME_START';
     this.ports = {
-      gameStart: this.numFromEnv('PORT_GAME_START', 25565, {
+      gameStart: this.numFromEnv(gameStartEnvName, 25565, {
         min: 1,
         max: 65535,
       }),

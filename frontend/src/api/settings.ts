@@ -35,7 +35,13 @@ export const settingsApi = {
   testCurseforgeKey: () => http.post<{ ok: boolean; error?: string }>('/api/keys/curseforge/test'),
   get: () => http.get<SettingsResponseData>('/api/settings'),
   savePublicHost: (publicHost: string) =>
-    http.post<{ ok: true; publicHost: string }>('/api/settings', { publicHost }),
+    http.post<{ ok: true; publicHost: string; startingPort?: number }>('/api/settings', {
+      publicHost,
+    }),
+  saveStartingPort: (startingPort: number) =>
+    http.post<{ ok: true; publicHost: string; startingPort?: number }>('/api/settings', {
+      startingPort,
+    }),
   localization: () => http.get<LocalizationResponse>('/api/settings/localization'),
   saveLocalization: (input: Partial<Localization>) =>
     http.post<LocalizationResponse>('/api/settings/localization', input),

@@ -16,6 +16,8 @@ export interface SettingsResponseData {
   curseforge: { masked: string | null };
   panel: { host: string; port: number };
   defaults: ResourceDefaults;
+  startingPort?: number;
+  startingPortOverriddenByEnv?: boolean;
 }
 
 export interface Localization {

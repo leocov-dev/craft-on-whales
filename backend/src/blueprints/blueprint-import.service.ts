@@ -265,6 +265,7 @@ export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
       networkName: o.networkName,
       extraPorts: o.extraPorts as CreateServerInput['extraPorts'],
       extraBinds: o.extraBinds as CreateServerInput['extraBinds'],
+      portGame: o.portGame,
     };
     const server = await this.lifecycle.createServer(createInput, {
       actor,

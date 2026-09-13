@@ -22,5 +22,7 @@ export const wizardApi = {
       `/api/versions?snapshots=${includeSnapshots}`,
     ),
   suggestPorts: () => http.get<{ ok: true; ports: SuggestedPorts }>('/api/ports/suggest'),
+  checkPort: (port: number) =>
+    http.get<{ ok: true; port: number; free: boolean }>(`/api/ports/check?port=${port}`),
   create: (input: CreateServerInput) => http.post<CreateServerResponse>('/api/servers', input),
 };

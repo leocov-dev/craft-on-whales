@@ -4,6 +4,8 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { servers, integrations } from '../db/schema';
 import { ConfigService } from '../config/config.service';
+import { SettingsService } from '../settings/settings.service';
+import { DockerConnectionService } from '../docker/docker-connection.service';
 import type { SuggestedPorts } from '../../../shared/types/wizard';
 
 export type { SuggestedPorts };
@@ -20,6 +22,8 @@ export class PortsService {
   constructor(
     private readonly dbService: DbService,
     private readonly config: ConfigService,
+    private readonly settings: SettingsService,
+    private readonly dockerConn: DockerConnectionService,
   ) {}
 
   private probe(port: number, host: string = '0.0.0.0'): Promise<boolean> {
@@ -31,6 +35,26 @@ export class PortsService {
         srv.close(() => resolve(true));
       });
     });
+  }
+
+  private async dockerPortsInUse(): Promise<Set<number>> {
+    const used = new Set<number>();
+    try {
+      const docker = this.dockerConn.getDocker();
+      const containers = await docker.listContainers({ all: true });
+      for (const c of containers) {
+        if (Array.isArray(c.Ports)) {
+          for (const p of c.Ports) {
+            if (p.PublicPort && typeof p.PublicPort === 'number') {
+              used.add(p.PublicPort);
+            }
+          }
+        }
+      }
+    } catch {
+      // Docker daemon offline or inaccessible; best-effort
+    }
+    return used;
   }
 
   private async dbPortsInUse(): Promise<Set<number>> {
@@ -79,6 +103,17 @@ export class PortsService {
     return used;
   }
 
+  private async allPortsInUse(): Promise<Set<number>> {
+    const [dbUsed, dockerUsed] = await Promise.all([
+      this.dbPortsInUse(),
+      this.dockerPortsInUse(),
+    ]);
+    for (const p of dockerUsed) {
+      dbUsed.add(p);
+    }
+    return dbUsed;
+  }
+
   /**
    * True when `port` is a valid, unclaimed, currently-bindable port. `port`
    * is checked at runtime rather than typed as `number` — callers (including
@@ -90,7 +125,7 @@ export class PortsService {
     if (!Number.isInteger(port)) return false;
     const p = port as number;
     if (p < 1024 || p > 65535) return false;
-    if ((await this.dbPortsInUse()).has(p)) return false;
+    if ((await this.allPortsInUse()).has(p)) return false;
     return this.probe(p);
   }
 
@@ -98,8 +133,8 @@ export class PortsService {
   async suggestPorts({
     withBedrock = false,
   }: SuggestPortsOptions = {}): Promise<SuggestedPorts> {
-    const used = await this.dbPortsInUse();
-    let game = this.config.ports.gameStart;
+    const used = await this.allPortsInUse();
+    let game = await this.settings.getStartingPort();
     for (;;) {
       const rcon = game + this.config.ports.rconOffset;
       if (
