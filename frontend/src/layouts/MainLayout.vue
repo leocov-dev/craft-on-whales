@@ -4,7 +4,7 @@
       <q-toolbar style="min-height: 64px">
         <q-btn flat dense round icon="menu" class="lt-lg" @click="drawerOpen = !drawerOpen" />
         <q-toolbar-title
-          class="row items-center q-gutter-x-sm cursor-pointer"
+          class="row items-center q-gutter-x-md cursor-pointer"
           @click="router.push('/')"
         >
           <img src="/icons/craft-on-whales@0.25x.png" alt="" width="40" height="40" />
@@ -130,6 +130,6 @@ const navLinks = [
 .brand-title {
   font-family: var(--font-pixel);
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 1.4rem;
 }
 </style>
