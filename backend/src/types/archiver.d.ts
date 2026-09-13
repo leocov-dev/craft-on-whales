@@ -1,32 +1,46 @@
-// archiver ships no types, and @types/archiver only covers the Archiver
-// class, not the factory-function call signature this codebase actually
-// uses — a minimal hand-rolled declaration for the surface area used here
-// beats installing a mismatched types package.
+// archiver v8 exports class-based archives (ZipArchive, TarArchive, etc.)
+// with no default factory function.
 declare module 'archiver' {
-  export interface Archiver {
-    on(event: 'error', listener: (err: Error) => void): Archiver;
+  import { Transform } from 'node:stream';
+
+  export interface ArchiverOptions {
+    zlib?: {
+      level?: number;
+    };
+    [key: string]: unknown;
+  }
+
+  export class Archiver extends Transform {
+    on(event: 'error', listener: (err: Error) => void): this;
     on(
       event: 'progress',
       listener: (data: { fs: { processedBytes: number } }) => void,
-    ): Archiver;
-    on(event: string, listener: (...args: unknown[]) => void): Archiver;
+    ): this;
+    on(event: string, listener: (...args: unknown[]) => void): this;
     pipe<T extends NodeJS.WritableStream>(destination: T): T;
-    directory(dirpath: string, destpath: string | false): Archiver;
+    directory(dirpath: string, destpath: string | false): this;
     append(
       source: string | Buffer | NodeJS.ReadableStream,
       data: { name: string } & Record<string, unknown>,
-    ): Archiver;
+    ): this;
     file(
       filepath: string,
       data: { name: string } & Record<string, unknown>,
-    ): Archiver;
+    ): this;
     // Kicks off the async write; completion is signaled via the 'close'/'end'
     // stream events (or 'error'), not by this call's return value.
     finalize(): void;
   }
 
-  export default function archiver(
-    format: 'zip' | 'tar',
-    options?: Record<string, unknown>,
-  ): Archiver;
+  export class ZipArchive extends Archiver {
+    constructor(options?: ArchiverOptions);
+  }
+
+  export class TarArchive extends Archiver {
+    constructor(options?: ArchiverOptions);
+  }
+
+  export class JsonArchive extends Archiver {
+    constructor(options?: ArchiverOptions);
+  }
 }

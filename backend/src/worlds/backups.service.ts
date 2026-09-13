@@ -7,7 +7,7 @@ import {
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { DbService } from '../db/db.service';
@@ -307,7 +307,7 @@ export class BackupsService {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(outFile);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
       let settled = false;
       const fail = (err: Error) => {
         if (settled) return;

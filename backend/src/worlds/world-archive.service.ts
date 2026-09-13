@@ -8,7 +8,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import * as zlib from 'node:zlib';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import * as yauzl from 'yauzl';
 import * as tar from 'tar';
 
@@ -119,7 +119,7 @@ export class WorldArchiveService {
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const output = fs.createWriteStream(outFile);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
       output.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(output);
