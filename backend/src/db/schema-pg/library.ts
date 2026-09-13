@@ -1,13 +1,7 @@
 // Postgres mirror of ../schema/library.ts — see ./PG_SCHEMA_NOTES.md.
 
 import { sql } from 'drizzle-orm';
-import {
-  pgTable,
-  text,
-  integer,
-  index,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const libraryFiles = pgTable(
   'library_files',
@@ -18,7 +12,7 @@ export const libraryFiles = pgTable(
     filename: text('filename').notNull(),
     relPath: text('rel_path').notNull(),
     sha256: text('sha256').notNull(),
-    sizeBytes: integer('size_bytes').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sourceUrl: text('source_url'),
     platform: text('platform'), // 'modrinth' | 'curseforge' | 'url' | 'upload'
     projectId: text('project_id'),

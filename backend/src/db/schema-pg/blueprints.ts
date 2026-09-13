@@ -1,7 +1,7 @@
 // Postgres mirror of ../schema/blueprints.ts — see ./PG_SCHEMA_NOTES.md.
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, integer, boolean, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, boolean, index } from 'drizzle-orm/pg-core';
 import { servers } from './servers';
 
 export const blueprints = pgTable('blueprints', {
@@ -9,7 +9,7 @@ export const blueprints = pgTable('blueprints', {
   name: text('name').notNull(),
   filename: text('filename').notNull(),
   relPath: text('rel_path').notNull(),
-  sizeBytes: integer('size_bytes').notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
   builtin: boolean('builtin').notNull().default(false),
   manifestJson: text('manifest_json').notNull(),
   createdAt: text('created_at')
@@ -26,7 +26,7 @@ export const backups = pgTable(
       .references(() => servers.id, { onDelete: 'cascade' }),
     filename: text('filename').notNull(),
     relPath: text('rel_path').notNull(),
-    sizeBytes: integer('size_bytes').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256'),
     reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update'
     note: text('note').notNull().default(''),

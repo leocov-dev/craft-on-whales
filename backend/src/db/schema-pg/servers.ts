@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   real,
   boolean,
   uniqueIndex,
@@ -35,7 +36,9 @@ export const servers = pgTable('servers', {
   containerMemoryMb: integer('container_memory_mb').notNull(),
   containerSwapMb: integer('container_swap_mb').notNull().default(0),
   cpus: real('cpus').notNull().default(0),
-  diskQuotaBytes: integer('disk_quota_bytes').notNull().default(0),
+  diskQuotaBytes: bigint('disk_quota_bytes', { mode: 'number' })
+    .notNull()
+    .default(0),
   quotaStrict: boolean('quota_strict').notNull().default(false),
 
   updatePolicy: text('update_policy').notNull().default('manual'), // 'manual' | 'notify' | 'auto'
