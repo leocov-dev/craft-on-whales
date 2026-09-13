@@ -14,7 +14,7 @@ import { PacksService } from '../packs/packs.service';
 import { WorldPropsService } from '../worlds/world-props.service';
 import type { Server } from '../servers/types';
 import { blueprints, serverContent, libraryFiles } from '../db/schema';
-import { archiver, slugify } from './zip.util';
+import { ZipArchive, slugify } from './zip.util';
 import {
   PANEL_VERSION,
   SECRET_ENV_RE,
@@ -160,7 +160,7 @@ export class BlueprintExportService {
 
     await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(absPath);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
       output.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(output);

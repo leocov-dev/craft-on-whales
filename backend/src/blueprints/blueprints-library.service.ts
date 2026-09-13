@@ -9,7 +9,7 @@ import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ConfigService } from '../config/config.service';
 import { blueprints, settings } from '../db/schema';
-import { archiver, slugify } from './zip.util';
+import { ZipArchive, slugify } from './zip.util';
 import {
   PANEL_VERSION,
   type BlueprintManifest,
@@ -255,7 +255,7 @@ export class BlueprintsLibraryService {
     await fsp.mkdir(path.dirname(absPath), { recursive: true });
     await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(absPath);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
       output.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(output);

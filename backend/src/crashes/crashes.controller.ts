@@ -12,7 +12,7 @@ import {
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { PathGuardService } from '../storage/path-guard.service';
@@ -93,7 +93,7 @@ export class CrashesController {
       `attachment; filename="crash-reports-${serverId}.zip"`,
     );
 
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     archive.on('error', (err: Error) => res.destroy(err));
     archive.pipe(res);
     for (const row of rows) {

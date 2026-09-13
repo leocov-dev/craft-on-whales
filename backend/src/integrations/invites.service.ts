@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import { and, eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';
@@ -313,7 +313,7 @@ export class InvitesService {
 
     await new Promise<void>((resolve, reject) => {
       const out = fs.createWriteStream(absPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
       out.on('close', resolve);
       archive.on('error', reject);
       archive.pipe(out);
