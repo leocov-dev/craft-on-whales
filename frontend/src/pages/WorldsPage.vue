@@ -2,7 +2,14 @@
   <q-page class="q-pa-md">
     <PageHeader title="Worlds" icon="public">
       <template #action>
-        <q-btn color="primary" icon="upload" label="Upload world" @click="pickFile" />
+        <q-btn
+          color="primary"
+          icon="upload"
+          label="Upload world"
+          :loading="uploadStore.isActive"
+          :disable="uploadStore.isActive"
+          @click="pickFile"
+        />
       </template>
     </PageHeader>
     <input ref="fileInput" type="file" accept=".zip" class="hidden-input" @change="onFileChosen" />
@@ -90,10 +97,12 @@ import { useQuasar } from 'quasar';
 import { worldsApi, type LibraryWorld } from '@/api/worlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
+import { useWorldUploadStore } from '@/stores/world-upload';
 import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const servers = useServersStore();
+const uploadStore = useWorldUploadStore();
 
 const worlds = ref<LibraryWorld[]>([]);
 const fileInput = ref<HTMLInputElement>();
@@ -121,7 +130,7 @@ async function onFileChosen(e: Event) {
   if (!file) return;
   (e.target as HTMLInputElement).value = '';
   try {
-    await worldsApi.upload(file);
+    await uploadStore.upload(file);
     $q.notify({ type: 'positive', message: 'World uploaded.' });
     await load();
   } catch (err) {

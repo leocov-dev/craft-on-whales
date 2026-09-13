@@ -78,19 +78,38 @@
     </q-drawer>
 
     <q-page-container>
+      <WorldTransferIndicator />
       <router-view />
     </q-page-container>
   </q-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { useWorldUploadStore } from '@/stores/world-upload';
 import { currentTheme, setTheme } from '@/boot/theme';
+import WorldTransferIndicator from '@/components/WorldTransferIndicator.vue';
 
 const router = useRouter();
 const auth = useAuthStore();
+const uploadStore = useWorldUploadStore();
+
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (uploadStore.isActive) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload);
+});
 
 const userInitials = computed(() => {
   const username = auth.user?.username ?? '';
