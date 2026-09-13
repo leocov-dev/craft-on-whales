@@ -31,10 +31,16 @@ export const blueprintsApi = {
   list: () => http.get<BlueprintsResponse>('/api/blueprints'),
   downloadUrl: (id: string) => `/api/blueprints/${id}/download`,
   remove: (id: string) => http.delete<{ ok: true }>(`/api/blueprints/${id}`),
-  create: (blueprintId: string) =>
-    http.post<ImportResponse>('/api/blueprints/import', { blueprintId }),
-  importWithToken: (uploadToken: string) =>
-    http.post<ImportResponse>('/api/blueprints/import', { uploadToken }),
+  create: (blueprintId: string, overrides?: Record<string, unknown>) =>
+    http.post<ImportResponse>('/api/blueprints/import', {
+      blueprintId,
+      ...(overrides ? { overrides } : {}),
+    }),
+  importWithToken: (uploadToken: string, overrides?: Record<string, unknown>) =>
+    http.post<ImportResponse>('/api/blueprints/import', {
+      uploadToken,
+      ...(overrides ? { overrides } : {}),
+    }),
 
   async previewUpload(file: File): Promise<ImportPreviewResponse> {
     const formData = new FormData();

@@ -31,19 +31,32 @@ export class SettingsController {
       curseforge: { masked: await this.apiKeys.maskedKey('curseforge') },
       panel: { host: this.config.host, port: this.config.port },
       defaults: this.config.defaults,
+      startingPort: await this.settings.getStartingPort(),
+      startingPortOverriddenByEnv: this.config.hasStartingPortEnv,
     };
   }
 
   @Post()
   @UseGuards(RolesGuard)
   @Roles('admin')
-  async set(@Body() body: unknown): Promise<{ ok: true; publicHost: string }> {
-    const { publicHost } = parseBody(
-      z.object({ publicHost: z.string().max(255).optional() }),
+  async set(
+    @Body() body: unknown,
+  ): Promise<{ ok: true; publicHost: string; startingPort?: number }> {
+    const { publicHost, startingPort } = parseBody(
+      z.object({
+        publicHost: z.string().max(255).optional(),
+        startingPort: z.number().int().min(1024).max(65535).optional(),
+      }),
       body,
     );
     const saved = await this.settings.setPublicHost(publicHost || '');
-    return { ok: true, publicHost: saved };
+    let savedPort: number | undefined;
+    if (startingPort !== undefined && !this.config.hasStartingPortEnv) {
+      savedPort = await this.settings.setStartingPort(startingPort);
+    } else {
+      savedPort = await this.settings.getStartingPort();
+    }
+    return { ok: true, publicHost: saved, startingPort: savedPort };
   }
 
   @Get('localization')

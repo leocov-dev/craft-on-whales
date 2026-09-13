@@ -54,7 +54,23 @@ export class McRouterService {
       SETTINGS_KEY,
       null,
     );
-    return { ...DEFAULT_CONFIG, ...(stored || {}) };
+    const startingPort = await this.settings.getStartingPort();
+    const defaultListenPort = Math.max(1, startingPort - 1);
+    const defaults: McRouterConfig = {
+      ...DEFAULT_CONFIG,
+      listenPort: defaultListenPort,
+    };
+    if (!stored || !stored.enabled) {
+      return {
+        ...defaults,
+        ...(stored || {}),
+        listenPort:
+          stored && typeof stored.listenPort === 'number' && stored.enabled
+            ? stored.listenPort
+            : defaultListenPort,
+      };
+    }
+    return { ...defaults, ...stored };
   }
 
   async setConfig(patch: Partial<McRouterConfig>): Promise<McRouterConfig> {

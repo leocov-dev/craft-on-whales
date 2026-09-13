@@ -82,6 +82,7 @@ const overridesSchema = z.object({
   containerMemoryMb: z.coerce.number().int().min(1024).max(524288).optional(),
   cpus: z.coerce.number().min(0).max(128).optional(),
   diskQuotaGb: z.coerce.number().min(0).max(16384).optional(),
+  portGame: z.coerce.number().int().min(1024).max(65535).optional(),
   ...dockerOverridesSchema,
 });
 const uploadTokenSchema = z

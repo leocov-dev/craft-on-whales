@@ -126,6 +126,7 @@ export interface ImportOverrides {
   containerMemoryMb?: number;
   cpus?: number;
   diskQuotaGb?: number;
+  portGame?: number;
   containerName?: string;
   networkName?: string;
   extraPorts?: unknown;

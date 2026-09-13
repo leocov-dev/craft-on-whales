@@ -7,6 +7,9 @@ public/fonts
 public/icons
 docker-minecraft-server
 discovery
+frontend/dist
+frontend/.quasar
+backend/dist
 package-lock.json
 # Handlebars templates: Prettier's hbs formatting reflows markup in ways that hurt
 # readability here — keep them hand-formatted.

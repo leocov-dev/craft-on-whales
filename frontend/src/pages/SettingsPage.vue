@@ -105,6 +105,29 @@
               </div>
             </div>
           </div>
+
+          <div class="row q-gutter-sm items-start no-wrap q-mt-md">
+            <q-input
+              v-model.number="startingPort"
+              class="col"
+              type="number"
+              filled
+              dense
+              label="Starting game port"
+              :disable="settings?.startingPortOverriddenByEnv"
+              :hint="
+                settings?.startingPortOverriddenByEnv
+                  ? 'Overridden by STARTING_PORT environment variable'
+                  : 'Default game port for the first server created'
+              "
+            />
+            <q-btn
+              label="Save port"
+              :disable="settings?.startingPortOverriddenByEnv"
+              :loading="savingPort"
+              @click="saveStartingPort"
+            />
+          </div>
         </q-card>
       </div>
     </div>
@@ -123,12 +146,14 @@ const settings = ref<SettingsResponseData | null>(null);
 const cfKey = ref('');
 const cfMasked = ref<string | null>(null);
 const publicHost = ref('');
+const startingPort = ref<number | null>(null);
 const timezone = ref('');
 const country = ref('');
 
 const savingKey = ref(false);
 const testingKey = ref(false);
 const savingHost = ref(false);
+const savingPort = ref(false);
 const savingLoc = ref(false);
 
 async function load() {
@@ -136,6 +161,7 @@ async function load() {
   settings.value = settingsRes;
   cfMasked.value = settingsRes.curseforge.masked;
   publicHost.value = settingsRes.publicHost;
+  startingPort.value = settingsRes.startingPort ?? 25565;
   timezone.value = locRes.localization.timezone;
   country.value = locRes.localization.country;
 }
@@ -175,6 +201,23 @@ async function saveHost() {
     $q.notify({ type: 'positive', message: 'Public domain saved.' });
   } finally {
     savingHost.value = false;
+  }
+}
+
+async function saveStartingPort() {
+  if (!startingPort.value || startingPort.value < 1024 || startingPort.value > 65535) {
+    $q.notify({ type: 'negative', message: 'Starting port must be between 1024 and 65535.' });
+    return;
+  }
+  savingPort.value = true;
+  try {
+    await settingsApi.saveStartingPort(startingPort.value);
+    $q.notify({ type: 'positive', message: 'Starting port saved.' });
+    await load();
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
+  } finally {
+    savingPort.value = false;
   }
 }
 

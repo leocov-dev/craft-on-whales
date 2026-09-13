@@ -443,7 +443,7 @@ export class ServerLifecycleService implements OnModuleInit {
     await this.containers.startContainer(id);
     await this.db
       .update(servers)
-      .set({ status: 'starting', lastStartedAt: sql`(datetime('now'))` })
+      .set({ status: 'starting', lastStartedAt: new Date().toISOString() })
       .where(eq(servers.id, id));
     this.events.recordEvent({
       serverId: id,
