@@ -75,6 +75,8 @@
           <q-item-section>Users</q-item-section>
         </q-item>
       </q-list>
+
+      <div class="app-version text-caption text-grey q-pa-sm">{{ appVersion }}</div>
     </q-drawer>
 
     <q-page-container>
@@ -130,6 +132,8 @@ async function onLogout() {
   await router.push('/login');
 }
 
+const appVersion = import.meta.env.APP_VERSION;
+
 const navLinks = [
   { label: 'Servers', to: '/servers', icon: 'dns' },
   { label: 'Modpacks', to: '/modpacks', icon: 'inventory_2' },
@@ -150,5 +154,9 @@ const navLinks = [
   font-family: var(--font-pixel);
   font-weight: 700;
   font-size: 1.4rem;
+}
+
+.app-version {
+  text-align: center;
 }
 </style>
