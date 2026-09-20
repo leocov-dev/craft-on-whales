@@ -42,41 +42,45 @@
     </q-header>
 
     <q-drawer v-model="drawerOpen" show-if-above bordered :width="220">
-      <q-list padding>
-        <q-item clickable v-ripple to="/" exact class="text-primary text-weight-medium">
-          <q-item-section avatar>
-            <q-icon name="home" />
-          </q-item-section>
-          <q-item-section>Dashboard</q-item-section>
-        </q-item>
+      <div class="column full-height">
+        <q-list padding>
+          <q-item clickable v-ripple to="/" exact class="text-primary text-weight-medium">
+            <q-item-section avatar>
+              <q-icon name="home" />
+            </q-item-section>
+            <q-item-section>Dashboard</q-item-section>
+          </q-item>
 
-        <q-separator class="q-my-sm" />
+          <q-separator class="q-my-sm" />
 
-        <q-item v-for="link in navLinks" :key="link.to" clickable v-ripple :to="link.to" exact>
-          <q-item-section avatar>
-            <q-icon :name="link.icon" />
-          </q-item-section>
-          <q-item-section>{{ link.label }}</q-item-section>
-        </q-item>
+          <q-item v-for="link in navLinks" :key="link.to" clickable v-ripple :to="link.to" exact>
+            <q-item-section avatar>
+              <q-icon :name="link.icon" />
+            </q-item-section>
+            <q-item-section>{{ link.label }}</q-item-section>
+          </q-item>
 
-        <q-separator class="q-my-sm" />
+          <q-separator class="q-my-sm" />
 
-        <q-item clickable v-ripple to="/settings" exact>
-          <q-item-section avatar>
-            <q-icon name="settings" />
-          </q-item-section>
-          <q-item-section>Settings</q-item-section>
-        </q-item>
+          <q-item clickable v-ripple to="/settings" exact>
+            <q-item-section avatar>
+              <q-icon name="settings" />
+            </q-item-section>
+            <q-item-section>Settings</q-item-section>
+          </q-item>
 
-        <q-item v-if="auth.isAdmin" clickable v-ripple to="/users" exact>
-          <q-item-section avatar>
-            <q-icon name="group" />
-          </q-item-section>
-          <q-item-section>Users</q-item-section>
-        </q-item>
-      </q-list>
+          <q-item v-if="auth.isAdmin" clickable v-ripple to="/users" exact>
+            <q-item-section avatar>
+              <q-icon name="group" />
+            </q-item-section>
+            <q-item-section>Users</q-item-section>
+          </q-item>
+        </q-list>
 
-      <div class="app-version text-caption text-grey q-pa-sm">{{ appVersion }}</div>
+        <q-space />
+
+        <div class="app-version text-caption text-grey q-pa-sm">{{ appVersion }}</div>
+      </div>
     </q-drawer>
 
     <q-page-container>
