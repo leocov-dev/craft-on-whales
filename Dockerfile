@@ -11,6 +11,12 @@
 # separate dependency graphs), then their own build.
 FROM node:24-alpine AS build
 WORKDIR /app
+# Released git tag (e.g. "v1.2.3"), passed in by CI (see release.yml's build
+# job) — baked into the frontend bundle as a compile-time constant (see
+# quasar.config.ts's build.env) so the UI can show it. Defaults to "dev" for
+# local/manual builds that don't pass it.
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 # shared/types/*.d.ts is imported by both packages via relative paths
 # (../../../shared/types/...) — it has to land at the same sibling position
 # here as it occupies in the repo, before either package builds.

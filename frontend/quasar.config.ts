@@ -50,7 +50,13 @@ export default defineConfig((/* ctx */) => {
       // vueRouterBase,
 
       // publicPath: '/',
-      // define: {},
+      // App version shown at the bottom of the nav sidebar (MainLayout.vue).
+      // Set from the Dockerfile's APP_VERSION build ARG, which CI passes as
+      // the released git tag (see .github/workflows/release.yml) — "dev" for
+      // any build that doesn't set it (e.g. local `quasar dev`/`quasar build`).
+      define: {
+        'import.meta.env.APP_VERSION': JSON.stringify(process.env.APP_VERSION || 'dev'),
+      },
       // defineEnv: {}
       // ignorePublicFolder: true,
       // minify: false,
