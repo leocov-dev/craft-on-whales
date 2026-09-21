@@ -82,15 +82,25 @@ export function extractZipSafe(
   return new Promise((resolve, reject) => {
     let totalBytes = 0;
     let aborted = false;
+    const fail = (e: Error) => {
+      if (aborted) return;
+      aborted = true;
+      reject(
+        e instanceof BadRequestException
+          ? e
+          : new BadRequestException(
+              `Malformed zip archive — extraction failed: ${e.message}`,
+            ),
+      );
+    };
     yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
-      if (err) return reject(err);
+      if (err) return fail(new Error(`could not be opened: ${err.message}`));
       const abort = (abortErr: Error) => {
         if (aborted) return;
-        aborted = true;
         zip.close();
-        reject(abortErr);
+        fail(abortErr);
       };
-      zip.on('error', reject);
+      zip.on('error', abort);
       zip.on('end', () => {
         if (!aborted) resolve();
       });
@@ -98,7 +108,9 @@ export function extractZipSafe(
         if (aborted) return;
         if (!safeEntryName(entry.fileName)) {
           return abort(
-            new Error(`Archive entry escapes destination: ${entry.fileName}`),
+            new BadRequestException(
+              `Archive entry escapes destination: ${entry.fileName}`,
+            ),
           );
         }
         const target = path.resolve(destDir, entry.fileName);
@@ -107,7 +119,9 @@ export function extractZipSafe(
           !target.startsWith(path.resolve(destDir) + path.sep)
         ) {
           return abort(
-            new Error(`Archive entry escapes destination: ${entry.fileName}`),
+            new BadRequestException(
+              `Archive entry escapes destination: ${entry.fileName}`,
+            ),
           );
         }
         if (/\/$/.test(entry.fileName)) {
@@ -116,7 +130,7 @@ export function extractZipSafe(
         } else {
           fs.mkdirSync(path.dirname(target), { recursive: true });
           zip.openReadStream(entry, (streamErr, readStream) => {
-            if (streamErr) return reject(streamErr);
+            if (streamErr) return abort(streamErr);
             const out = fs.createWriteStream(target);
             readStream.on('data', (chunk: Buffer) => {
               totalBytes += chunk.length;
@@ -125,7 +139,7 @@ export function extractZipSafe(
                 readStream.destroy();
                 out.destroy();
                 abort(
-                  new Error(
+                  new BadRequestException(
                     `Archive exceeds the ${Math.round(maxTotalBytes / 1024 ** 3)}GB decompressed-size limit`,
                   ),
                 );
@@ -134,7 +148,7 @@ export function extractZipSafe(
             out.on('close', () => {
               if (!aborted) zip.readEntry();
             });
-            out.on('error', reject);
+            out.on('error', abort);
             readStream.pipe(out);
           });
         }

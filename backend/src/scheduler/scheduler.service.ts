@@ -265,7 +265,16 @@ export class SchedulerService implements OnModuleInit {
   ): Promise<ScheduleView | undefined> {
     if (!TASK_TYPES[taskType as TaskType])
       throw new BadRequestException(`Unknown task type ${taskType}`);
-    new Cron(cron, { timezone: await this.settings.getTimezone() }); // validates; throws on bad expression
+    try {
+      // validates; croner throws a specific reason (field count, out-of-range
+      // value, …) on a malformed expression — surface it, don't let it fall
+      // through to a generic 500.
+      new Cron(cron, { timezone: await this.settings.getTimezone() });
+    } catch (err) {
+      throw new BadRequestException(
+        `Invalid cron expression: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     const id = `sch_${nanoid(8)}`;
     await this.db.insert(schedules).values({
       id,
