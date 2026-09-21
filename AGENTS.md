@@ -2,9 +2,9 @@
 
 Guidance for coding agents (and contributors) working in this repo. Read this first, then:
 
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the exact CI gates, code layout, and the two
-  non-obvious conventions (path-guarded `./data` access, lazy `require()` cycle-breakers).
-- **[docs/architecture.md](docs/architecture.md)** — the new `backend/`/`frontend/` architecture:
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the exact CI gates, code layout, and the
+  non-obvious `./data` path-guard convention.
+- **[docs/architecture.md](docs/architecture.md)** — the `backend/`/`frontend/` architecture:
   NestJS module/DI structure, layering, `forwardRef()` circular-module cases, boot sequence.
 - **[docs/README.md](docs/README.md)** — the user-facing feature docs, if a change touches
   behavior a user would notice.
@@ -17,26 +17,18 @@ Guidance for coding agents (and contributors) working in this repo. Read this fi
 
 Coding agents should work in isolated git worktrees.
 
-## Current state: two implementations, one in-flight cutover
+## Current state: single implementation
 
-This repo is mid-rewrite. **Two complete implementations currently coexist**:
+This repo previously carried two coexisting implementations during a rewrite; that cutover is
+complete. `src/` and `views/` (the original single-process Express + Handlebars + raw-`ws` app)
+have been deleted. The active codebase is two packages:
 
-- **`src/` + `views/`** (repo root) — the original single-process Express + Handlebars + raw-`ws`
-  app. Strict TypeScript, `tsx`-run with no build step. This is the **pre-rewrite reference
-  implementation** — still runnable, still what `npm start`/`npm run dev` at the repo root launch,
-  still what the published Docker image builds. Not yet deleted.
-- **`backend/` + `frontend/`** — the rewrite target. `backend/` is a NestJS app (own `package.json`,
-  own `tsconfig.json`, Nest CLI build); `frontend/` is a Vue 3 + Quasar SPA (own `package.json`,
-  Quasar CLI/Vite build). Both are functionally complete: the backend has ~200 HTTP routes across
-  ~37 modules plus socket.io WS gateways, and the frontend consumes the API end-to-end. **The final
-  cutover has not happened yet** — `src/`/`views/` have not been deleted, the Dockerfile still
-  builds the old stack, and the frontend's WS composables (`useConsoleSocket`/`useStatsSocket`)
-  still target the OLD raw-`ws` endpoints, not the new backend's socket.io gateways (a required,
-  not-yet-done follow-up — see `backend/src/ws/WS_NOTES.md`).
+- **`backend/`** — a NestJS app (own `package.json`, own `tsconfig.json`, Nest CLI build): a JSON
+  HTTP API across ~36 domain modules plus socket.io WS gateways.
+- **`frontend/`** — a Vue 3 + Quasar SPA (own `package.json`, Quasar CLI/Vite build) that consumes
+  that API end-to-end, including the live console/stats sockets via `socket.io-client`.
 
-**Know which implementation the code you're touching belongs to.** A bug fix or feature almost
-always belongs in `backend/`/`frontend/` now, not `src/`/`views/` — check with whoever's driving
-the cutover before investing in the old implementation. Each side has its own conventions:
+Each side has its own conventions:
 
 - **`backend/`** — NestJS, strict TypeScript, dependency injection (constructor injection
   throughout, `forwardRef()` only for genuine circular module dependencies — see
@@ -44,26 +36,18 @@ the cutover before investing in the old implementation. Each side has its own co
   domain module has established a `*_NOTES.md` file for non-obvious implementation decisions (e.g.
   `backend/src/db/DRIZZLE_NOTES.md`, `backend/src/servers/SERVERS_NOTES.md`,
   `backend/src/ws/WS_NOTES.md`) — check for one before re-deriving a decision that's already
-  documented. No lazy `require()` cycle-breakers here; that convention is `src/`-only (below).
+  documented.
 - **`frontend/`** — Vue 3 (Composition API, `<script setup>`, TypeScript), Quasar components
   preferred over custom CSS/components except where Quasar has no equivalent.
-- **`src/` (legacy, reference only)** — strict TypeScript, `allowJs: false`, no `@ts-nocheck`. Uses
-  `require()` for values and lazy (function-scoped) `require()` as an intentional cycle-breaker —
-  see CONTRIBUTING.md. Don't invest new feature work here; it's being superseded.
 
-Treat correctness, security, and data safety on par with feature work in either implementation —
-this is meant to be a **production-grade** self-hosted panel, not a hobby script.
+Treat correctness, security, and data safety on par with feature work in either package — this is
+meant to be a **production-grade** self-hosted panel, not a hobby script.
 
 ## TypeScript & Node style
 
-The rest of this file (through "Other things to hold to") was written for **`src/`**, the
-pre-rewrite implementation, and its conventions largely still apply there verbatim. For
-**`backend/`**, the same spirit holds (strict types, no `any` escape hatches, async throughout) but
-the mechanics differ — see `docs/architecture.md` for the actual pattern: real ES `import`s
-throughout (no `require()`-for-values convention), constructor injection instead of lazy-require
-cycle-breakers, `forwardRef()` for the rare genuine circular module dependency instead of a
-function-scoped `require()`. Don't port `src/`'s lazy-require pattern into `backend/` — Nest's DI
-container is the mechanism for exactly what that pattern was working around.
+Strict types throughout, no `any` escape hatches, async all the way. Real ES `import`s (no
+`require()`-for-values convention), constructor injection for dependency wiring, `forwardRef()`
+for the rare genuine circular module dependency (see `docs/architecture.md`).
 
 - Prefer `unknown` over `any`; reserve `any` for genuinely dynamic data (NBT parsing, blueprint
   manifests, third-party JSON) — this is the existing convention, enforced as a lint warning, not
@@ -72,37 +56,26 @@ container is the mechanism for exactly what that pattern was working around.
   inference handle locals.
 - No new native-module dependencies without discussion — the "no native modules to compile" story
   (`node:sqlite`, pure-JS deps) is a deliberate zero-friction-install property of this project.
-- `src/` only: `import type { ... }` for types, `require()` for values (see CONTRIBUTING's
-  cycle-breaker note) — don't convert files to full ESM `import` as a drive-by change.
-- Async all the way: no callback-style APIs, no unhandled promise rejections. `src/` route handlers
-  must go through `asyncHandler` (see CONTRIBUTING's shared helpers); `backend/` controllers get
-  this for free from Nest's request pipeline.
+- Async all the way: no callback-style APIs, no unhandled promise rejections. `backend/`
+  controllers get this for free from Nest's request pipeline.
 
 ## SOLID, applied pragmatically
 
 Aim for SOLID boundaries. In `backend/`, this is largely just "write idiomatic NestJS" — one
-`@Injectable()` per concern, constructor injection, real module boundaries. In `src/`, it's the
-Node/service-module sense, not a Java-style class hierarchy:
+`@Injectable()` per concern, constructor injection, real module boundaries:
 
-- **Single responsibility** — one file per domain concern under `services/` (`src/`) or one service
-  class per concern (`backend/`); something that's grown multiple unrelated reasons to change
-  should be split — see `backend/src/servers/SERVERS_NOTES.md` for a worked example of splitting a
-  985-line hub service this way.
-- **Open/closed** — the field catalog (`src/config/field-catalog/`) is the model: adding a server
-  setting is a data change, not new branching logic scattered through the wizard/forms/validation.
-  Favor that pattern (data-driven extension) over new `if`/`switch` branches when adding a variant
-  of something that already has several.
+- **Single responsibility** — one service class per concern; something that's grown multiple
+  unrelated reasons to change should be split — see `backend/src/servers/SERVERS_NOTES.md` for a
+  worked example of splitting a 985-line hub service this way.
+- **Open/closed** — prefer data-driven extension over new `if`/`switch` branches when adding a
+  variant of something that already has several (e.g. a new modpack platform, a new server type).
 - **Liskov / interface segregation** — keep function/method signatures narrow and specific to what
-  a caller actually needs, rather than one bloated options object reused everywhere. `src/` uses
-  plain functions and modules, not class hierarchies — don't introduce inheritance there. `backend/`
+  a caller actually needs, rather than one bloated options object reused everywhere. `backend/`
   uses NestJS's `@Injectable()` classes, which is the framework's own idiom, not an exception to
   this rule — keep those classes' public methods narrow too.
-- **Dependency inversion** — the layering rule _is_ this principle. In `src/`: `services/` depend on
-  `docker/`, `db/`, `storage/` through their existing module boundaries, never the reverse, and
-  `web/routes/` never reaches into infrastructure directly; no DI container, the directory layering
-  does the job. In `backend/`: this is Nest's constructor injection directly — services declare
-  their dependencies in the constructor, modules declare `imports`/`exports`, and the same
-  controller → service → infrastructure direction holds.
+- **Dependency inversion** — the layering rule _is_ this principle: it's Nest's constructor
+  injection directly — services declare their dependencies in the constructor, modules declare
+  `imports`/`exports`, and the controller → service → infrastructure direction holds throughout.
 
 Apply these to justify clean boundaries, not to add abstraction for its own sake: a single
 implementation doesn't need an interface, a two-line helper doesn't need a factory. Match the
@@ -138,8 +111,8 @@ The panel is designed to run **behind a reverse proxy** for anything beyond loca
 README's "Do it safely" section — `TRUST_PROXY` / `COOKIE_SECURE` exist for exactly this). TLS
 termination / certificate handling, network-level rate limiting, and request payload/body size
 limits are the reverse proxy's job, not the app's. Concretely: don't add TLS/cert handling inside
-the app, don't add or expand general-purpose rate limiting or body-size-limit logic in `web/` to
-compensate for an assumed missing proxy — that's exactly the kind of new defense-in-depth layer
+the app, don't add or expand general-purpose rate limiting or body-size-limit logic in `backend/`
+to compensate for an assumed missing proxy — that's exactly the kind of new defense-in-depth layer
 covered above, so if a gap like that seems to need closing in-app, follow the process above
 (state the threat, the trade-off, ask first) rather than adding it. This does **not** cover the
 existing **login rate-limiting** (shared across the password and 2FA-code steps) — that's an
@@ -152,15 +125,13 @@ network-layer concern the proxy can substitute for.
   guard on server-side downloads, secret encryption at rest, and RCON never being exposed outside
   the container are documented invariants (see README's Security section) — changes that touch
   file paths, outbound URLs, or secrets must preserve them, not route around them for convenience.
-- **Docker is the only container interface** — talk to it through `dockerode` (`src/docker/` or
-  `backend/src/docker/`), never by shelling out to the `docker` CLI.
-- **Tests**: `src/`'s `npm test` must stay Docker-free and fast (`node:test`, no real containers).
-  Anything needing a live daemon belongs in the separate `npm run test:smoke` sweep, not the unit
-  suite. `backend/` has no real test suite yet (just the unedited Nest CLI scaffold's
-  `app.controller.spec.ts`) — this rewrite was verified by building, booting the real app against a
+- **Docker is the only container interface** — talk to it through `dockerode`
+  (`backend/src/docker/`), never by shelling out to the `docker` CLI.
+- **Tests**: `backend/` has no real test suite yet (just the unedited Nest CLI scaffold's
+  `app.controller.spec.ts`) — the rewrite was verified by building, booting the real app against a
   scratch data directory, and exercising it live with `curl`/a socket.io client for every module,
-  not by an automated suite; writing real `*.spec.ts` coverage (per the original rewrite plan's Nest
-  `@nestjs/testing` + `node:test` strategy) is still open work.
+  not by an automated suite; writing real `*.spec.ts` coverage (Nest `@nestjs/testing` +
+  `node:test`) is still open work.
 - **Don't add speculative configuration or feature flags.** This project favors sane, host-aware
   defaults (see README's `.env` table) over exposing every knob — only add an env var if there's a
   concrete case where the default is wrong for a real setup.

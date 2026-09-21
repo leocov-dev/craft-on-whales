@@ -5,8 +5,7 @@ socket.io WebSocket gateways for the live console and stats streams. It talks to
 [dockerode](https://github.com/apocas/dockerode)) to run Minecraft servers as containers, and
 stores all panel state in a single SQLite database under `../data`.
 
-This package is the rewrite target for the original `src/` implementation at the repo root — see
-the [top-level README](../README.md) for what the panel does, and
+See the [top-level README](../README.md) for what the panel does, and
 [`docs/architecture.md`](../docs/architecture.md) for how this backend is put together.
 
 ## Requirements
@@ -22,7 +21,7 @@ npm install
 npm run start:dev   # auto-restart on change
 ```
 
-The API listens on `http://localhost:3000` by default (same port as the legacy app). Configuration
+The API listens on `http://localhost:3000` by default. Configuration
 is read from environment variables — see the top-level README's configuration table; nothing needs
 to be set to start.
 

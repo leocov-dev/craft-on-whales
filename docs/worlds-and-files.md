@@ -23,3 +23,5 @@ Every file operation is confined to the server's own data directory. The panel r
 ## Mods
 
 For modded servers, the **Mods** tab (also under **World**) manages the mod set — browse and add mods, and see what's installed. Mod and pack updates surface on the [Updates](updates.md) page.
+
+For a server installed from a [packwiz](modpacks.md) `pack.toml` URL, this tab is read-only instead: it lists mods parsed straight from the pack's own index rather than the panel's normal editable overlay, since packwiz — not the panel — owns that server's mod set. A banner links back to the pack's `pack.toml` URL, which is also shown on the server's Overview tab under Details.

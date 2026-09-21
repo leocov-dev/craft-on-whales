@@ -1,5 +1,5 @@
 // Wraps GET /api/versions, GET /api/ports/suggest, and POST /api/servers
-// (src/web/routes/api.ts) for the create-server wizard.
+// for the create-server wizard.
 
 import { http } from './http';
 import type {
