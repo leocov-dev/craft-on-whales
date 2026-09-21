@@ -49,7 +49,8 @@ export class StatusController {
     if (
       row.status === 'running' ||
       row.status === 'starting' ||
-      row.status === 'unhealthy'
+      row.status === 'unhealthy' ||
+      row.status === 'stalled'
     ) {
       const [onlineNames, info] = await Promise.all([
         this.playerRoster.listOnlineNames(row.id).catch(() => [] as string[]),

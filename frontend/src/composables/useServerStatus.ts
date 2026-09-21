@@ -13,6 +13,9 @@ const STATUS_META: Record<string, StatusMeta> = {
   unhealthy: { label: 'Unhealthy', color: 'warning', pulse: true },
   updating: { label: 'Updating', color: 'info', pulse: true },
   stopped: { label: 'Stopped', color: 'grey', pulse: false },
+  // 'stalled' = still running but never finished booting (see the backend's
+  // STARTUP_STALL_MS watchdog) — alive and actionable, not dead.
+  stalled: { label: 'Stalled', color: 'warning', pulse: false },
   crashed: { label: 'Crashed', color: 'negative', pulse: false },
   'over-quota': { label: 'Over quota', color: 'negative', pulse: false },
 };

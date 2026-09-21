@@ -10,8 +10,10 @@ import { DockerLogsService } from './docker-logs.service';
 const MAX_RAPID_CRASHES = 3;
 const CRASH_WINDOW_MS = 10 * 60 * 1000;
 
-interface DockerEvent {
+export interface DockerEvent {
   status?: string;
+  Action?: string;
+  action?: string;
   Actor?: {
     Attributes?: Record<string, string>;
   };
@@ -119,7 +121,24 @@ export class DockerWatcherService implements OnModuleInit {
     this.retryTimer.unref();
   }
 
-  private async handleEvent(evt: DockerEvent): Promise<void> {
+  /**
+   * Docker reports an event's kind twice: the legacy `status` field and,
+   * on newer daemons/API versions, `Action` (lowercase `action` over some
+   * transports). Some daemons emit only the latter — a crashed JVM there
+   * arrives as `Action: 'die'` with no `status` at all, which used to slip
+   * past the die handler entirely, so the server was never marked crashed
+   * and auto-restart never fired. Read whichever field is present.
+   */
+  private eventKind(evt: DockerEvent): string {
+    return evt.status ?? evt.Action ?? evt.action ?? '';
+  }
+
+  /**
+   * Handle one container event. Public so the spec can drive it directly;
+   * the events stream is the only production caller.
+   */
+  async handleEvent(evt: DockerEvent): Promise<void> {
+    const kind = this.eventKind(evt);
     const serverId =
       evt.Actor && evt.Actor.Attributes && evt.Actor.Attributes[LABEL];
     if (!serverId) return;
@@ -130,21 +149,21 @@ export class DockerWatcherService implements OnModuleInit {
       .limit(1);
     if (!server) return;
 
-    if (evt.status === 'start') {
+    if (kind === 'start') {
       await this.dbService.db
         .update(servers)
         .set({ status: 'starting', lastStartedAt: new Date().toISOString() })
         .where(eq(servers.id, serverId));
       return;
     }
-    if (evt.status === 'health_status: healthy') {
+    if (kind === 'health_status: healthy') {
       await this.dbService.db
         .update(servers)
         .set({ status: 'running' })
         .where(eq(servers.id, serverId));
       return;
     }
-    if (evt.status === 'oom') {
+    if (kind === 'oom') {
       this.eventsService.recordEvent({
         serverId,
         type: 'oom',
@@ -153,7 +172,7 @@ export class DockerWatcherService implements OnModuleInit {
       });
       return;
     }
-    if (evt.status !== 'die') return;
+    if (kind !== 'die') return;
 
     const exitCode = Number(evt.Actor?.Attributes?.exitCode ?? -1);
     const threeMinutesAgo = new Date(Date.now() - 3 * 60_000).toISOString();

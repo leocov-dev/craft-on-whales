@@ -43,3 +43,34 @@ setter in its own `onModuleInit()` — no new circular module dependency.
 - None of the other 6 files (`connect.ts`, `hostPath.ts`, `images.ts`,
   `logs.ts`, `networks.ts`, `stats.ts`) have any require-cycle-relevant
   imports; all are either leaves or depend only on `connect.ts`/`containers.ts`.
+
+## Event kind: `status` vs `Action`
+
+`DockerWatcherService.handleEvent()` reads the event kind through
+`eventKind()` — `evt.status ?? evt.Action ?? evt.action` — not `evt.status`
+alone. Docker reports the kind twice: the legacy `status` field and, on
+newer daemons/API versions, `Action` (lowercase `action` over some
+transports), and some daemons emit only the latter. A crashed JVM there
+arrives as `Action: 'die'` with no `status`, which used to slip straight
+past the `die` branch: the server was never marked `crashed` and
+auto-restart never fired.
+
+Only the _reading_ of the event shape changed; every downstream decision is
+untouched, and `docker-watcher.service.spec.ts` pins that on purpose. In
+particular the clean-exit semantics stay exactly as they were: an exit code
+of 0/143/130 (in-game `/stop`, console `stop`, the image's own auto-stop, a
+`docker stop`, a host shutdown) is a **stop** and is never fought with an
+auto-restart, 137 counts as intentional only inside a stop/restart window,
+and a non-zero exit inside that window is still recorded as a crash even
+though it is deliberately not restarted.
+
+`handleEvent()` is public purely so the spec can drive it without a live
+daemon; the events stream is the only production caller.
+
+## Startup watchdog (`stalled`)
+
+The watcher sets `starting` on a `start` event and `running` on
+`health_status: healthy`, but a container that hangs mid-boot emits neither
+a further event nor a `die`, so nothing here can time it out. That ceiling
+lives in `ServerLifecycleService.refreshStatuses()` (the boot + 60s poll)
+instead — see `../servers/SERVERS_NOTES.md`.

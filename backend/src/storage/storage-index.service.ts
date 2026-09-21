@@ -232,7 +232,7 @@ export class StorageIndexService {
       const used = await this.sizeOf(`servers/${s.id}`);
       if (
         used > s.diskQuotaBytes * 1.1 &&
-        ['running', 'starting', 'unhealthy'].includes(s.status)
+        ['running', 'starting', 'unhealthy', 'stalled'].includes(s.status)
       ) {
         this.events.recordEvent({
           serverId: s.id,

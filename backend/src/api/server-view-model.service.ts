@@ -119,7 +119,8 @@ export class ServerViewModelService {
       withLive &&
       (s.status === 'running' ||
         s.status === 'starting' ||
-        s.status === 'unhealthy')
+        s.status === 'unhealthy' ||
+        s.status === 'stalled')
     ) {
       const [sample, onlineNames] = await Promise.all([
         this.stats.statsOnce(s.id).catch(() => null),

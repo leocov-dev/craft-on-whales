@@ -16,7 +16,9 @@ import { uuidToDashed } from './mojang-uuid.util';
 import type { CuratedStats } from './types';
 import { num, sumAll, pick } from './stats.util';
 
-const RUNNING = new Set(['running', 'starting', 'unhealthy']);
+// 'stalled' is a slow boot, not a dead container — keep ingesting from it,
+// since that diagnostic data is exactly what you want at that moment.
+const RUNNING = new Set(['running', 'starting', 'unhealthy', 'stalled']);
 const STONE_BLOCKS = [
   'minecraft:stone',
   'minecraft:cobblestone',

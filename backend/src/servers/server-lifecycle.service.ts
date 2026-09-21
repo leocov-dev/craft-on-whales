@@ -34,7 +34,10 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { PortsService } from './ports.service';
 import { DockerSpecService } from './docker-spec.service';
-import { ContainerService } from '../docker/container.service';
+import {
+  ContainerService,
+  type InspectStatusResult,
+} from '../docker/container.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ROUTER_NETWORK_NAME } from '../docker/docker-networks.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
@@ -55,6 +58,45 @@ import {
   type SchedulerContract,
 } from './scheduler.contract';
 import type { Server, ServerExtraPort, ServerExtraBind } from './types';
+
+/**
+ * How long a server may sit in 'starting' before the poll flags it 'stalled'.
+ *
+ * A container that never finishes booting has no other signal to fall back
+ * on: a hang (unlike a crash) fires no Docker die/oom event, and a
+ * healthcheck-less container reports 'running' from the moment the JVM
+ * starts. Without a ceiling, refreshStatuses() just re-wrote 'starting'
+ * every poll forever and the UI kept claiming the server was on its way up.
+ *
+ * Generous on purpose: a big modpack's mod downloads plus world generation
+ * can legitimately run long. 'stalled' means "still alive, needs attention",
+ * not "dead" — Stop/Restart/Kill stay available and live stats keep flowing,
+ * and the next poll still promotes it to 'running' if boot finishes.
+ * See SERVERS_NOTES.md.
+ */
+/**
+ * Parse a `last_started_at` cell to epoch ms, or null if it's unusable.
+ *
+ * The column holds two shapes: rows the panel writes itself are full ISO
+ * (`new Date().toISOString()`, with the `Z`), while rows written by a SQL
+ * `datetime('now')` default are `YYYY-MM-DD HH:MM:SS` in UTC with no zone
+ * marker at all. Blindly appending `Z` to the first shape yields `...ZZ`,
+ * which `Date.parse` rejects — so only the zone-less shape gets fixed up.
+ */
+function parseStartedAt(value: string | null): number | null {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const iso = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw)
+    ? raw
+    : raw.replace(' ', 'T') + 'Z';
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export const STARTUP_STALL_MS = 10 * 60_000;
+
+/** Don't spend a log fetch on a server that only just started. */
+export const LOG_PROBE_AFTER_MS = 2 * 60_000;
 
 export interface CreateServerInput {
   name: string;
@@ -879,30 +921,53 @@ export class ServerLifecycleService implements OnModuleInit {
     for (const server of await this.query.listServers()) {
       try {
         const info = await this.containers.inspectStatus(server.id);
-        let status = info.exists ? info.status : 'stopped';
+        let status: InspectStatusResult['status'] | 'stalled' = info.exists
+          ? info.status
+          : 'stopped';
         // Healthcheck-less containers report 'running' from the moment the
         // process starts, long before the MC server accepts players. Keep
         // the panel's 'starting' until the log shows 'Done (' — but only
         // spend a log fetch on servers stuck 'starting' for over 2 minutes.
+        // A server already flagged 'stalled' is re-checked the same way, so
+        // it recovers to 'running' by itself once 'Done (' finally shows up.
+        const stillBooting =
+          server.status === 'starting' || server.status === 'stalled';
         if (
-          server.status === 'starting' &&
+          stillBooting &&
           info.exists &&
-          info.status === 'running' &&
-          info.health == null
+          (info.status === 'running' || info.status === 'starting')
         ) {
-          const startedMs = Date.parse(
-            String(server.last_started_at || '').replace(' ', 'T') + 'Z',
-          );
-          if (
-            !Number.isFinite(startedMs) ||
-            Date.now() - startedMs > 2 * 60_000
-          ) {
-            const tail = await this.logs
-              .fetchLogs(server.id, { tail: 50 })
-              .catch(() => '');
-            status = /Done \(/.test(tail) ? 'running' : 'starting';
+          // Unknown start time (a container started outside the panel) never
+          // gets a stall deadline — there is nothing to measure it against —
+          // but it still gets the log probe, as before.
+          const startedMs = parseStartedAt(server.last_started_at);
+          const elapsedMs = startedMs === null ? null : Date.now() - startedMs;
+          const pastStallDeadline =
+            elapsedMs !== null && elapsedMs > STARTUP_STALL_MS;
+          if (info.health == null && info.status === 'running') {
+            if (elapsedMs === null || elapsedMs > LOG_PROBE_AFTER_MS) {
+              const tail = await this.logs
+                .fetchLogs(server.id, { tail: 50 })
+                .catch(() => '');
+              if (/Done \(/.test(tail)) status = 'running';
+              else status = pastStallDeadline ? 'stalled' : 'starting';
+            } else {
+              status = 'starting';
+            }
           } else {
-            status = 'starting';
+            // A healthcheck exists and still hasn't gone healthy: the
+            // watcher promotes to 'running' on `health_status: healthy`,
+            // so there is nothing to probe here — only the deadline.
+            status = pastStallDeadline ? 'stalled' : 'starting';
+          }
+          if (status === 'stalled' && server.status !== 'stalled') {
+            this.events.recordEvent({
+              serverId: server.id,
+              type: 'startup-stalled',
+              summary: `Still starting after ${Math.round(
+                (elapsedMs ?? 0) / 60_000,
+              )} minutes without finishing boot — check the console for what's blocking it`,
+            });
           }
         }
         if (status !== server.status)
