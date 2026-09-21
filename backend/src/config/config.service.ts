@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import {
@@ -44,6 +45,7 @@ export class ConfigService {
   readonly host: string;
   readonly port: number;
   readonly isExposedBind: boolean;
+  readonly runningInDocker: boolean;
   readonly sessionSecret: string;
   readonly cfApiKeySeed: string;
   readonly trustProxy: TrustProxy;
@@ -76,6 +78,11 @@ export class ConfigService {
       this.host !== '127.0.0.1' &&
       this.host !== 'localhost' &&
       this.host !== '::1';
+    // Standard container-detection check (Docker always bind-mounts this
+    // file into every container). Used to tell an actually-reachable LAN
+    // interface address apart from the panel container's own internal
+    // Docker network IP, which nothing outside the host can connect to.
+    this.runningInDocker = fs.existsSync('/.dockerenv');
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
     this.trustProxy = this.resolveTrustProxy();
     this.cookieSecure = this.resolveCookieSecure();
