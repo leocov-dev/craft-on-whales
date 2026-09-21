@@ -3,11 +3,10 @@ import {
   BadRequestException,
   Injectable,
 } from '@nestjs/common';
-import * as fs from 'node:fs';
 import { ContainerService } from '../docker/container.service';
 import { rcon } from '../utils/rcon';
 import { EventsService } from '../events/events.service';
-import { PathGuardService } from '../storage/path-guard.service';
+import { ServerPropertiesService } from '../servers/server-properties.service';
 import { GAMERULES, QUICK_ACTIONS } from './world-controls.constants';
 import type {
   GameruleKey,
@@ -30,16 +29,17 @@ const looksLikeError = (out: string): boolean =>
  *
  * Kept as its own module rather than folded into WorldsModule: this is an
  * RCON-command-driven concern (gamerules/time/weather/difficulty), distinct
- * from WorldPropsService's file-based server.properties concern — the only
- * overlap is the `pvp` quick-action, which (like the legacy code) edits
- * server.properties directly since PvP has no gamerule equivalent.
+ * from the server.properties file, which belongs to ServerPropertiesService.
+ * Two actions cross that line: `pvp`, which has no gamerule and lives only
+ * in the file, and `difficulty`, which is an RCON command whose result must
+ * also be written to the file so it survives a restart.
  */
 @Injectable()
 export class WorldControlsService {
   constructor(
     private readonly containers: ContainerService,
     private readonly events: EventsService,
-    private readonly pathGuard: PathGuardService,
+    private readonly properties: ServerPropertiesService,
   ) {}
 
   /** Run modern args; fall back to legacy args when the syntax is rejected. */
@@ -123,50 +123,15 @@ export class WorldControlsService {
     return m && m[1] ? Math.floor(Number(m[1]) / 24000) + 1 : null;
   }
 
-  // PvP isn't a gamerule — it's the server.properties `pvp` value, applied at
-  // (re)start and then in force for everyone, including players who join
-  // later. We edit the file directly (like the whitelist toggle); the itzg
-  // image leaves a property alone when its matching env var isn't set, so
-  // the edit persists. Vanilla default is on (pvp=true). There is no
-  // vanilla live+permanent global switch — that needs a server mod/plugin
-  // (e.g. Essential) with engine access.
+  // PvP isn't a gamerule — it's the server.properties `pvp` value, applied
+  // at (re)start and then in force for everyone, including players who join
+  // later. There is no vanilla live+permanent global switch; that needs a
+  // server mod/plugin with engine access. Writing it goes through
+  // ServerPropertiesService, which also clears a PVP env var so the image
+  // stops reverting the edit on every start.
   private readPvp(serverId: string): boolean {
-    try {
-      const text = fs.readFileSync(
-        this.pathGuard.dataPath('servers', serverId, 'server.properties'),
-        'utf8',
-      );
-      const m = /^pvp=(.*)$/m.exec(text);
-      return m && m[1] !== undefined ? m[1].trim() !== 'false' : true;
-    } catch {
-      return true; // fresh server — vanilla default
-    }
-  }
-
-  private writePvp(serverId: string, on: boolean): void {
-    const file = this.pathGuard.dataPath(
-      'servers',
-      serverId,
-      'server.properties',
-    );
-    let text = '';
-    try {
-      text = fs.readFileSync(file, 'utf8');
-    } catch {
-      /* fresh server — create the file */
-    }
-    if (/^pvp=.*$/m.test(text)) text = text.replace(/^pvp=.*$/m, `pvp=${on}`);
-    else text += `${text && !text.endsWith('\n') ? '\n' : ''}pvp=${on}\n`;
-    const tmp = this.pathGuard.dataPath(
-      'servers',
-      serverId,
-      'server.properties.tmp',
-    );
-    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), {
-      recursive: true,
-    });
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
+    const value = this.properties.get(serverId, 'pvp');
+    return value === undefined ? true : value !== 'false'; // vanilla default is on
   }
 
   async getState(serverId: string): Promise<WorldState> {
@@ -200,13 +165,32 @@ export class WorldControlsService {
       throw new BadRequestException(`Unknown quick action: ${action}`);
     let out: string;
     if ('prop' in quick) {
-      this.writePvp(serverId, quick.value); // server.properties edit — takes effect on next restart
+      // server.properties edit — takes effect on next restart
+      await this.properties.setProperty(
+        serverId,
+        quick.prop,
+        String(quick.value),
+        { actor },
+      );
       out = '';
     } else if ('variants' in quick)
       out = await this.tryVariants(serverId, quick.variants);
     else if ('rule' in quick)
       out = await this.setGamerule(serverId, quick.rule, quick.value);
     else out = await rcon(this.containers, serverId, quick.cmd);
+    // `/difficulty` changes the running game only; the file is what the
+    // server reads on boot, so write it too or the change dies at restart.
+    if (
+      'cmd' in quick &&
+      quick.cmd[0] === 'difficulty' &&
+      !looksLikeError(out)
+    ) {
+      const level = quick.cmd[1];
+      if (level)
+        await this.properties.setProperty(serverId, 'difficulty', level, {
+          actor,
+        });
+    }
     // A server.properties edit isn't an RCON command — skip the RCON error gate.
     if (!('prop' in quick) && looksLikeError(out)) {
       throw new BadGatewayException(

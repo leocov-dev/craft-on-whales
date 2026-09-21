@@ -87,3 +87,34 @@ place the plan says signatures don't need to survive unchanged.
 `NotFoundException`, `PreconditionFailedException`) — matching the
 convention already established in `AuthModule`, not the legacy custom
 helper.
+
+## server.properties has two owners, so it has one choke point
+
+`ServerPropertiesService` is the only place that writes `server.properties`.
+That is not tidiness — the file has a second writer the panel does not
+control, in two different ways:
+
+1. **The image re-applies env on every start.** `itzg/minecraft-server`
+   rewrites every property it has a matching environment variable for each
+   time the container boots. So a panel edit to PvP, difficulty, the
+   whitelist or anything else env-backed was silently reverted on the next
+   restart. `setProperty()` therefore writes the file _and_ deletes the
+   matching key from `env_json` (flagging `pending_recreate`), which hands
+   the file authority over that property for good. Values chosen in the
+   wizard still apply at creation — the unlock only fires on a later edit.
+   The property↔env mapping lives in `server-properties.map.ts`;
+   `PANEL_OWNED_ENV` there is the set `assembleEnv()` owns outright and that
+   an edit must never clear.
+
+2. **Minecraft rewrites the file from its boot-time values.** Toggling the
+   whitelist live (`/whitelist on`) makes the game write the whole file back
+   out from what it loaded at startup, wiping a PvP or difficulty edit made
+   minutes earlier. `preserveEdits()` snapshots the file, runs the command,
+   waits for the game's rewrite, and restores every key of ours it clobbered
+   except the one the command was meant to change.
+
+The two deliberate exceptions go through `write()` (or `setProperty` with
+`unlockEnv: false`): switching the active level sets `level-name` _and_
+`LEVEL`, and a world reset sets `level-seed`/`level-type` _and_
+`SEED`/`LEVEL_TYPE`. Clearing the env var there would undo the thing the
+caller just set.

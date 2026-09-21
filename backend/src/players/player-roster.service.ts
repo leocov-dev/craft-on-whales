@@ -7,6 +7,7 @@ import {
 import * as fs from 'node:fs';
 import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
+import { ServerPropertiesService } from '../servers/server-properties.service';
 import { ContainerService } from '../docker/container.service';
 import { MojangProfilesService } from './mojang-profiles.service';
 import { PLAYER_NAME_RE, isBedrockName } from '../utils/player-name';
@@ -70,6 +71,7 @@ export class PlayerRosterService {
     private readonly events: EventsService,
     private readonly containers: ContainerService,
     private readonly mojangProfiles: MojangProfilesService,
+    private readonly properties: ServerPropertiesService,
   ) {}
 
   private assertName(name: unknown): string {
@@ -341,35 +343,20 @@ export class PlayerRosterService {
     { running = false, actor = 'system' }: RunOptions = {},
   ): Promise<{ whitelistEnforced: boolean }> {
     if (running) {
-      await rcon(this.containers, serverId, ['whitelist', on ? 'on' : 'off']);
-    } else {
-      const file = this.pathGuard.dataPath(
-        'servers',
-        serverId,
-        'server.properties',
+      // Toggling the whitelist live makes the game rewrite the whole of
+      // server.properties from the values it loaded at boot, wiping any edit
+      // made since — preserveEdits puts ours back. `white-list` is the one
+      // key the game is right about here.
+      await this.properties.preserveEdits(serverId, ['white-list'], () =>
+        rcon(this.containers, serverId, ['whitelist', on ? 'on' : 'off']),
       );
-      let text = '';
-      try {
-        text = fs.readFileSync(file, 'utf8');
-      } catch {
-        /* fresh server — create the file */
-      }
-      if (/^white-list=/m.test(text)) {
-        text = text.replace(/^white-list=.*$/m, `white-list=${on}`);
-      } else {
-        text += `${text && !text.endsWith('\n') ? '\n' : ''}white-list=${on}\n`;
-      }
-      const tmp = this.pathGuard.dataPath(
-        'servers',
-        serverId,
-        'server.properties.tmp',
-      );
-      fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), {
-        recursive: true,
-      });
-      fs.writeFileSync(tmp, text);
-      fs.renameSync(tmp, file);
     }
+    // Write the file either way: it is what the server reads on boot, and
+    // this is also what clears an ENABLE_WHITELIST env var that would
+    // otherwise revert the toggle on the next start.
+    await this.properties.setProperty(serverId, 'white-list', String(on), {
+      actor,
+    });
     this.events.recordEvent({
       serverId,
       actor,
@@ -382,16 +369,7 @@ export class PlayerRosterService {
 
   /** Parse server.properties for white-list= (defaults false when absent). */
   getWhitelistEnforced(serverId: string): boolean {
-    try {
-      const text = fs.readFileSync(
-        this.pathGuard.dataPath('servers', serverId, 'server.properties'),
-        'utf8',
-      );
-      const m = /^white-list=(.*)$/m.exec(text);
-      return m?.[1] ? m[1].trim() === 'true' : false;
-    } catch {
-      return false;
-    }
+    return this.properties.get(serverId, 'white-list') === 'true';
   }
 
   // ---------------------------------------------------------------------- ops
