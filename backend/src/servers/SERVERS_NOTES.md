@@ -198,3 +198,20 @@ since `last_started_at`) and flags such a server `stalled` once, recording a
   `YYYY-MM-DD HH:MM:SS` with no zone marker. The previous code appended `Z`
   unconditionally, which turned the first shape into `...ZZ` and made
   `Date.parse` return NaN.
+
+## `dirSize()` and symlinks
+
+`ServerLifecycleService.dirSize()` now explicitly skips
+`entry.isSymbolicLink()` before checking `isDirectory()`/`isFile()`. This is
+belt-and-suspenders, not a new behavior: `fs.readdirSync(..., {
+withFileTypes: true })` returns `Dirent`s whose type comes from the
+directory entry itself (effectively an `lstat`), so a symlink was already
+never reported as `isDirectory()` or `isFile()` — it was silently skipped
+either way. The explicit check exists so the safety property is stated in
+the code rather than relying on that implicit dirent behavior, matching the
+same explicit skip already present in `StorageIndexService.scan()`,
+`WorldArchiveService.dirSize()`, and `FilesService`'s private `dirSize()` —
+none of the size-walk implementations in this repo follow a symlink out of
+the directory being measured (which also matters for the `safeJoin`
+path-guard invariant: a symlink loop or an out-of-tree symlink can't be
+used to inflate a size count or read outside the sandboxed server dir).
