@@ -17,7 +17,7 @@ Across the top:
 
 ## Server cards
 
-Each server shows as a card with its status (Running, Starting, Stopped, Crashed), the type and Minecraft version, and its game port. For running servers you also get live **players**, **CPU**, **memory**, and **disk** usage, updated continuously.
+Each server shows as a card with its status (Running, Starting, Stalled, Stopped, Crashed), the type and Minecraft version, and its game port. **Stalled** means the server started but never finished booting after ten minutes — it is still running, so open its console to see what is holding it up (a large modpack download, world generation, or a mod waiting on something). For running servers you also get live **players**, **CPU**, **memory**, and **disk** usage, updated continuously.
 
 Click a card to open that server. The empty **Create a server** card and the top-bar **New server** button both start the [creation wizard](servers.md).
 

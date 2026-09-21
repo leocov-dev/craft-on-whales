@@ -171,9 +171,12 @@ export class UpdateUpgradeService {
       }
 
       step('stopping');
-      const wasRunning = ['running', 'starting', 'unhealthy'].includes(
-        server.status,
-      );
+      const wasRunning = [
+        'running',
+        'starting',
+        'unhealthy',
+        'stalled',
+      ].includes(server.status);
       if (wasRunning) await this.lifecycle.stopServer(serverId, { actor });
 
       step('applying');

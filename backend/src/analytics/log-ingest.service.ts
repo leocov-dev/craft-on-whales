@@ -8,7 +8,8 @@ import { LogClassifierService } from './log-classifier.service';
 import { ChatCommandsRuntimeService } from '../chat/chat-commands-runtime.service';
 import type { ClassifiedEvent } from './types';
 
-const RUNNING = new Set(['running', 'starting', 'unhealthy']);
+// 'stalled' is a slow boot, not a dead container — keep tailing its logs.
+const RUNNING = new Set(['running', 'starting', 'unhealthy', 'stalled']);
 const DEDUPE_WINDOW_MS = 5000; // paired lines (logged-in/joined, lost-connection/left)
 
 interface LogTap {

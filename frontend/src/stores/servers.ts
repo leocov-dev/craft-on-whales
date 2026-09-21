@@ -9,9 +9,10 @@ const STATUS_RANK: Record<string, number> = {
   unhealthy: 1,
   starting: 2,
   updating: 3,
-  crashed: 4,
-  'over-quota': 5,
-  stopped: 6,
+  stalled: 4,
+  crashed: 5,
+  'over-quota': 6,
+  stopped: 7,
 };
 
 const SORTERS: Record<SortKey, (a: ServerViewModel, b: ServerViewModel) => number> = {

@@ -158,3 +158,43 @@ heap**. That is why `heapPlan()`'s note keys on "starting heap equals maximum
 heap" rather than on which preset is on, and why the meters (Overview,
 Metrics, the server card's hover) carry it: a 12 GB heap reading 12 GB with
 nobody online looks exactly like a leak and generates support noise.
+
+## The startup watchdog and the `stalled` status
+
+A server that enters `starting` and never finishes booting used to sit in
+`starting` forever: a hang (unlike a crash) fires no Docker `die`/`oom`
+event, and a healthcheck-less container reports `running` from the moment
+the JVM starts, so `refreshStatuses()` just re-wrote `starting` on every
+poll while the UI kept claiming the server was on its way up.
+
+`refreshStatuses()` now applies a deadline (`STARTUP_STALL_MS`, 10 minutes
+since `last_started_at`) and flags such a server `stalled` once, recording a
+`startup-stalled` event. Details worth knowing:
+
+- **`stalled` means "still alive, needs attention", not "dead".** The
+  container is running; only the boot never completed. Every consumer that
+  asks "is this server up?" off the cached row status treats it like
+  `running`/`starting`/`unhealthy` — stats and log ingest keep flowing (that
+  diagnostic data is exactly what you want at that moment), strict disk
+  quota still applies, an upgrade still stops it first, the status page and
+  server view model still show live data, and the frontend keeps
+  Stop/Restart/Kill offered rather than switching to Start.
+- **It is a poll-derived status, re-decided from scratch every 60s.** A
+  `stalled` server is re-checked exactly like a `starting` one, so it
+  recovers to `running` by itself the moment `Done (` shows up (or the
+  healthcheck goes healthy). The event fires only on the
+  `starting → stalled` transition, so a long hang does not spam history.
+- **Two boot shapes, one deadline.** Healthcheck-less containers still get
+  the `Done (`-in-the-log probe (only after `LOG_PROBE_AFTER_MS`, so a
+  fresh start costs no log fetch); a container that _has_ a healthcheck and
+  simply never goes healthy needs no probe at all — the watcher promotes it
+  on `health_status: healthy` — so only the deadline applies there.
+- **An unknown start time never stalls.** `parseStartedAt()` returns null
+  for an unparseable/empty `last_started_at` (a container started outside
+  the panel), and without an elapsed time there is nothing to measure a
+  deadline against — such a server keeps the old behavior. That helper also
+  exists because the column holds two shapes: the panel's own writes are
+  full ISO with `Z`, while a SQL `datetime('now')` default writes
+  `YYYY-MM-DD HH:MM:SS` with no zone marker. The previous code appended `Z`
+  unconditionally, which turned the first shape into `...ZZ` and made
+  `Date.parse` return NaN.
