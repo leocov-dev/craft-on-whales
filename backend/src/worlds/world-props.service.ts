@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
+import { ServerPropertiesService } from '../servers/server-properties.service';
 import type { Server } from '../servers/types';
 import { DIM_SUFFIXES } from './world-archive.service';
 import {
@@ -10,14 +11,18 @@ import {
 } from './map-service.contract';
 
 /**
- * server.properties + active-level bookkeeping. Ports the "server.properties
- * + level helpers" section of `src/services/worlds.ts`.
+ * Active-level and per-world-directory bookkeeping. The server.properties
+ * file itself belongs to `ServerPropertiesService`, which also owns the env
+ * unlock that keeps an edit from being reverted on the next container start;
+ * the two helpers here just forward to it so world-side callers don't need
+ * both injected.
  */
 @Injectable()
 export class WorldPropsService {
   constructor(
     private readonly pathGuard: PathGuardService,
     private readonly lifecycle: ServerLifecycleService,
+    private readonly properties: ServerPropertiesService,
     @Inject(MAP_SERVICE_CONTRACT)
     private readonly map: MapServiceContract,
   ) {}
@@ -33,53 +38,18 @@ export class WorldPropsService {
 
   /** Parse server.properties into a Map (empty when missing). */
   readProps(serverId: string): Map<string, string> {
-    const map = new Map<string, string>();
-    try {
-      const text: string = fs.readFileSync(
-        this.pathGuard.dataPath('servers', serverId, 'server.properties'),
-        'utf8',
-      );
-      for (const line of text.split(/\r?\n/)) {
-        if (!line || line.startsWith('#')) continue;
-        const eq = line.indexOf('=');
-        if (eq > 0)
-          map.set(line.slice(0, eq).trim(), line.slice(eq + 1).trim());
-      }
-    } catch {
-      /* fresh server */
-    }
-    return map;
+    return this.properties.read(serverId);
   }
 
-  /** Set one server.properties key atomically (create the file when missing). */
+  /**
+   * Set one server.properties key without unlocking its env var. Only for
+   * callers that set the property and its env var together (see
+   * `setActiveLevel` and the world reset's SEED/LEVEL_TYPE handling) — every
+   * other edit must go through `ServerPropertiesService.setProperty()` so the
+   * image stops overwriting the key on each start.
+   */
   setProp(serverId: string, key: string, value: string): void {
-    const file = this.pathGuard.dataPath(
-      'servers',
-      serverId,
-      'server.properties',
-    );
-    let text = '';
-    try {
-      text = fs.readFileSync(file, 'utf8');
-    } catch {
-      /* create fresh */
-    }
-    const re = new RegExp(
-      `^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}=.*$`,
-      'm',
-    );
-    if (re.test(text)) text = text.replace(re, `${key}=${value}`);
-    else text += `${text && !text.endsWith('\n') ? '\n' : ''}${key}=${value}\n`;
-    const tmp = this.pathGuard.dataPath(
-      'servers',
-      serverId,
-      'server.properties.tmp',
-    );
-    fs.mkdirSync(this.pathGuard.dataPath('servers', serverId), {
-      recursive: true,
-    });
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
+    this.properties.write(serverId, { [key]: value });
   }
 
   /** Point the server at a new level: property always, LEVEL env when present. */

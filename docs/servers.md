@@ -46,3 +46,9 @@ The **Settings** tab covers identity (name, description, tags, notes), resources
 ![Server settings](images/server-settings.png)
 
 > Per-variable environment editing and advanced Docker overrides (custom container name, extra ports/bind mounts, raw overrides) aren't available in this tab yet — see README's "Status & areas that need work".
+
+### Settings that live in server.properties
+
+PvP, difficulty and whitelist enforcement are stored in the server's `server.properties`, not in the panel's database. Changing one of them in World Controls, on the Players tab, or by editing the file directly in the file manager now sticks: the panel takes that property out of the container's environment so the Minecraft image stops re-applying its old value every time the server boots.
+
+The trade-off is that such a change marks the server as needing a **recreate**. The running server keeps going; the new container settings apply the next time you restart it from the panel.

@@ -17,6 +17,7 @@ import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { DbService } from '../db/db.service';
+import { ServerPropertiesService } from '../servers/server-properties.service';
 import { servers } from '../db/schema';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FileEntry } from '../../../shared/types/files';
@@ -79,6 +80,7 @@ export class FilesService {
     private readonly events: EventsService,
     private readonly indexer: StorageIndexService,
     private readonly dbService: DbService,
+    private readonly properties: ServerPropertiesService,
   ) {}
 
   private get db() {
@@ -200,12 +202,25 @@ export class FilesService {
     if (existing && existing.isDirectory())
       throw new BadRequestException('That path is a folder');
 
+    // server.properties is the one file in here the container also writes:
+    // the image re-applies every env-backed property on each start, so an
+    // edit made in the editor would be reverted at the next restart. Note
+    // which keys changed before overwriting the file, then hand the file
+    // authority over them.
+    const changedProps =
+      serverId && rel === 'server.properties'
+        ? this.changedPropertyKeys(serverId, content)
+        : [];
+
     const tmp = path.join(
       parent,
       `.msm-write-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`,
     );
     await fsp.writeFile(tmp, content, 'utf8');
     await fsp.rename(tmp, abs);
+
+    if (serverId && changedProps.length)
+      await this.properties.unlockEnv(serverId, changedProps, { actor });
 
     this.events.recordEvent({
       serverId: serverId || null,
@@ -215,6 +230,20 @@ export class FilesService {
       details: { path: rel, sizeBytes: bytes, created: !existing },
     });
     return { path: rel, size: bytes };
+  }
+
+  /** Property keys whose value the incoming server.properties text changes. */
+  private changedPropertyKeys(serverId: string, content: string): string[] {
+    const before = this.properties.read(serverId);
+    const changed: string[] = [];
+    for (const line of content.split(/\r?\n/)) {
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      if (before.get(key) !== line.slice(eq + 1).trim()) changed.push(key);
+    }
+    return changed;
   }
 
   async mkdir(
