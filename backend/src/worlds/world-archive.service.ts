@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   Injectable,
   PayloadTooLargeException,
 } from '@nestjs/common';
@@ -149,20 +150,27 @@ export class WorldArchiveService {
       // node-tar sanitizes absolute paths and skips `..` entries by default;
       // the filter also enforces an uncompressed-size ceiling.
       let tarTotal = 0;
-      await tar.x({
-        file,
-        cwd: destDir,
-        filter: (p: string, stat: { size?: number }) => {
-          if (p.split(/[\\/]/).includes('..')) return false;
-          tarTotal += stat?.size || 0;
-          if (tarTotal > MAX_EXTRACT_BYTES) {
-            throw new PayloadTooLargeException(
-              `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`,
-            );
-          }
-          return true;
-        },
-      });
+      try {
+        await tar.x({
+          file,
+          cwd: destDir,
+          filter: (p: string, stat: { size?: number }) => {
+            if (p.split(/[\\/]/).includes('..')) return false;
+            tarTotal += stat?.size || 0;
+            if (tarTotal > MAX_EXTRACT_BYTES) {
+              throw new PayloadTooLargeException(
+                `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`,
+              );
+            }
+            return true;
+          },
+        });
+      } catch (err) {
+        if (err instanceof HttpException) throw err;
+        throw new BadRequestException(
+          `That doesn't look like a valid tar archive${originalName ? ` (${originalName})` : ''}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       return;
     }
     throw new BadRequestException(
@@ -212,7 +220,12 @@ export class WorldArchiveService {
   extractZip(zipFile: string, destDir: string): Promise<void> {
     return new Promise((resolve, reject) => {
       yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
-        if (err) return reject(err);
+        if (err)
+          return reject(
+            new BadRequestException(
+              `Malformed zip archive — could not be opened: ${err.message}`,
+            ),
+          );
         let settled = false;
         let entryCount = 0;
         let writtenBytes = 0;
@@ -225,7 +238,13 @@ export class WorldArchiveService {
           } catch {
             /* */
           }
-          reject(e);
+          reject(
+            e instanceof HttpException
+              ? e
+              : new BadRequestException(
+                  `Malformed zip archive — extraction failed: ${e.message}`,
+                ),
+          );
         };
         const done = () => {
           if (settled) return;
