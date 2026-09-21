@@ -72,6 +72,7 @@
               v-model.number="form.heapMb"
               type="number"
               label="Java heap (MB)"
+              :hint="HEAP_FIELD_HINT"
               filled
               dense
             />
@@ -110,6 +111,7 @@ import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { wizardApi, type MojangVersionEntry } from '@/api/wizard';
 import { useServersStore } from '@/stores/servers';
+import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
 
 const $q = useQuasar();
 const router = useRouter();

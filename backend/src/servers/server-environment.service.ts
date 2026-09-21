@@ -11,6 +11,7 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ContainerService } from '../docker/container.service';
 import { JavaMatrixService } from './java-matrix.service';
+import { JvmMemoryService } from './jvm-memory.service';
 import { ServerQueryService } from './server-query.service';
 import {
   MAP_SERVICE_CONTRACT,
@@ -44,6 +45,7 @@ export class ServerEnvironmentService {
     private readonly images: DockerImagesService,
     private readonly containers: ContainerService,
     private readonly javaMatrix: JavaMatrixService,
+    private readonly jvmMemory: JvmMemoryService,
     private readonly query: ServerQueryService,
     @Inject(MAP_SERVICE_CONTRACT)
     private readonly map: MapServiceContract,
@@ -135,7 +137,13 @@ export class ServerEnvironmentService {
       env.UID = String(ids.uid);
       env.GID = String(ids.gid);
     }
-    return env;
+    // A size field that carries a bare number is read by Java as BYTES:
+    // INIT_MEMORY=512 becomes -Xms512 and the JVM refuses to start ("Too
+    // small initial heap"). The panel's own fields are integers formatted
+    // with their unit above, but env_json is free-form (advanced env fields,
+    // blueprint manifests, the API), so normalise every size-bearing key at
+    // this boundary — it also repairs values stored before this existed.
+    return this.jvmMemory.normalizeSizeEnv(env);
   }
 
   /**

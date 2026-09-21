@@ -66,3 +66,13 @@ export function meterColor(
   if (p >= QUOTA_WARN_PCT) return 'warning';
   return 'positive';
 }
+
+/**
+ * Field help shown wherever the Java heap is chosen. Java is handed the heap
+ * as both its starting and its maximum size, and it fills a heap given up
+ * front within the first minute of world generation — with or without Aikar's
+ * flags. Measured on Paper 1.21.1 with a 2 GB heap: 2.6 GB resident either
+ * way; the same server with a 512 MB initial heap idled at 1.25–1.4 GB.
+ */
+export const HEAP_FIELD_HINT =
+  'Java takes the whole heap up front, so idle memory settles near this figure. Set a smaller INIT_MEMORY to let it grow on demand.';

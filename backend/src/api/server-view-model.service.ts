@@ -6,6 +6,7 @@ import { DockerStatsService } from '../docker/docker-stats.service';
 import { MojangService } from '../players/mojang.service';
 import { ModsService } from '../mods/mods.service';
 import { PlayerRosterService } from '../players/player-roster.service';
+import { JvmMemoryService } from '../servers/jvm-memory.service';
 import {
   crashReports,
   serverPacks,
@@ -55,6 +56,7 @@ export class ServerViewModelService {
     private readonly containers: ContainerService,
     private readonly stats: DockerStatsService,
     private readonly playerRoster: PlayerRosterService,
+    private readonly jvmMemory: JvmMemoryService,
   ) {}
 
   private get db() {
@@ -65,6 +67,7 @@ export class ServerViewModelService {
     s: Server,
     { withLive = true }: { withLive?: boolean } = {},
   ): Promise<ServerViewModel> {
+    const heap = this.jvmMemory.heapPlan(s.env, s.heap_mb);
     const vm: ServerViewModel = {
       id: s.id,
       name: s.display_name,
@@ -86,6 +89,12 @@ export class ServerViewModelService {
         heapMb: s.heap_mb,
         containerMemoryMb: s.container_memory_mb,
         cpus: s.cpus,
+        // What the memory meters are actually showing: Java is handed the
+        // heap as both -Xms and -Xmx unless INIT_MEMORY says otherwise, and
+        // it fills a heap given up front. See SERVERS_NOTES.md.
+        initialHeapMb: heap.initMb,
+        heapGrowsOnDemand: heap.growsOnDemand,
+        heapNote: heap.note,
       },
       stats: { cpuPct: 0, memUsedMb: 0, uptime: null },
       players: { online: 0, max: Number(s.env.MAX_PLAYERS) || 20, names: [] },

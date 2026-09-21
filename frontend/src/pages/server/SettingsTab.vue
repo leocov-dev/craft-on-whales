@@ -20,7 +20,14 @@
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md q-gutter-md">
         <div class="text-subtitle1">Resources</div>
-        <q-input v-model.number="form.heapMb" type="number" label="Java heap (MB)" filled dense />
+        <q-input
+          v-model.number="form.heapMb"
+          type="number"
+          label="Java heap (MB)"
+          :hint="HEAP_FIELD_HINT"
+          filled
+          dense
+        />
         <q-input
           v-model.number="form.containerMemoryMb"
           type="number"
@@ -70,6 +77,7 @@ import { ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { serversApi, type ServerPatch } from '@/api/servers';
 import { useServerDetail } from '@/composables/useServerDetail';
+import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
 
 const $q = useQuasar();
 const { server, refresh } = useServerDetail();

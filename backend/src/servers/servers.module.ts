@@ -7,6 +7,7 @@ import { SchedulerModule } from '../scheduler/scheduler.module';
 import { MapModule } from '../map/map.module';
 import { MapService } from '../map/map.service';
 import { JavaMatrixService } from './java-matrix.service';
+import { JvmMemoryService } from './jvm-memory.service';
 import { PortsService } from './ports.service';
 import { DockerSpecService } from './docker-spec.service';
 import { ServerQueryService } from './server-query.service';
@@ -30,6 +31,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
   ],
   providers: [
     JavaMatrixService,
+    JvmMemoryService,
     PortsService,
     DockerSpecService,
     ServerQueryService,
@@ -43,6 +45,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
   ],
   exports: [
     JavaMatrixService,
+    JvmMemoryService,
     PortsService,
     DockerSpecService,
     ServerQueryService,
