@@ -7,6 +7,8 @@ export interface PackViewModel {
   versionId: string;
   latest: string;
   latestVersionId: string | null;
+  /** Platform-specific project reference; for packwiz this is the pack.toml URL. */
+  ref: string | null;
 }
 
 /** The server view model returned by `GET /api/servers` and `GET /api/servers/:id`. */
