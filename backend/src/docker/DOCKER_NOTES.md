@@ -74,3 +74,54 @@ The watcher sets `starting` on a `start` event and `running` on
 a further event nor a `die`, so nothing here can time it out. That ceiling
 lives in `ServerLifecycleService.refreshStatuses()` (the boot + 60s poll)
 instead — see `../servers/SERVERS_NOTES.md`.
+
+## One deadline for a whole `docker exec` (`ContainerService.execRaw`)
+
+Before this, `execRaw`'s `timeoutMs` only bounded the _stream-wait_ phase —
+the promise that resolves on the hijacked stream's `'end'` event. The
+`container.exec({...})` (create) and `exec.start({})` (start) calls
+happened outside that timer entirely, awaited with no bound at all. A
+daemon that stalls mid-create or mid-start (before any stream exists to
+attach a listener to) hung the caller forever — no different from the bug
+the stream-phase timer was already guarding against, just one HTTP
+round-trip earlier.
+
+The fix uses one `AbortController` for the whole operation instead of a
+second timer: its `signal` is passed as `abortSignal` to `container.exec()`,
+`exec.start()`, and `exec.inspect()` alike (dockerode/docker-modem thread
+`abortSignal` through to the underlying HTTP request at every one of those
+call sites — confirmed in `node_modules/dockerode/lib/{container,exec}.js`).
+A single `setTimeout(() => controller.abort(), timeoutMs)` firing aborts
+whichever phase is in flight: an outstanding create/start/inspect request
+rejects with the abort, and an already-open stream is torn down via the
+same `abort` event triggering `stream.destroy()`. This is genuinely one
+deadline over the whole unit of work, not two timers layered on top of each
+other with slightly different starting points.
+
+15000ms (the existing default, unchanged) stays a plain hardcoded constant
+per the "no speculative configuration" convention — there was no concrete
+case motivating a `DOCKER_EXEC_TIMEOUT_MS` env var, only a bug in what the
+existing timeout covered.
+
+## Docker events stream: buffer cap and reconnect backoff
+
+Two independent hardenings on `DockerWatcherService`, both defending
+against variants of "the daemon misbehaves and this loop doesn't notice":
+
+- **Line-reassembly buffer cap** (`EVENT_BUFFER_MAX_BYTES`, 256KB): the
+  `data` handler concatenates chunks into `buffer` until it finds a `\n`.
+  A real docker-events line is a small JSON object; there was previously no
+  bound on how large `buffer` could grow while waiting for that newline, so
+  a corrupted stream or a burst with a missing delimiter could grow it
+  without limit. If the buffer exceeds the cap before a newline shows up,
+  it's dropped (logged, not thrown) and reassembly starts clean on the next
+  chunk — losing at most the partial line in flight, never crashing the
+  watcher.
+- **Exponential reconnect backoff** (`RECONNECT_BASE_MS` 5s →
+  `RECONNECT_MAX_MS` 5min cap, doubling per consecutive failure): previously
+  every reconnect attempt waited a flat 5s regardless of how many times it
+  had already failed — a tight-ish retry loop against a daemon that's down
+  for an extended outage. `reconnectAttempts` now tracks consecutive
+  failures and resets to 0 on the next successful `startWatcher()`, so a
+  transient blip still recovers in 5s but a prolonged outage backs off
+  instead of hammering the socket every 5s indefinitely.

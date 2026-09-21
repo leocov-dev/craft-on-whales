@@ -985,6 +985,12 @@ export class ServerLifecycleService implements OnModuleInit {
     let total = 0;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, entry.name);
+      // Explicit even though readdir's dirent types are already lstat-based
+      // (a symlink entry is never reported isDirectory()/isFile()) — see
+      // "Directory-size walks never follow symlinks" below for why every
+      // size walk in the repo states this outright rather than relying on
+      // that implicit dirent behavior.
+      if (entry.isSymbolicLink()) continue;
       try {
         if (entry.isDirectory()) total += this.dirSize(p);
         else if (entry.isFile()) total += fs.statSync(p).size;

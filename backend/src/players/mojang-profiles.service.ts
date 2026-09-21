@@ -34,6 +34,15 @@ export function uuidToDashed(uuid: unknown): string | null {
 export class MojangProfilesService {
   constructor(private readonly dbService: DbService) {}
 
+  // Single-flight de-dup: concurrent resolveProfile() calls for the same
+  // name (lowercased) share one outbound Mojang request instead of each
+  // firing its own — e.g. several player-list panels refreshing for the
+  // same username at once, before the SQLite cache above has anything to
+  // serve yet. Keyed exactly like the cache key, cleared as soon as the
+  // shared request settles (success or failure) so the next call after
+  // that gets a fresh lookup rather than a permanently stuck entry.
+  private readonly inFlight = new Map<string, Promise<MojangProfile | null>>();
+
   private get db() {
     return this.dbService.db;
   }
@@ -58,6 +67,21 @@ export class MojangProfilesService {
       return JSON.parse(cached.valueJson) as MojangProfile | null;
     }
 
+    const existing = this.inFlight.get(key);
+    if (existing) return existing;
+
+    const promise = this.fetchAndCache(key, name, cached).finally(() => {
+      this.inFlight.delete(key);
+    });
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
+  private async fetchAndCache(
+    key: string,
+    name: string,
+    cached: { valueJson: string } | undefined,
+  ): Promise<MojangProfile | null> {
     let profile: MojangProfile | null;
     try {
       const res = await fetch(

@@ -9,6 +9,15 @@ import { DockerLogsService } from './docker-logs.service';
 
 const MAX_RAPID_CRASHES = 3;
 const CRASH_WINDOW_MS = 10 * 60 * 1000;
+// A single docker-events line is a small JSON object (well under 1KB in
+// practice). Cap the line-reassembly buffer so a daemon that never sends
+// the newline delimiter for an event (corrupt stream, or a burst with no
+// backpressure) can't grow this buffer without bound — see DOCKER_NOTES.md.
+const EVENT_BUFFER_MAX_BYTES = 256 * 1024;
+// Reconnect backoff: doubles each consecutive failure, capped, so a
+// prolonged daemon outage doesn't tight-loop reconnect attempts.
+const RECONNECT_BASE_MS = 5000;
+const RECONNECT_MAX_MS = 5 * 60 * 1000;
 
 export interface DockerEvent {
   status?: string;
@@ -49,6 +58,7 @@ export class DockerWatcherService implements OnModuleInit {
   private readonly crashWindows = new Map<string, number[]>();
   private stream: NodeJS.ReadableStream | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
   private autoRestartHandler: ((serverId: string) => Promise<void>) | null =
     null;
 
@@ -67,9 +77,7 @@ export class DockerWatcherService implements OnModuleInit {
 
   onModuleInit(): void {
     this.startWatcher().catch((err: Error) => {
-      this.logger.error(
-        `initial connect failed, retrying in 5s: ${err.message}`,
-      );
+      this.logger.error(`initial connect failed: ${err.message}`);
       this.retryLater();
     });
   }
@@ -81,9 +89,18 @@ export class DockerWatcherService implements OnModuleInit {
       filters: { type: ['container'], label: ['msm.managed=true'] },
     });
     this.stream = s;
+    // A successful connect means the outage (if any) is over — reset the
+    // backoff so the NEXT disconnect starts counting from zero again.
+    this.reconnectAttempts = 0;
     let buffer = '';
     s.on('data', (chunk: Buffer) => {
       buffer += chunk.toString('utf8');
+      if (buffer.length > EVENT_BUFFER_MAX_BYTES) {
+        this.logger.error(
+          `docker events line buffer exceeded ${EVENT_BUFFER_MAX_BYTES} bytes without a newline — dropping buffered data`,
+        );
+        buffer = '';
+      }
       let idx: number;
       while ((idx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, idx).trim();
@@ -108,16 +125,26 @@ export class DockerWatcherService implements OnModuleInit {
     this.logger.log('docker events stream connected');
   }
 
-  /** Schedule a reconnect. Keeps retrying forever; never dies after one failure. */
+  /**
+   * Schedule a reconnect. Keeps retrying forever; never dies after one
+   * failure. Backoff doubles per consecutive failure (5s, 10s, 20s, ...),
+   * capped at RECONNECT_MAX_MS, instead of a tight fixed-interval retry
+   * loop against a daemon that's down for an extended outage.
+   */
   private retryLater(): void {
     if (this.retryTimer) return; // a retry is already scheduled
+    const delayMs = Math.min(
+      RECONNECT_BASE_MS * 2 ** this.reconnectAttempts,
+      RECONNECT_MAX_MS,
+    );
+    this.reconnectAttempts++;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.startWatcher().catch((err: Error) => {
-        this.logger.error(`reconnect failed, retrying in 5s: ${err.message}`);
+        this.logger.error(`reconnect failed: ${err.message}`);
         this.retryLater();
       });
-    }, 5000);
+    }, delayMs);
     this.retryTimer.unref();
   }
 
