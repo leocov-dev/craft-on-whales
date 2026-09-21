@@ -493,6 +493,9 @@ export class PacksController {
             start: false,
             onProgress: (s: string) => t.step(s),
             javaTagHint: resolved.javaTag,
+            // The pack is pinned via applyPack() immediately below, before
+            // the server is ever started — see CreateServerOptions.deferPackPin.
+            deferPackPin: true,
           },
         );
         t.step(`Pinning ${resolved.projectName} @ ${resolved.versionName}`);

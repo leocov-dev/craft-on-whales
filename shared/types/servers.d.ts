@@ -41,6 +41,10 @@ export interface ServerViewModel {
   players: { online: number; max: number; names: string[] };
   disk: { used: number; quota: number };
   pack: PackViewModel | null;
+  /** Set when a modpack selector has no version pin and no installed-version
+   *  record was trustworthy enough to pin it from automatically — pick a
+   *  version manually. See backend/src/packs/PACKS_NOTES.md. */
+  packPinNeedsReview: boolean;
   updateAvailable: boolean;
   crashesUnread: number;
   autoStart: boolean;

@@ -47,6 +47,8 @@ export const servers = pgTable('servers', {
 
   containerId: text('container_id'),
   pendingRecreate: boolean('pending_recreate').notNull().default(false),
+  // See ../schema/servers.ts — same column, PackPinSweepService's flag.
+  packPinNeedsReview: boolean('pack_pin_needs_review').notNull().default(false),
   status: text('status').notNull().default('stopped'),
   lastStartedAt: text('last_started_at'),
   createdAt: text('created_at')

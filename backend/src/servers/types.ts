@@ -50,6 +50,9 @@ export interface Server {
   auto_restart: number;
   container_id: string | null;
   pending_recreate: number;
+  /** Set when a modpack/content selector is unpinned and no trustworthy
+   *  installed-version record exists to pin it from — see PACKS_NOTES.md. */
+  pack_pin_needs_review: number;
   status: string;
   last_started_at: string | null;
   created_at: string;

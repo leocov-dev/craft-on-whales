@@ -1,0 +1,1 @@
+ALTER TABLE "servers" ADD COLUMN "pack_pin_needs_review" boolean DEFAULT false NOT NULL;
