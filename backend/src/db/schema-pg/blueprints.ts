@@ -28,7 +28,7 @@ export const backups = pgTable(
     relPath: text('rel_path').notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
     sha256: text('sha256'),
-    reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update'
+    reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update' | 'pre-restore'
     note: text('note').notNull().default(''),
     createdAt: text('created_at')
       .notNull()

@@ -99,7 +99,7 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!(nanoid)/)"
+      "node_modules/(?!(nanoid|archiver|zip-stream|compress-commons|crc32-stream|readdir-glob|lazystream|normalize-path|is-stream|buffer-crc32|bl|readable-stream)/)"
     ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"
