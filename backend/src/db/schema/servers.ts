@@ -53,6 +53,15 @@ export const servers = sqliteTable('servers', {
   pendingRecreate: integer('pending_recreate', { mode: 'boolean' })
     .notNull()
     .default(false),
+  // Set by the boot-time unpinned-modpack sweep (PackPinSweepService) when a
+  // server carries a modpack/content selector with no version pin AND no
+  // trustworthy record of what's actually installed — never guessed at, so
+  // Settings must show a warning and let the admin pick a version manually.
+  // Cleared the moment a pin is applied (sweep, PacksService.applyPack, or
+  // a passing write through PackPinGuardService). See PACKS_NOTES.md.
+  packPinNeedsReview: integer('pack_pin_needs_review', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   status: text('status').notNull().default('stopped'),
   lastStartedAt: text('last_started_at'),
   createdAt: text('created_at')

@@ -103,6 +103,7 @@ export class ServerViewModelService {
         quota: s.disk_quota_bytes || 25 * GB,
       },
       pack: await this.packVM(s.id),
+      packPinNeedsReview: Boolean(s.pack_pin_needs_review),
       updateAvailable: await this.hasPackUpdate(s.id),
       crashesUnread: await this.crashesUnread(s.id),
       autoStart: Boolean(s.auto_start),

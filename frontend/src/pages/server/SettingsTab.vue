@@ -1,5 +1,57 @@
 <template>
   <div v-if="server" class="row q-col-gutter-md">
+    <div v-if="server.packPinNeedsReview" class="col-12">
+      <q-banner class="bg-warning text-black" rounded>
+        <template #avatar>
+          <q-icon name="warning" />
+        </template>
+        This server's modpack has no pinned version, and the panel couldn't tell what's actually
+        installed — it will keep re-downloading whatever build is newest on every start until you
+        pick a version manually. This never happens automatically, so the world already on disk is
+        safe until then.
+        <template #action>
+          <q-btn flat label="Pick version" @click="pickerOpen = true" />
+        </template>
+      </q-banner>
+
+      <q-dialog v-model="pickerOpen">
+        <q-card style="min-width: 360px" class="q-pa-sm">
+          <q-card-section class="text-subtitle1">Pin the modpack version</q-card-section>
+          <q-card-section class="q-gutter-md">
+            <q-input
+              v-model="pickForm.ref"
+              filled
+              dense
+              label="Pack slug / URL / ID"
+              :hint="
+                packPlatform ? `Platform: ${packPlatform}` : 'Unknown platform for this server type'
+              "
+            />
+            <q-input
+              v-model="pickForm.versionId"
+              filled
+              dense
+              label="Version ID (leave blank for the newest release)"
+            />
+            <q-toggle
+              v-model="pickForm.force"
+              label="Apply even if it looks like it changes the Minecraft version"
+            />
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn flat label="Cancel" v-close-popup />
+            <q-btn
+              color="primary"
+              label="Pin"
+              :loading="pinning"
+              :disable="!pickForm.ref.trim() || !packPlatform"
+              @click="applyPick"
+            />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
+    </div>
+
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md q-gutter-md">
         <div class="text-subtitle1">Identity</div>
@@ -73,14 +125,56 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { serversApi, type ServerPatch } from '@/api/servers';
+import { packsApi, type PackPlatform } from '@/api/packs';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
 
 const $q = useQuasar();
 const { server, refresh } = useServerDetail();
+
+// Mirrors PacksService.packEnv()'s TYPE <-> platform mapping — the only
+// server types PackPinSweepService ever flags carry one of these.
+const TYPE_TO_PLATFORM: Record<string, PackPlatform> = {
+  AUTO_CURSEFORGE: 'curseforge',
+  MODRINTH: 'modrinth',
+  FTBA: 'ftb',
+  GTNH: 'gtnh',
+};
+const packPlatform = computed<PackPlatform | null>(
+  () => TYPE_TO_PLATFORM[server.value?.type ?? ''] ?? null,
+);
+
+const pickerOpen = ref(false);
+const pinning = ref(false);
+const pickForm = ref({ ref: '', versionId: '', force: false });
+watch(pickerOpen, (open) => {
+  if (open) pickForm.value = { ref: '', versionId: '', force: false };
+});
+
+async function applyPick() {
+  if (!server.value || !packPlatform.value) return;
+  pinning.value = true;
+  try {
+    const versionId = pickForm.value.versionId.trim();
+    await packsApi.applyToServer(server.value.id, packPlatform.value, pickForm.value.ref.trim(), {
+      ...(versionId ? { versionId } : {}),
+      force: pickForm.value.force,
+    });
+    $q.notify({ type: 'positive', message: 'Modpack version pinned.' });
+    pickerOpen.value = false;
+    await refresh();
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Pinning failed.',
+    });
+  } finally {
+    pinning.value = false;
+  }
+}
 
 const form = ref<ServerPatch>({});
 const tagsText = ref('');

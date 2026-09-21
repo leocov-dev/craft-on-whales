@@ -365,6 +365,9 @@ export class PacksService {
         type,
         envJson: JSON.stringify(env),
         pendingRecreate: true,
+        // A pinned pack was just applied — clear any prior "needs manual
+        // pin" flag the boot sweep may have set (PackPinSweepService).
+        packPinNeedsReview: false,
         ...(resolved.mcVersion ? { mcVersion: resolved.mcVersion } : {}),
       })
       .where(eq(servers.id, serverId));

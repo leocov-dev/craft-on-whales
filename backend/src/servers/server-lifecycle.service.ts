@@ -45,6 +45,7 @@ import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
+import { PackPinGuardService } from './pack-pin-guard.service';
 // Injected via SCHEDULER_CONTRACT (below) instead of a direct SchedulerService
 // reference — a plain `import { SchedulerService }` here would drag
 // scheduler.service.ts's own require chain (StorageIndexService,
@@ -133,6 +134,15 @@ export interface CreateServerOptions {
   start?: boolean;
   onProgress?: (status: string) => void;
   javaTagHint?: string;
+  // The "create from pack" flow (packs.controller) creates the row first
+  // with no pack-selector env, then calls PacksService.applyPack — which
+  // always writes pinned env — before the server is ever started. That
+  // intermediate DB row can legitimately be a bare `type: 'GTNH'` (or a
+  // to-be-filled CF_SLUG) with no pin yet, so it must skip PackPinGuardService
+  // here; the container is never created against the unpinned state. Every
+  // other caller (raw API create, blueprint import) leaves this unset and
+  // gets the guard. See PACKS_NOTES.md.
+  deferPackPin?: boolean;
 }
 
 export interface UpdateServerChanges {
@@ -232,6 +242,7 @@ export class ServerLifecycleService implements OnModuleInit {
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
+    private readonly packPinGuard: PackPinGuardService,
     @Inject(SCHEDULER_CONTRACT)
     private readonly scheduler: SchedulerContract,
   ) {}
@@ -271,6 +282,7 @@ export class ServerLifecycleService implements OnModuleInit {
       start = false,
       onProgress = () => {},
       javaTagHint,
+      deferPackPin = false,
     }: CreateServerOptions = {},
   ): Promise<Server> {
     // Fail fast instead of shipping a crash-looping container: anything
@@ -287,6 +299,10 @@ export class ServerLifecycleService implements OnModuleInit {
         'CurseForge needs an API key — add yours in Settings → API keys first (console.curseforge.com), then create the server.',
       );
     }
+    // Same fail-fast idea for the pinning invariant: an unpinned pack
+    // selector would make the image re-resolve "latest" on every start and
+    // silently orphan the world already on disk (see PackPinGuardService).
+    if (!deferPackPin) this.packPinGuard.assertPinned(input.type, inputEnv);
 
     const id = `srv_${nanoid(8)}`;
 
@@ -668,8 +684,14 @@ export class ServerLifecycleService implements OnModuleInit {
       set.tagsJson = JSON.stringify(changes.tags);
     }
     if (changes.env) {
+      // The type column is not editable here, so the pinning check runs
+      // against the server's existing type with the incoming env.
+      this.packPinGuard.assertPinned(before.type, changes.env);
       diff.env = ['(changed)', '(changed)'];
       set.envJson = JSON.stringify(changes.env);
+      // A passing env write can only leave a pinned selector (or none at
+      // all) — clear any prior "needs manual pin" flag from the boot sweep.
+      set.packPinNeedsReview = false;
       needsRecreate = true;
     }
     if (changes.containerName !== undefined) {

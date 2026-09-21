@@ -16,6 +16,7 @@ import { ServerPreviewService } from './server-preview.service';
 import { ServerLocksService } from './server-locks.service';
 import { ServerLifecycleService } from './server-lifecycle.service';
 import { ServerPropertiesService } from './server-properties.service';
+import { PackPinGuardService } from './pack-pin-guard.service';
 import { MAP_SERVICE_CONTRACT } from './map-service.contract';
 import { SCHEDULER_CONTRACT } from './scheduler.contract';
 import { SchedulerService } from '../scheduler/scheduler.service';
@@ -40,6 +41,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
     ServerLocksService,
     ServerLifecycleService,
     ServerPropertiesService,
+    PackPinGuardService,
     { provide: MAP_SERVICE_CONTRACT, useExisting: MapService },
     { provide: SCHEDULER_CONTRACT, useExisting: SchedulerService },
   ],
@@ -54,6 +56,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
     ServerLocksService,
     ServerLifecycleService,
     ServerPropertiesService,
+    PackPinGuardService,
   ],
 })
 export class ServersModule {}

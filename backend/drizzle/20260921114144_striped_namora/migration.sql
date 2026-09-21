@@ -1,0 +1,1 @@
+ALTER TABLE `servers` ADD `pack_pin_needs_review` integer DEFAULT false NOT NULL;

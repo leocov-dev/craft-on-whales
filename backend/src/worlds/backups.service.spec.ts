@@ -20,14 +20,16 @@ import { BackupsService, RETENTION_BUCKETS } from './backups.service';
 // query building), a real WorldArchiveService (pure fs/zip plumbing), and
 // stubs for everything that would touch Docker or the indexer.
 
-const MIGRATION_SQL = path.resolve(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  '20260822171942_lumpy_cerebro',
-  'migration.sql',
-);
+const MIGRATIONS_DIR = path.resolve(__dirname, '..', '..', 'drizzle');
+
+/** Every migration.sql under drizzle/, oldest first — folder names sort
+ *  chronologically (drizzle-kit's timestamp prefix), so a plain sort suffices. */
+const migrationFiles = (): string[] =>
+  fs
+    .readdirSync(MIGRATIONS_DIR)
+    .sort()
+    .map((dir) => path.join(MIGRATIONS_DIR, dir, 'migration.sql'))
+    .filter((f) => fs.existsSync(f));
 
 const SERVER_ID = 'srv_ret';
 
@@ -96,10 +98,12 @@ describe('BackupsService', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'cow-backups-'));
     sqlite = new DatabaseSync(':memory:');
     sqlite.exec('PRAGMA foreign_keys = ON');
-    for (const stmt of fs
-      .readFileSync(MIGRATION_SQL, 'utf8')
-      .split('--> statement-breakpoint')) {
-      if (stmt.trim()) sqlite.exec(stmt);
+    for (const file of migrationFiles()) {
+      for (const stmt of fs
+        .readFileSync(file, 'utf8')
+        .split('--> statement-breakpoint')) {
+        if (stmt.trim()) sqlite.exec(stmt);
+      }
     }
     db = drizzle({ client: sqlite });
     recordEvent = jest.fn();

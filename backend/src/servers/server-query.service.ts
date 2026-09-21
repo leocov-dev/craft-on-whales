@@ -52,6 +52,7 @@ export class ServerQueryService {
       auto_restart: row.autoRestart ? 1 : 0,
       container_id: row.containerId,
       pending_recreate: row.pendingRecreate ? 1 : 0,
+      pack_pin_needs_review: row.packPinNeedsReview ? 1 : 0,
       status: row.status,
       last_started_at: row.lastStartedAt,
       created_at: row.createdAt,

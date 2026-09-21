@@ -10,6 +10,7 @@ import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { DockerSpecService } from './docker-spec.service';
+import { PackPinGuardService } from './pack-pin-guard.service';
 import { PortsService } from './ports.service';
 import { SCHEDULER_CONTRACT } from './scheduler.contract';
 import { ServerEnvironmentService } from './server-environment.service';
@@ -110,6 +111,7 @@ describe('ServerLifecycleService.refreshStatuses (startup watchdog)', () => {
         },
         { provide: ServerEnvironmentService, useValue: noop },
         { provide: ServerLocksService, useValue: noop },
+        PackPinGuardService,
         { provide: SCHEDULER_CONTRACT, useValue: noop },
       ],
     }).compile();
