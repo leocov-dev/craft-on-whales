@@ -17,6 +17,7 @@ import { WorldsModule } from '../worlds/worlds.module';
 import { PacksModule } from '../packs/packs.module';
 import { AuthModule } from '../auth/auth.module';
 import { TasksModule } from '../tasks/tasks.module';
+import { McRouterModule } from '../mc-router/mc-router.module';
 import { ServerViewModelService } from './server-view-model.service';
 import { ServersController } from './servers.controller';
 import { DockerAdminController } from './docker-admin.controller';
@@ -59,6 +60,7 @@ import { PacksController } from './packs.controller';
     PacksModule,
     AuthModule,
     TasksModule,
+    McRouterModule,
     // dest = <dataDir>/tmp, matching FilesModule's established pattern — same
     // filesystem as the final destination, so the icon-upload move is a
     // plain rename, not a cross-device copy.
