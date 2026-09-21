@@ -333,6 +333,11 @@ export class ModsService {
   ) {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
+    if (server.type === 'PACKWIZ') {
+      throw new BadRequestException(
+        'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
+      );
+    }
     const targetKind: ContentKind =
       kind || (PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod');
     const mcVersion =
@@ -730,6 +735,11 @@ export class ModsService {
   ): Promise<{ filename: string; excluded: string | null }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
+    if (server.type === 'PACKWIZ') {
+      throw new BadRequestException(
+        'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
+      );
+    }
     const filename = origName || 'mod.jar';
     if (!/\.(jar|zip)$/i.test(filename))
       throw new BadRequestException('Only .jar or .zip files can be uploaded');

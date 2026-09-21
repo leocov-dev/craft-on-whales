@@ -166,6 +166,7 @@ export class ServerViewModelService {
       versionId: pack.pinnedVersionId,
       latest: check?.latestName || pack.pinnedVersionName,
       latestVersionId: check?.latestVersion || null,
+      ref: pack.projectRef ?? null,
     };
   }
 

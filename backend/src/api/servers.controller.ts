@@ -25,6 +25,8 @@ import { DockerLogsService } from '../docker/docker-logs.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
 import { MojangService } from '../players/mojang.service';
 import { SettingsService } from '../settings/settings.service';
+import { McRouterService } from '../mc-router/mc-router.service';
+import { ConfigService } from '../config/config.service';
 import { ServerViewModelService } from './server-view-model.service';
 import type { Server } from '../servers/types';
 import {
@@ -155,6 +157,8 @@ export class ServersController {
     private readonly mojang: MojangService,
     private readonly settings: SettingsService,
     private readonly vm: ServerViewModelService,
+    private readonly mcRouter: McRouterService,
+    private readonly config: ConfigService,
   ) {}
 
   private get db() {
@@ -301,13 +305,31 @@ export class ServersController {
     const addrs: string[] = [];
     const publicAddr = await this.settings.publicAddress(row.port_game);
     if (publicAddr) addrs.push(publicAddr);
-    for (const nics of Object.values(os.networkInterfaces())) {
-      for (const nic of nics || []) {
-        if (nic.family === 'IPv4' && !nic.internal)
-          addrs.push(`${nic.address}:${row.port_game}`);
+
+    // A routed server is reached through mc-router's own listen port using
+    // its configured hostname (mc-router dispatches by the hostname the MC
+    // client sends, so that hostname *is* the address to hand players) —
+    // list it regardless of where the panel itself is running.
+    if (row.routerHostname) {
+      const routerCfg = await this.mcRouter.getConfig();
+      if (routerCfg.enabled) {
+        addrs.push(`${row.routerHostname}:${routerCfg.listenPort}`);
       }
     }
-    addrs.push(`localhost:${row.port_game}`);
+
+    // The panel's own network interfaces / localhost are only meaningful
+    // when the panel is running directly on the host (e.g. local dev):
+    // inside the panel's own Docker container these are the container's
+    // internal Docker-network addresses, not reachable from outside it.
+    if (!this.config.runningInDocker) {
+      for (const nics of Object.values(os.networkInterfaces())) {
+        for (const nic of nics || []) {
+          if (nic.family === 'IPv4' && !nic.internal)
+            addrs.push(`${nic.address}:${row.port_game}`);
+        }
+      }
+      addrs.push(`localhost:${row.port_game}`);
+    }
     return {
       ok: true,
       server: {

@@ -13,6 +13,7 @@ Guidance for coding agents (and contributors) working in this repo. Read this fi
   title becomes the single commit that lands on `main` — that's what `semantic-release` reads to
   pick the next version and generate each GitHub Release's notes. There's no hand-maintained
   changelog file.
+- **[.agents/DEPLOYMENT.md](.agents/DEPLOYMENT.md)** (untracked) — local instructions that may or may not be present for the deployment of the service on the local devs machine.
 
 Coding agents should work in isolated git worktrees.
 
