@@ -8,6 +8,9 @@ Guidance for coding agents (and contributors) working in this repo. Read this fi
   NestJS module/DI structure, layering, `forwardRef()` circular-module cases, boot sequence.
 - **[docs/README.md](docs/README.md)** — the user-facing feature docs, if a change touches
   behavior a user would notice.
+- **[UPSTREAM_PARITY.md](UPSTREAM_PARITY.md)** — what this fork has taken from, or turned down
+  from, upstream since the fork point. Check it before implementing anything that looks like an
+  upstream feature, and update the item's row in the same PR that lands it.
 - **PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/)**
   (`feat:`, `fix:`, `chore:`, etc.), enforced on every PR. The repo is squash-merge-only, so a PR's
   title becomes the single commit that lands on `main` — that's what `semantic-release` reads to
