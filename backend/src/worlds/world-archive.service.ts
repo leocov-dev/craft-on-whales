@@ -170,6 +170,44 @@ export class WorldArchiveService {
     );
   }
 
+  /**
+   * Open a finished archive and count its entries. Cheap — reads the central
+   * directory only, no decompression — and rejects if the zip won't open at
+   * all. Used as a post-write integrity check on a freshly created backup:
+   * a torn archive has to be caught at write time, not months later when a
+   * restore is the only thing standing between the operator and data loss.
+   */
+  zipEntryCount(zipFile: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
+        if (err) return reject(err);
+        let settled = false;
+        let n = 0;
+        const fail = (e: Error) => {
+          if (settled) return;
+          settled = true;
+          try {
+            zip.destroy?.();
+          } catch {
+            /* */
+          }
+          reject(e);
+        };
+        zip.on('error', fail);
+        zip.on('end', () => {
+          if (settled) return;
+          settled = true;
+          resolve(n);
+        });
+        zip.on('entry', () => {
+          n += 1;
+          zip.readEntry();
+        });
+        zip.readEntry();
+      });
+    });
+  }
+
   /** Zip-slip-safe extraction (yauzl) with a decompression-bomb ceiling. */
   extractZip(zipFile: string, destDir: string): Promise<void> {
     return new Promise((resolve, reject) => {

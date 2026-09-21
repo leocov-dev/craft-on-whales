@@ -18,7 +18,7 @@ import type { Server } from '../servers/types';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldPropsService } from './world-props.service';
 import { WorldLibraryService } from './world-library.service';
-import { BackupsService } from './backups.service';
+import { BackupsService, PRE_RESTORE_REASON } from './backups.service';
 import { WorldRuntimeService } from './world-runtime.service';
 
 const FLAVOR_LABEL: Record<string, string> = {
@@ -312,7 +312,7 @@ export class WorldTransferService {
       }
       targetLevel = this.props.activeLevelName(server);
       await this.backups.createBackup(serverId, {
-        reason: 'manual',
+        reason: PRE_RESTORE_REASON,
         actor,
         note: `Safety backup before installing world "${lib.name}"`,
       });

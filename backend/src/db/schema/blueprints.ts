@@ -26,7 +26,7 @@ export const backups = sqliteTable(
     relPath: text('rel_path').notNull(),
     sizeBytes: integer('size_bytes').notNull(),
     sha256: text('sha256'),
-    reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update'
+    reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update' | 'pre-restore'
     note: text('note').notNull().default(''),
     createdAt: text('created_at')
       .notNull()

@@ -13,7 +13,7 @@ import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldPropsService } from './world-props.service';
-import { BackupsService } from './backups.service';
+import { BackupsService, PRE_RESTORE_REASON } from './backups.service';
 import { WorldRuntimeService } from './world-runtime.service';
 
 const LEVEL_TYPES = new Set(['DEFAULT', 'FLAT', 'LARGEBIOMES', 'AMPLIFIED']);
@@ -171,7 +171,7 @@ export class WorldLifecycleService {
 
     if (backup) {
       await this.backups.createBackup(serverId, {
-        reason: 'manual',
+        reason: PRE_RESTORE_REASON,
         actor,
         note: `Safety backup before resetting world "${level}"`,
       });
