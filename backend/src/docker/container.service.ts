@@ -284,10 +284,13 @@ export class ContainerService {
 
   /**
    * Run a command via docker exec and capture its raw output (+ exit code
-   * on request). A timeout guards against a hung exec (unresponsive/
-   * deadlocked JVM) leaving the hijacked stream + connection open forever —
-   * critical because liveCache fires this on an interval and hung calls
-   * would otherwise stack without bound.
+   * on request). ONE deadline (a single AbortController) bounds the whole
+   * operation — create, start, and streaming the output — not just the
+   * stream-wait phase. Without this, a daemon that stalls mid-`exec create`
+   * or mid-`exec start` (before any stream exists to time out on) hangs the
+   * caller forever; critical because liveCache fires this on an interval
+   * and hung calls would otherwise stack without bound. See
+   * DOCKER_NOTES.md's "One deadline for a whole docker exec" section.
    */
   async execRaw(
     serverId: string,
@@ -295,67 +298,89 @@ export class ContainerService {
     { timeoutMs = 15000, wantExitCode = false }: ExecRawOptions = {},
   ): Promise<ExecRawResult> {
     const container = await this.getContainer(serverId);
-    const exec = await container.exec({
-      Cmd: cmd,
-      AttachStdout: true,
-      AttachStderr: true,
-    });
-    const stream = await exec.start({});
-    const stdout: string = await new Promise<string>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      // Demux the Docker stream framing (8-byte headers).
-      const out: NodeJS.WritableStream = new PassThrough();
-      out.on('data', (b: Buffer) => chunks.push(b));
-      this.connection.getDocker().modem.demuxStream(stream, out, out);
-      let settled = false;
-      const finish = <T>(fn: (arg: T) => void, arg: T) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        try {
-          stream.destroy();
-        } catch {
-          /* already gone */
-        }
-        fn(arg);
-      };
-      const timer = setTimeout(
-        () =>
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    timer.unref?.();
+
+    try {
+      const exec = await container.exec({
+        Cmd: cmd,
+        AttachStdout: true,
+        AttachStderr: true,
+        abortSignal: controller.signal,
+      });
+      const stream = await exec.start({ abortSignal: controller.signal });
+      const stdout: string = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        // Demux the Docker stream framing (8-byte headers).
+        const out: NodeJS.WritableStream = new PassThrough();
+        out.on('data', (b: Buffer) => chunks.push(b));
+        this.connection.getDocker().modem.demuxStream(stream, out, out);
+        let settled = false;
+        const finish = <T>(fn: (arg: T) => void, arg: T) => {
+          if (settled) return;
+          settled = true;
+          controller.signal.removeEventListener('abort', onAbort);
+          try {
+            stream.destroy();
+          } catch {
+            /* already gone */
+          }
+          fn(arg);
+        };
+        const onAbort = () =>
           finish(
             reject,
             new Error(`exec timed out after ${timeoutMs}ms: ${cmd.join(' ')}`),
-          ),
-        timeoutMs,
-      );
-      timer.unref?.();
-      stream.on('end', () =>
-        finish(resolve, Buffer.concat(chunks).toString('utf8')),
-      );
-      stream.on('error', (err: Error) => finish(reject, err));
-    });
-    // The inspect is a second daemon round trip, opted into by the one
-    // caller that reads the code — everyone else skips both its cost and
-    // its failure modes. It must never hang past the timeout contract
-    // above, and it must never fail a command whose output was already
-    // captured: the exit code is best-effort, and null means "unknown"
-    // (callers already treat non-zero and unknown the same, as "not a
-    // confirmed success").
-    let exitCode: number | null = null;
-    if (wantExitCode) {
-      try {
-        const inspected = await Promise.race([
-          exec.inspect(),
-          new Promise<null>((resolve) =>
-            setTimeout(resolve, timeoutMs, null).unref?.(),
-          ),
-        ]);
-        if (inspected && typeof inspected.ExitCode === 'number')
-          exitCode = inspected.ExitCode;
-      } catch {
-        /* exit code stays unknown */
+          );
+        // The abort may have already fired between exec.start() resolving
+        // and this listener being attached (e.g. a slow demuxStream setup);
+        // re-check rather than assume the listener always catches it.
+        if (controller.signal.aborted) {
+          onAbort();
+        } else {
+          controller.signal.addEventListener('abort', onAbort);
+          stream.on('end', () =>
+            finish(resolve, Buffer.concat(chunks).toString('utf8')),
+          );
+          stream.on('error', (err: Error) => finish(reject, err));
+        }
+      });
+
+      // The inspect is a second daemon round trip, opted into by the one
+      // caller that reads the code — everyone else skips both its cost and
+      // its failure modes. It shares the same deadline as create/start/
+      // stream above (not a fresh timeoutMs), and it must never fail a
+      // command whose output was already captured: the exit code is
+      // best-effort, and null means "unknown" (callers already treat
+      // non-zero and unknown the same, as "not a confirmed success").
+      let exitCode: number | null = null;
+      if (wantExitCode && !controller.signal.aborted) {
+        try {
+          const inspected = await exec.inspect({
+            abortSignal: controller.signal,
+          });
+          if (inspected && typeof inspected.ExitCode === 'number')
+            exitCode = inspected.ExitCode;
+        } catch {
+          /* exit code stays unknown */
+        }
       }
+      return { stdout, exitCode };
+    } catch (err: unknown) {
+      if (timedOut) {
+        throw new Error(
+          `exec timed out after ${timeoutMs}ms: ${cmd.join(' ')}`,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    return { stdout, exitCode };
   }
 
   /** Run a command via docker exec and capture its output (used for rcon-cli). */
