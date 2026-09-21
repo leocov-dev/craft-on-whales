@@ -4,6 +4,7 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ContainerService } from '../docker/container.service';
 import { JavaMatrixService } from './java-matrix.service';
+import { JvmMemoryService } from './jvm-memory.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import type { ServerExtraPort, ServerExtraBind } from './types';
@@ -60,6 +61,7 @@ export class ServerPreviewService {
     private readonly images: DockerImagesService,
     private readonly containers: ContainerService,
     private readonly javaMatrix: JavaMatrixService,
+    private readonly jvmMemory: JvmMemoryService,
     private readonly query: ServerQueryService,
     private readonly environment: ServerEnvironmentService,
   ) {}
@@ -87,6 +89,9 @@ export class ServerPreviewService {
     env.MEMORY = `${input.heapMb ?? defaults.heapMb}M`;
     env.ENABLE_RCON = 'true';
     env.RCON_PASSWORD = '(generated at creation)';
+    // Same bare-number-is-bytes normalisation `assembleEnv` applies, so the
+    // preview shows what the container will really get.
+    const normalizedEnv = this.jvmMemory.normalizeSizeEnv(env);
     return {
       containerName: input.containerName || null,
       network: input.networkName || null,
@@ -112,7 +117,7 @@ export class ServerPreviewService {
         data: '<panel data dir>/servers/<server id> -> /data',
         extra: input.extraBinds || [],
       },
-      env,
+      env: normalizedEnv,
     };
   }
 

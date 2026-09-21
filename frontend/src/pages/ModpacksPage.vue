@@ -103,6 +103,7 @@
                   v-model.number="packwiz.heapMb"
                   type="number"
                   label="Java heap (MB)"
+                  :hint="HEAP_FIELD_HINT"
                   filled
                   dense
                 />
@@ -209,6 +210,7 @@ import { useServersStore } from '@/stores/servers';
 import type { ServerViewModel } from '@/api/servers';
 import PackDetailsDialog from '@/components/PackDetailsDialog.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
 
 const $q = useQuasar();
 const router = useRouter();

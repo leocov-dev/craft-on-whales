@@ -118,3 +118,43 @@ The two deliberate exceptions go through `write()` (or `setProperty` with
 `LEVEL`, and a world reset sets `level-seed`/`level-type` _and_
 `SEED`/`LEVEL_TYPE`. Clearing the env var there would undo the thing the
 caller just set.
+
+## Heap sizing and the idle-memory question
+
+`JvmMemoryService` exists for two related reasons. Don't re-derive either.
+
+**1. A bare number is bytes to Java.** The panel's own heap field is an
+integer and `assembleEnv()` formats it as `` `${heap_mb}M` ``, so `MEMORY` was
+never wrong. But `env_json` is free-form — the API's
+`env: z.record(z.string(), z.string())`, blueprint manifests, pack-install
+env — so a user (or an imported blueprint) can set `INIT_MEMORY=512`. The
+itzg image passes that through verbatim and the JVM reads a suffix-less
+`-Xms512` as 512 **bytes**: the server dies at boot with "Too small initial
+heap". `assembleEnv()` therefore runs `normalizeSizeEnv()` over `MEMORY`,
+`INIT_MEMORY` and `MAX_MEMORY` last, which also repairs values already
+stored. Anything with an explicit unit, a percentage, or an unparseable
+shape passes through untouched — the image and the JVM reject those better
+than we can guess at them.
+
+**2. A heap given up front reads as used, and it is not a leak.** Java is
+handed the heap as both `-Xms` and `-Xmx` unless `INIT_MEMORY` says
+otherwise (the image defaults both to `MEMORY`), and it fills a heap it was
+given within the first minute of world generation. Measured upstream on
+Paper 1.21.1, 2 GB heap, fresh world, fixed seed, sampled at 0/30/60/120/180 s
+after "Done" (docker stats + cgroup anon + java RSS; every figure moved by
+under 50 MB across the three minutes):
+
+| Configuration                   | Resident |
+| ------------------------------- | -------- |
+| no flags                        | 2.60 GiB |
+| Aikar's flags                   | 2.59 GiB |
+| Aikar's + `-XX:-AlwaysPreTouch` | 1.95 GiB |
+| Aikar's + `INIT_MEMORY=512M`    | 1.38 GiB |
+| no preset + `INIT_MEMORY=512M`  | 1.25 GiB |
+
+So the flag presets are not the cause and turning pre-touch off only delays
+the fill. The one lever that lowers idle memory is a **smaller initial
+heap**. That is why `heapPlan()`'s note keys on "starting heap equals maximum
+heap" rather than on which preset is on, and why the meters (Overview,
+Metrics, the server card's hover) carry it: a 12 GB heap reading 12 GB with
+nobody online looks exactly like a leak and generates support noise.

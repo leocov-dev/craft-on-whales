@@ -26,7 +26,17 @@ export interface ServerViewModel {
   javaTag: string;
   status: ServerStatus;
   ports: { game: number; rcon: number; bedrock: number | null };
-  resources: { heapMb: number; containerMemoryMb: number; cpus: number };
+  resources: {
+    heapMb: number;
+    containerMemoryMb: number;
+    cpus: number;
+    /** The heap Java starts with (`-Xms`); equals `heapMb` unless INIT_MEMORY overrides it. */
+    initialHeapMb: number;
+    /** True when the starting heap is smaller than the maximum. */
+    heapGrowsOnDemand: boolean;
+    /** One sentence explaining what the memory meter's number means. */
+    heapNote: string | null;
+  };
   stats: { cpuPct: number; memUsedMb: number; uptime: string | null };
   players: { online: number; max: number; names: string[] };
   disk: { used: number; quota: number };

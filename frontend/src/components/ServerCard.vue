@@ -64,6 +64,11 @@
             </template>
             <template v-else>—</template>
           </div>
+          <q-tooltip v-if="server.resources.heapNote" anchor="top middle" self="bottom middle">
+            Java heap {{ server.resources.heapMb }} MB of the
+            {{ server.resources.containerMemoryMb }} MB container limit.
+            {{ server.resources.heapNote }}
+          </q-tooltip>
         </div>
       </div>
 

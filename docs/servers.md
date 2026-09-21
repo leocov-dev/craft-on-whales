@@ -47,6 +47,27 @@ The **Settings** tab covers identity (name, description, tags, notes), resources
 
 > Per-variable environment editing and advanced Docker overrides (custom container name, extra ports/bind mounts, raw overrides) aren't available in this tab yet — see README's "Status & areas that need work".
 
+### Why the memory meter reads high with nobody playing
+
+Java is handed the Java heap as both its _starting_ and its _maximum_ size, and
+it fills a heap it was given up front within the first minute of world
+generation. A 12 GB heap therefore reads about 12 GB on an empty server. That
+is normal, not a leak, and it is not caused by Aikar's or MeowIce's flags:
+measured on Paper 1.21.1 with a 2 GB heap, resident memory was 2.60 GB with no
+flags at all and 2.59 GB with Aikar's.
+
+The lever that actually lowers idle memory is a smaller **initial heap**. On
+that same 2 GB server, `INIT_MEMORY=512M` idled at 1.38 GB with Aikar's flags
+and 1.25 GB with no preset — Java then grows the heap on demand instead of
+claiming it at boot. Set `INIT_MEMORY` in the server's environment; the panel
+adds the missing `M` if you type a bare number, so `512` and `512M` both mean
+512 MB (without that, Java would read `512` as 512 _bytes_ and refuse to
+start).
+
+The memory meters on the Overview and Metrics tabs mark where the heap sits on
+the container memory limit's scale and say which of the two cases you're in;
+the server card says the same on hover.
+
 ### Settings that live in server.properties
 
 PvP, difficulty and whitelist enforcement are stored in the server's `server.properties`, not in the panel's database. Changing one of them in World Controls, on the Players tab, or by editing the file directly in the file manager now sticks: the panel takes that property out of the container's environment so the Minecraft image stops re-applying its old value every time the server boots.

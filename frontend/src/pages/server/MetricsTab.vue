@@ -16,6 +16,12 @@
       <q-card flat bordered class="q-pa-md">
         <div class="text-subtitle1 q-mb-sm">Memory</div>
         <canvas ref="memCanvas" height="120" />
+        <q-item-label v-if="server?.resources.heapNote" caption class="q-mt-sm">
+          <q-icon name="info" size="14px" class="q-mr-xs" />
+          Java heap {{ server.resources.heapMb }} MB of the
+          {{ server.resources.containerMemoryMb }} MB container limit.
+          {{ server.resources.heapNote }}
+        </q-item-label>
       </q-card>
     </div>
   </div>
