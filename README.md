@@ -443,9 +443,8 @@ node scripts/reset-password.js <username>
 - Secrets encrypted at rest (AES-256-GCM), and never readable through the file manager. Blueprints strip
   secrets on export.
 - Every file path is validated against escape from `./data` (including symlinks that resolve outside it);
-  archive extraction is zip-slip-guarded and size-capped. Server-side downloads (mods, icons) are
-  SSRF-guarded against private/internal addresses. The BlueMap proxy never forwards your session cookie
-  to the map container.
+  archive extraction is zip-slip-guarded and size-capped. The BlueMap proxy never forwards your session
+  cookie to the map container.
 
 ## Architecture
 

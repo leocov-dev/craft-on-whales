@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { parse as parseToml } from 'smol-toml';
-import { safeFetch } from '../utils/url-guard';
 import type {
   PackwizPackToml,
   PackwizIndexToml,
@@ -23,7 +22,7 @@ const METAFILE_FETCH_CONCURRENCY = 8;
 async function fetchText(url: string): Promise<string> {
   let res: Response;
   try {
-    res = await safeFetch(url, {
+    res = await fetch(url, {
       headers: { 'User-Agent': UA },
       signal: AbortSignal.timeout(15000),
     });
@@ -45,8 +44,6 @@ async function fetchText(url: string): Promise<string> {
  * `*.toml`. Unlike ModrinthApiService/CurseforgeApiService there is no
  * search API and no version registry — packwiz packs are identified purely
  * by URL, and "the current version" is whatever the URL currently serves.
- * Every fetch is a user-supplied URL, so every fetch goes through the
- * SSRF-guarded `safeFetch`, never plain `fetch`.
  */
 @Injectable()
 export class PackwizApiService {
