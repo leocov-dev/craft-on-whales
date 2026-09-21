@@ -3,7 +3,7 @@
     <div class="col-12 col-md-6">
       <q-card flat bordered class="q-pa-md">
         <div class="text-subtitle1 q-mb-sm">Connect</div>
-        <q-list dense>
+        <q-list v-if="server.addresses.length" dense>
           <q-item v-for="addr in server.addresses" :key="addr">
             <q-item-section class="font-mono">{{ addr }}</q-item-section>
             <q-item-section side>
@@ -11,6 +11,10 @@
             </q-item-section>
           </q-item>
         </q-list>
+        <q-item-label v-else caption>
+          No externally reachable address found. Set a public domain in Settings, or enable
+          mc-router for this server, so players have an address to connect to.
+        </q-item-label>
       </q-card>
     </div>
 
@@ -53,6 +57,12 @@
           <div class="col-6">
             <q-item-label caption>Created</q-item-label>
             <div>{{ new Date(server.created).toLocaleDateString() }}</div>
+          </div>
+          <div v-if="server.pack?.platform === 'packwiz' && server.pack.ref" class="col-12">
+            <q-item-label caption>Modpack (packwiz)</q-item-label>
+            <div>
+              <a :href="server.pack.ref" target="_blank" rel="noopener">{{ server.pack.ref }}</a>
+            </div>
           </div>
         </div>
       </q-card>

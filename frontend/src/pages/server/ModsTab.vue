@@ -1,6 +1,18 @@
 <template>
   <div>
-    <div class="row items-center q-gutter-x-sm q-mb-md">
+    <q-banner v-if="server?.type === 'PACKWIZ'" rounded class="q-mb-md">
+      <template #avatar>
+        <q-icon name="info" color="primary" />
+      </template>
+      Mods are managed by packwiz and can't be added, removed, or toggled from the panel.
+      <div v-if="server.pack?.ref">
+        Edit the pack at
+        <a :href="server.pack.ref" target="_blank" rel="noopener">{{ server.pack.ref }}</a>
+        and re-apply the URL to update.
+      </div>
+    </q-banner>
+
+    <div v-else class="row items-center q-gutter-x-sm q-mb-md">
       <q-input
         v-model="addUrl"
         dense
@@ -12,51 +24,71 @@
       <q-btn color="primary" label="Add" :loading="adding" @click="addMod" />
     </div>
 
-    <div v-if="pending.length" class="q-mb-md">
-      <q-banner class="bg-warning text-black">
-        This modpack needs {{ pending.length }} file(s) downloaded manually — see the modpack
-        platform for links.
+    <template v-if="server?.type === 'PACKWIZ'">
+      <q-item-label v-if="packwizMods.length === 0" caption>
+        No mods found in this pack.
+      </q-item-label>
+      <q-card v-else flat bordered>
+        <q-list separator>
+          <q-item v-for="m in packwizMods" :key="m.filename ?? m.name">
+            <q-item-section avatar>
+              <q-icon name="extension" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>{{ m.name }}</q-item-label>
+              <q-item-label caption>{{ packwizModCaption(m) }}</q-item-label>
+            </q-item-section>
+          </q-item>
+        </q-list>
+      </q-card>
+    </template>
+
+    <template v-else>
+      <div v-if="pending.length" class="q-mb-md">
+        <q-banner class="bg-warning text-black">
+          This modpack needs {{ pending.length }} file(s) downloaded manually — see the modpack
+          platform for links.
+        </q-banner>
+      </div>
+
+      <q-banner v-if="mods.length === 0" rounded>
+        <template #avatar>
+          <q-icon name="info" color="primary" />
+        </template>
+        No mods or plugins installed.
       </q-banner>
-    </div>
 
-    <q-banner v-if="mods.length === 0" rounded>
-      <template #avatar>
-        <q-icon name="info" color="primary" />
-      </template>
-      No mods or plugins installed.
-    </q-banner>
-
-    <q-card v-else flat bordered>
-      <q-list separator>
-        <q-item v-for="m in mods" :key="m.file">
-          <q-item-section avatar>
-            <q-avatar v-if="m.iconUrl" square size="32px"
-              ><img :src="m.iconUrl" :alt="m.name"
-            /></q-avatar>
-            <q-icon v-else name="extension" />
-          </q-item-section>
-          <q-item-section>
-            <q-item-label>{{ m.name }}</q-item-label>
-            <q-item-label caption
-              >{{ m.kind }} · {{ m.version ?? '—' }} · {{ formatBytes(m.size) }}</q-item-label
-            >
-          </q-item-section>
-          <q-item-section v-if="m.updateAvailable" side>
-            <q-badge color="warning" :label="`update: ${m.updateAvailable}`" />
-          </q-item-section>
-          <q-item-section side>
-            <q-toggle
-              :model-value="m.enabled"
-              :disable="server?.type === 'PACKWIZ' && m.source === 'pack'"
-              @update:model-value="toggle(m)"
-            />
-          </q-item-section>
-          <q-item-section side>
-            <q-btn flat dense round icon="delete" color="negative" @click="removeMod(m)" />
-          </q-item-section>
-        </q-item>
-      </q-list>
-    </q-card>
+      <q-card v-else flat bordered>
+        <q-list separator>
+          <q-item v-for="m in mods" :key="m.file">
+            <q-item-section avatar>
+              <q-avatar v-if="m.iconUrl" square size="32px"
+                ><img :src="m.iconUrl" :alt="m.name"
+              /></q-avatar>
+              <q-icon v-else name="extension" />
+            </q-item-section>
+            <q-item-section>
+              <q-item-label>{{ m.name }}</q-item-label>
+              <q-item-label caption
+                >{{ m.kind }} · {{ m.version ?? '—' }} · {{ formatBytes(m.size) }}</q-item-label
+              >
+            </q-item-section>
+            <q-item-section v-if="m.updateAvailable" side>
+              <q-badge color="warning" :label="`update: ${m.updateAvailable}`" />
+            </q-item-section>
+            <q-item-section side>
+              <q-toggle
+                :model-value="m.enabled"
+                @update:model-value="toggle(m)"
+              />
+            </q-item-section>
+            <q-item-section side>
+              <q-btn flat dense round icon="delete" color="negative" @click="removeMod(m)" />
+            </q-item-section>
+          </q-item>
+        </q-list>
+      </q-card>
+    </template>
   </div>
 </template>
 
@@ -64,6 +96,7 @@
 import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { modsApi, type ContentItem, type PendingDownload } from '@/api/mods';
+import { packsApi, type PackModInfo } from '@/api/packs';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 
@@ -72,11 +105,21 @@ const { server } = useServerDetail();
 
 const mods = ref<ContentItem[]>([]);
 const pending = ref<PendingDownload[]>([]);
+const packwizMods = ref<PackModInfo[]>([]);
 const addUrl = ref('');
 const adding = ref(false);
 
+function packwizModCaption(m: PackModInfo): string {
+  return m.side ? (m.side === 'both' ? 'client + server' : m.side) : '—';
+}
+
 async function load() {
   if (!server.value) return;
+  if (server.value.type === 'PACKWIZ') {
+    const res = await packsApi.details({ serverId: server.value.id }).catch(() => null);
+    packwizMods.value = res?.pack.mods ?? [];
+    return;
+  }
   const [modsRes, pendingRes] = await Promise.all([
     modsApi.list(server.value.id),
     modsApi.pendingDownloads(server.value.id),
