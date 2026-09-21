@@ -265,7 +265,16 @@ export class PacksService {
       // the index hash it resolved at install time (server_packs), not the
       // container image — a re-check compares the URL's CURRENT hash against
       // that stored one, same as every other platform's update check.
-      return { TYPE: 'PACKWIZ', PACKWIZ_URL: resolved.projectRef };
+      //
+      // itzg/docker-minecraft-server has no TYPE=PACKWIZ — packwiz is an
+      // overlay applied on top of the real server type, which pack.toml's
+      // [versions] table declares (fabric/forge/quilt/neoforge). Derive TYPE
+      // from that, defaulting to VANILLA when the pack declares none.
+      const loader = (resolved.loaders || []).find((l) =>
+        ['fabric', 'forge', 'neoforge', 'quilt'].includes(l),
+      );
+      const TYPE = loader ? loader.toUpperCase() : 'VANILLA';
+      return { TYPE, PACKWIZ_URL: resolved.projectRef };
     }
     return {
       TYPE: 'FTBA',
