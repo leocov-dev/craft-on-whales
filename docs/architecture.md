@@ -1,14 +1,11 @@
 # Architecture
 
-Minecraft Server Manager is rewritten as two independent packages — a **NestJS** backend
-(`backend/`) and a **Vue 3 + Quasar** frontend (`frontend/`) — replacing the original single-process
-Express + Handlebars app. It manages Minecraft servers that run as Docker containers using the
-[itzg/docker-minecraft-server](https://github.com/itzg/docker-minecraft-server) image, talking to the
-Docker daemon over its API (never by shelling out to the `docker` CLI).
-
-> The pre-rewrite implementation (`src/`, `views/`) still exists at the repo root as a reference
-> until final cutover — see [AGENTS.md](../AGENTS.md) for the current state of that transition. This
-> document describes the new `backend/`/`frontend/` architecture.
+Minecraft Server Manager is two independent packages — a **NestJS** backend (`backend/`) and a
+**Vue 3 + Quasar** frontend (`frontend/`). It manages Minecraft servers that run as Docker
+containers using the [itzg/docker-minecraft-server](https://github.com/itzg/docker-minecraft-server)
+image, talking to the Docker daemon over its API (never by shelling out to the `docker` CLI). This
+is a full rewrite of an earlier single-process Express + Handlebars app (`src/`, `views/`); that
+implementation has been deleted — see git history if you need it for reference.
 
 ## Runtime shape
 
@@ -19,10 +16,17 @@ Docker daemon over its API (never by shelling out to the `docker` CLI).
 - **Vue 3 + Quasar** (`frontend/`) is the SPA that consumes that API — built with Quasar CLI
   (`@quasar/app-vite`), styled with theme-driven Quasar SCSS variables rather than ad hoc utility
   classes.
-- **Drizzle ORM** over **`node:sqlite`** (flagless, built into Node ≥ 24) is the database — a
-  TS-first, SQL-like query builder replacing hand-written SQL strings, still zero native modules,
-  still WAL mode. `drizzle-kit` generates versioned SQL migrations from the schema in
-  `backend/src/db/schema/*.ts`; `backend/src/db/migrate.ts` applies them at boot.
+- **Drizzle ORM** over **`node:sqlite`** (flagless, built into Node ≥ 24) is the database by
+  default — a TS-first, SQL-like query builder replacing hand-written SQL strings, still zero
+  native modules, still WAL mode. `drizzle-kit` generates versioned SQL migrations from the schema
+  in `backend/src/db/schema/*.ts`; `backend/src/db/migrate.ts` applies them at boot. Setting
+  `DB_DRIVER=postgres` switches to a hand-maintained mirror schema in `backend/src/db/schema-pg/`
+  (own Postgres-flavored column types, see
+  [`PG_SCHEMA_NOTES.md`](../backend/src/db/schema-pg/PG_SCHEMA_NOTES.md)) via a runtime dispatcher
+  in `backend/src/db/schema/index.ts` — see
+  [`DUAL_DIALECT_NOTES.md`](../backend/src/db/schema/DUAL_DIALECT_NOTES.md) for why that dispatch
+  exists instead of a `SqliteDb | PgDb` union type. The
+  [Postgres Docker Compose example](../examples/docker-compose-postgres/README.md) shows the setup.
 - **socket.io** (via `@nestjs/websockets`/`@nestjs/platform-socket.io`) carries the live console and
   stats streams, replacing the original raw-`ws` implementation. See
   [`backend/src/ws/WS_NOTES.md`](../backend/src/ws/WS_NOTES.md) for the wire-format details.
@@ -54,16 +58,21 @@ flat files:
   `PlayersController`. Parse/validate with zod (manual `z.object(...)` schemas, no separate DTO
   classes — see `backend/src/auth/auth.controller.ts` for the established pattern), call an injected
   service, return a plain object shaped to match the API's established JSON contract. No business
-  logic here.
+  logic here. The cross-cutting `ApiModule` (`backend/src/api/`) groups several controllers that
+  don't warrant their own domain module — see
+  [`API_NOTES.md`](../backend/src/api/API_NOTES.md) for what's deliberately kept there vs. deferred.
 - **Services** — the heart of the app, one `@Injectable()` class per concern. A module that outgrew
   a single responsibility gets split further (e.g. `ServersModule`'s hub service became
   `ServerLifecycleService` / `ServerEnvironmentService` / `ServerPreviewService` / `ServerQueryService`
-  / `ServerLocksService` — see [`backend/src/servers/SERVERS_NOTES.md`](../backend/src/servers/SERVERS_NOTES.md)).
+  / `ServerLocksService` — see [`backend/src/servers/SERVERS_NOTES.md`](../backend/src/servers/SERVERS_NOTES.md);
+  `WorldsModule` was split the same way, see
+  [`WORLDS_NOTES.md`](../backend/src/worlds/WORLDS_NOTES.md)).
 - **`docker/`** — dockerode wrappers, one service per concern: `DockerConnectionService` (endpoint
   detection + daemon health, never throws on a down daemon), `ContainerService`,
   `DockerLogsService`, `DockerStatsService`, `DockerImagesService`, `DockerNetworksService`,
   `HostPathService`, `McRouterDockerService`, and `DockerWatcherService` (turns Docker events into
-  history + crash detection; starts on `onModuleInit`).
+  history + crash detection; starts on `onModuleInit`). See
+  [`DOCKER_NOTES.md`](../backend/src/docker/DOCKER_NOTES.md).
 - **`db/`** — `DbService` wraps the Drizzle-over-`node:sqlite` connection (opened synchronously in
   the constructor, not `onModuleInit` — see the "boot sequence" note below for why) and exposes the
   Drizzle query builder (`db.select()/insert()/update()/delete()`) to injected consumers.
@@ -100,9 +109,12 @@ cases, each with an inline comment citing the specific cycle:
   BlueMap needs `WorldPropsService` to read which world is active.
 - **`InventoryModule` ↔ `PlayersModule`** — inventory editing needs the online-player roster;
   player-facing roster/teleport features read inventory data.
-- A cascading case: once `UpdatesModule` (needed by `SchedulerModule` for scheduled update checks)
-  pulled in `ModsModule`/`PacksModule`, both of _those_ needed their own `ServersModule` import
-  wrapped in `forwardRef()` too, since they now sat transitively on the same require cycle.
+- A cascading case: `ServersModule` `forwardRef()`s `SchedulerModule`, which plainly imports
+  `UpdatesModule`, `WorldsModule`, and `StorageIndexModule` — so once each of those needed to read
+  back from `ServersModule`, they had to close the loop with their own `forwardRef(() =>
+ServersModule)` too. `ModsModule`, `PacksModule`, and `LibraryModule` sit one step further down
+  that same chain (via `UpdatesModule`/`StorageIndexModule`) and need the identical `forwardRef()`
+  for the same reason.
 
 Where a plain circular `import` would crash at file-load time (not just at Nest's DI-resolution
 time), the affected service uses `import type` for the type reference plus a lazily-`require()`'d

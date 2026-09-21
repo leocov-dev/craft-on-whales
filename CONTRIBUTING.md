@@ -1,11 +1,9 @@
 # Contributing
 
-Thanks for your interest in improving Minecraft Server Manager. The project is mid-rewrite: the
-active codebase is two packages, **[`backend/`](backend/README.md)** (NestJS, strict TypeScript)
-and **[`frontend/`](frontend/README.md)** (Vue 3 + Quasar). The original single-process app
-(`src/` + `views/`, Express + Handlebars) still exists at the repo root as a reference until final
-cutover — new feature work belongs in `backend/`/`frontend/`, not there. See
-[AGENTS.md](AGENTS.md) for the full picture of that transition.
+Thanks for your interest in improving Minecraft Server Manager. The codebase is two packages,
+**[`backend/`](backend/README.md)** (NestJS, strict TypeScript) and
+**[`frontend/`](frontend/README.md)** (Vue 3 + Quasar). See [AGENTS.md](AGENTS.md) for the
+project-wide conventions.
 
 ## Getting set up
 
@@ -45,12 +43,20 @@ start from a clean slate, stop the backend and delete that directory — it's re
 
 ## Before you open a PR
 
+Root (CI also runs these over the whole repo):
+
+```bash
+npm run lint          # ESLint over tools/, eslint.config.js
+npm run format:check   # Prettier --check over the whole tree
+```
+
 Backend:
 
 ```bash
 cd backend
 npm run lint        # ESLint
 npx tsc --noEmit -p tsconfig.json    # strict typecheck, no emit
+npm run test          # node:test — currently just the unedited Nest CLI scaffold spec
 npm run build        # nest build
 ```
 
@@ -86,9 +92,11 @@ controllers (HTTP)  →  services (domain logic)  →  docker / db / storage (in
 - **`docker/`, `db/`, `storage/`** — infrastructure. `docker/` wraps dockerode; `db/` wraps Drizzle
   ORM over `node:sqlite` + migrations; `storage/` owns the `./data` layout, the path guard, and
   disk quotas.
-- **`config/`** holds `ConfigService` (env resolution). The field-catalog concept from the legacy
-  app (every itzg environment variable with friendly label/help/validation, driving the wizard and
-  settings forms automatically) still lives in `src/config/field-catalog/` pending its own port.
+- **`config/`** holds `ConfigService` (env resolution) and `ResourceDefaultsResolver` (host-aware
+  heap/memory/disk defaults). The pre-rewrite app's field-catalog concept (every itzg environment
+  variable with friendly label/help/validation, driving Simple/Advanced wizard forms
+  automatically) has not been ported — the current wizard only covers name/type/version/resources.
+  See README's "Status & areas that need work".
 - **`events/`** is cross-cutting: `EventsService.recordEvent()` is the one entry point for history.
   **`ws/`** carries the live console + stats sockets over socket.io.
 
@@ -103,17 +111,13 @@ shared `http.ts` fetch instance), Pinia stores for cross-cutting state (`stores/
    that escapes the data root, which is the backbone of the app's file-safety story. Uploads and
    archive extraction are additionally size-capped.
 2. **`forwardRef()` marks a genuine circular module dependency, not a mistake.** A handful of
-   modules (`ServersModule`↔`SchedulerModule`, `ServersModule`↔`MapModule`, and a few more) have a
-   real bidirectional relationship — see `docs/architecture.md`'s "Circular module dependencies"
-   section before adding a new one or "simplifying" an existing one.
+   modules (`ServersModule`↔`SchedulerModule`, `ServersModule`↔`MapModule`, and several more that
+   cascade from those) have a real bidirectional relationship — see `docs/architecture.md`'s
+   "Circular module dependencies" section before adding a new one or "simplifying" an existing one.
 3. **Check for a `*_NOTES.md` before re-deriving a design decision.** Several `backend/src/*/`
-   directories have one (e.g. `db/DRIZZLE_NOTES.md`, `servers/SERVERS_NOTES.md`, `ws/WS_NOTES.md`)
-   documenting a non-obvious choice or a gotcha that was already worked out.
-4. **`src/` (legacy) still uses lazy `require()` cycle-breakers** — some modules `require()` a
-   sibling _inside a function_ to avoid a circular dependency at load time. If you're touching that
-   code and see `const x = require('...')` mid-function, that's why — don't "clean it up" by
-   hoisting it without checking for the cycle. This convention does not apply to `backend/`, which
-   uses `forwardRef()` instead (above).
+   directories have one (e.g. `db/DRIZZLE_NOTES.md`, `servers/SERVERS_NOTES.md`, `ws/WS_NOTES.md`,
+   `docker/DOCKER_NOTES.md`, `api/API_NOTES.md`, `worlds/WORLDS_NOTES.md`) documenting a
+   non-obvious choice or a gotcha that was already worked out.
 
 ## Reporting bugs / requesting features
 

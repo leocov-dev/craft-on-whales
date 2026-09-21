@@ -8,6 +8,10 @@ The **Modpacks** page (and the **From modpack** tab in the [creation wizard](ser
 
 ## Supported platforms
 
+- **Packwiz** — paste a `pack.toml` URL (the format packwiz authors publish). Packwiz packs aren't
+  searchable, so this is a direct-URL install only. The pack URL is shown on the server's Overview
+  tab, and its Mods tab becomes a read-only list parsed from the pack rather than the editable mod
+  overlay other install methods get — see [Worlds & files](worlds-and-files.md#mods).
 - **CurseForge** — search or paste a pack URL. Needs a CurseForge API key for search and private packs (add it under Settings → API keys).
 - **Modrinth** — search by name.
 - **FTB** — Feed The Beast packs.

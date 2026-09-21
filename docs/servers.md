@@ -15,7 +15,7 @@ You choose:
 - A **Minecraft version** — `LATEST`, a snapshot, or a specific version.
 - **Resources** — RAM (heap), container memory limit, CPU, and a disk quota.
 
-Prefer a modpack? The **From modpack** tab installs a CurseForge, Modrinth, FTB, or GT New Horizons pack instead — see [Modpacks](modpacks.md). You can also start from a saved [Blueprint](blueprints.md).
+Prefer a modpack? The **From modpack** tab installs from a packwiz `pack.toml` URL, CurseForge, Modrinth, FTB, or GT New Horizons instead — see [Modpacks](modpacks.md). You can also start from a saved [Blueprint](blueprints.md).
 
 The panel picks a sensible Java runtime for your version automatically, pulls the image, creates the container, and (optionally) starts it — all from the one form.
 
@@ -41,8 +41,8 @@ Opening a server gives you a tabbed workspace:
 
 ## Server settings
 
-The **Settings** tab is the full configuration surface: rename, resources, update policy, auto-start / auto-restart, environment variables, and advanced Docker overrides. Fields that change how the container runs are clearly marked as needing a restart.
+The **Settings** tab covers identity (name, description, tags, notes), resources (heap, container memory, CPU, disk quota), and lifecycle (auto-start, auto-restart on crash, modpack update policy).
 
 ![Server settings](images/server-settings.png)
 
-> Advanced Docker override fields (custom container name, extra port and bind mounts, and raw overrides) are **admin-only**, because a bind mount plus the panel's Docker access is effectively root on the host. See [Users & roles](users-and-roles.md).
+> Per-variable environment editing and advanced Docker overrides (custom container name, extra ports/bind mounts, raw overrides) aren't available in this tab yet — see README's "Status & areas that need work".

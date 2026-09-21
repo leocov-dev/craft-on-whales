@@ -13,8 +13,9 @@ A complete, self-hosted control panel for [itzg/docker-minecraft-server](https:/
 
 - **[Creating & managing servers](servers.md)** — the creation wizard, server types, versions, and per-server settings.
 - **[Console & chat commands](console-and-chat.md)** — the live console, and custom in-game chat commands that run as the player.
-- **[Modpacks](modpacks.md)** — install CurseForge, Modrinth, FTB, and GT New Horizons packs, always pinned to an exact version.
+- **[Modpacks](modpacks.md)** — install packwiz, CurseForge, Modrinth, FTB, and GT New Horizons packs, always pinned to an exact version.
 - **[Worlds & files](worlds-and-files.md)** — swap worlds, manage mods, and edit files directly in the browser.
+- **[Router](mc-router.md)** — route multiple servers through one port by hostname, with auto-start/auto-stop on player connect.
 
 ## Data & automation
 

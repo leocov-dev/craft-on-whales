@@ -1,12 +1,11 @@
 # WS gateway notes
 
-Replaces legacy `src/ws/index.ts`'s raw-`ws` implementation with
-`@nestjs/websockets`'s socket.io gateway pattern. This is a **deliberate
-wire-protocol break** per the rewrite plan — the Phase 1 Vue frontend's
-`useConsoleSocket`/`useStatsSocket` composables still target the OLD raw-`ws`
-endpoints (`/ws/console/:id`, `/ws/stats/:id`) and need a follow-up rewrite to
-`socket.io-client` before this is wired up end-to-end. That frontend work is
-explicitly out of scope here.
+Replaces the pre-rewrite app's raw-`ws` implementation with
+`@nestjs/websockets`'s socket.io gateway pattern. This was a **deliberate
+wire-protocol break** per the rewrite plan. The frontend's
+`useConsoleSocket`/`useStatsSocket` composables (`frontend/src/composables/`)
+now target these socket.io namespaces via `socket.io-client` — the migration
+described below is complete end-to-end.
 
 ## New connection shape
 

@@ -29,9 +29,11 @@ copy to migrate.**
 
 - **Multi-server lifecycle**: create / start / stop / restart / recreate / delete, with graceful
   RCON `stop` before container stop, health-aware status, and crash detection with backoff.
-- **Guided wizard**: Simple mode (the common knobs) or Advanced mode exposing every environment
-  variable the image supports, each with plain-English help, grouped by section, plus a raw
-  `KEY=value` escape hatch. Only non-default values are applied.
+- **Guided wizard**: name, server type/loader, Minecraft version, and resource limits (heap,
+  container memory, CPU, disk quota) — the panel picks a sensible Java runtime for the version
+  automatically. A full Simple/Advanced field catalog exposing every itzg image environment
+  variable with plain-English help (plus a raw `KEY=value` escape hatch) existed in the pre-rewrite
+  app and hasn't been ported yet — see "Status & areas that need work" below.
 - **Modpacks are always pinned**: "latest" is resolved to a concrete version id at install time and
   pinned, so the image never silently upgrades a pack on restart. Upgrades are explicit: preview →
   automatic pre-update backup → graceful stop → re-pin → recreate → health monitoring → **one-click
@@ -156,9 +158,11 @@ by host path).
 ```bash
 git clone https://github.com/leocov-dev/craft-on-whales.git craft-on-whales
 cd craft-on-whales
-npm install               # installs deps and builds the Tailwind CSS (postinstall)
-cp .env.example .env      # optional — all values have sane defaults
-npm start                 # or: npm run dev (auto-restart + CSS watch)
+npm install                # root deps (just the dev-server runner)
+npm --prefix backend install
+npm --prefix frontend install
+cp .env.example .env       # optional — all values have sane defaults
+npm run dev                # runs backend (NestJS) + frontend (Quasar) dev servers together
 ```
 
 Open **http://localhost:3000**. By default the panel binds to **localhost only** (`127.0.0.1`), so it's
@@ -354,7 +358,8 @@ with whatever Node version started the PM2 _daemon_, and later switching your sh
 Pin the interpreter per app:
 
 ```bash
-pm2 start src/server.js --name craft-on-whales --interpreter "$(nvm which 24)"
+cd backend && npm run build   # produces dist/main.js
+pm2 start dist/main.js --name craft-on-whales --interpreter "$(nvm which 24)"
 pm2 save
 ```
 
@@ -448,54 +453,66 @@ node scripts/reset-password.js <username>
 
 ## Architecture
 
-The app is being rewritten into two packages — a [NestJS](https://nestjs.com) backend
-(`backend/`) and a [Vue 3 + Quasar](https://quasar.dev) frontend (`frontend/`) — replacing the
-original single-process design below. Both are functionally complete but not yet the shipped
-default; see [CONTRIBUTING.md](CONTRIBUTING.md) if you want to run or build on the new stack.
-
-The original, currently-shipped implementation:
+The app is two packages: a [NestJS](https://nestjs.com) backend (`backend/`) — a pure JSON API
+plus socket.io WebSocket gateways — and a [Vue 3 + Quasar](https://quasar.dev) SPA frontend
+(`frontend/`) that consumes it.
 
 ```
-src/
-  config/      env config + the FIELD CATALOG (every itzg var with friendly help text)
-  db/          node:sqlite wrapper + versioned migrations
-  storage/     data-root bootstrap, path guard, size indexer + quotas
-  events/      recordEvent() — the single history entry point
-  docker/      dockerode: connect, containers, logs, stats, images, event watcher
-  services/    domain logic (servers, ports, library, mods, packs, backups, players, …)
-  updates/     update checker + safe-upgrade orchestrator (rollback)
-  crashes/     crash watcher + parser
-  blueprints/  export / import / clone + starter blueprints
-  ws/          live console + stats WebSockets
-  web/         express app, routes (pages + /api), view models, middleware
-  utils/       shared helpers (httpError, ansi, …)
-views/         handlebars layouts / partials / pages (server-rendered)
-public/        built CSS, icon system, shared js/lib/* UI components
+backend/
+  src/
+    auth/          sessions, TOTP 2FA, secrets encryption, global guards
+    servers/        server lifecycle, ports, Java version matrix, docker-spec overrides
+    docker/         dockerode wrappers: connection, containers, logs, stats, images, watcher
+    db/             Drizzle ORM over node:sqlite (or Postgres), migrations
+    storage/        ./data bootstrap, path guard, size indexer + quotas
+    mods/ packs/     mod library, modpack install/pin/upgrade (CurseForge, Modrinth, FTB,
+                     GTNH, packwiz)
+    scheduler/       per-server + global cron tasks
+    blueprints/      export / import / clone
+    ws/              live console + stats socket.io gateways
+    ...              ~35 domain modules total — see docs/architecture.md for the full layout
+frontend/
+  src/
+    api/            one module per backend domain, wrapping a shared fetch client
+    stores/          Pinia stores for cross-cutting state (auth, servers, …)
+    pages/           routes, including pages/server/*.vue (per-server tabs)
 ```
 
-The layering rule: **routes (HTTP) → services (domain logic) → docker/db/storage (infrastructure).**
-The field catalog in `src/config/` is the single source of truth for server settings. See
-[`docs/architecture.md`](docs/architecture.md) (covers both the current and new architecture) and
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+The layering rule: **controllers (HTTP) → services (domain logic) → docker/db/storage
+(infrastructure).** See [`docs/architecture.md`](docs/architecture.md) for the full module
+breakdown, DI patterns, and boot sequence, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to run
+and build it.
 
 ## Scripts
 
-| command              | what it does                                            |
-| -------------------- | ------------------------------------------------------- |
-| `npm run dev`        | app with auto-restart + Tailwind watch                  |
-| `npm start`          | production start                                        |
-| `npm run build`      | minified CSS build (also runs automatically on install) |
-| `npm run lint`       | ESLint over `src/`, `scripts/`, `public/js/`, `test/`   |
-| `npm run format`     | Prettier over the tree                                  |
-| `npm run typecheck`  | `tsc -p tsconfig.json` — strict, over all of `src/`     |
-| `npm test`           | unit tests (`node:test`); runs on a clean clone         |
-| `npm run test:smoke` | live QA sweep against a running panel (needs Docker)    |
+Root (`package.json`):
+
+| command                  | what it does                                 |
+| ------------------------ | -------------------------------------------- |
+| `npm run dev`            | runs `backend:dev` + `frontend:dev` together |
+| `npm run backend:dev`    | NestJS dev server with auto-restart          |
+| `npm run frontend:dev`   | Quasar/Vite dev server with HMR              |
+| `npm run backend:build`  | `nest build`                                 |
+| `npm run frontend:build` | `quasar build`                               |
+| `npm run lint`           | ESLint over the root-level `tools/`          |
+| `npm run format`         | Prettier over the whole tree                 |
+
+`backend/` and `frontend/` each have their own `package.json` with `lint`, `typecheck`, and
+`build` scripts — see [CONTRIBUTING.md](CONTRIBUTING.md) for the exact commands CI runs.
 
 ## Status & areas that need work
 
 This is an early public release. The core lifecycle is solid, but several features are
 deliberately "good enough for now": honest contribution targets rather than finished work. If you
 want to help, start here.
+
+- **Advanced server settings**: the wizard and the server Settings tab currently cover name, type,
+  version, resources, and lifecycle policy only. The pre-rewrite app's field catalog (every itzg
+  image environment variable exposed with plain-English help, grouped by section, plus a raw
+  `KEY=value` escape hatch) and the advanced Docker overrides editor (custom container name, extra
+  ports/bind mounts) were not carried over in the `backend/`/`frontend/` rewrite — the backend has
+  the override-parsing/validation logic (`backend/src/servers/docker-spec.service.ts`) but no
+  frontend surface for it yet.
 
 - **Custom RTP (random teleport)**: the panel's own random-teleport picks a point in a ring around
   the player and lands them on the highest solid block via `spreadplayers`. It retries a few times to
@@ -541,8 +558,8 @@ want to help, start here.
 ## Contributing
 
 Issues and PRs welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) first: it covers the layer
-rule, the two non-obvious conventions (path-guarded `./data` access and lazy-requires for cycle
-breaking), and how to run the QA sweep.
+rule, the path-guarded `./data` access convention, and how to run each package's checks before
+opening a PR.
 
 ## License
 
