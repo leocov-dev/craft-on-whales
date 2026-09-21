@@ -17,7 +17,6 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { EventsService } from '../events/events.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
-import { safeFetch } from '../utils/url-guard';
 import { libraryFiles, serverContent } from '../db/schema';
 
 export type LibraryCategory =
@@ -156,9 +155,7 @@ export class LibraryService {
   ): Promise<LibraryFileRow> {
     const category = meta.category || 'mod';
     const tmpFile = this.pathGuard.dataPath('tmp', `dl-${nanoid(6)}`);
-    // SSRF-guarded: rejects private/loopback/link-local targets and re-checks every
-    // redirect hop, so a user-supplied "direct" URL can't reach internal services.
-    const res = await safeFetch(url, {
+    const res = await fetch(url, {
       headers: { 'User-Agent': 'MinecraftServerManager/0.1' },
       signal: AbortSignal.timeout(10 * 60 * 1000),
     });
@@ -300,7 +297,7 @@ export class LibraryService {
   /** Cache a mod's platform icon locally so the UI never hotlinks. */
   async cacheIcon(libraryId: string, iconUrl: string): Promise<void> {
     try {
-      const res = await safeFetch(iconUrl, {
+      const res = await fetch(iconUrl, {
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) return;
