@@ -171,7 +171,9 @@ export class UpdateCheckerService {
    * id, latestName the human-readable version name. Up-to-date subjects get
    * NULLs, so `latestVersion IS NOT NULL` cleanly means "update available".
    */
-  private async upsertCheck(
+  /** Also called by PackwizWatcherService, which runs pack-hash checks for
+   *  packwiz servers on its own cadence outside checkAll() — see PACKS_NOTES.md. */
+  async upsertCheck(
     subjectType: 'pack' | 'content',
     subjectId: string,
     current: string,

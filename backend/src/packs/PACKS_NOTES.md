@@ -78,6 +78,48 @@ here:
 So: DB record only, and if it's missing there is genuinely no trustworthy
 evidence available to this panel — the server is flagged, not guessed at.
 
+## packwiz is excluded from the generic update checker
+
+`PacksService.latestFor()` returns `null` for `platform === 'packwiz'`, so
+`UpdateCheckerService.checkAll()` never surfaces a packwiz pack as a version
+to swap to — there's nothing to swap: packwiz mods are entirely
+author-controlled via `pack.toml`, and the panel has no per-mod or per-pack
+version registry for it the way CurseForge/Modrinth/GTNH do.
+
+What packwiz servers need instead is a **restart** notice: the container's
+`PACKWIZ_URL` always points at the same URL, and it's itzg's packwiz
+integration (not this panel) that re-syncs mods from it on every container
+start. So "pack changed" just means "the index hash the panel pinned at last
+restart (`server_packs.pinned_version_id`) no longer matches what
+`pack.toml` currently resolves to" — restarting is enough to pick it up.
+
+`backend/src/updates/packwiz-watcher.service.ts` (`PackwizWatcherService`)
+owns this on its own 5-minute schedule (`packwiz-check` in
+`SchedulerService`), independent of the daily `update-check` cron:
+
+- It re-fetches every packwiz server's `pack.toml`, and writes hash-changed
+  results into the same `update_checks` cache table the generic checker
+  uses (reusing `UpdateCheckerService.upsertCheck()`) — so the existing
+  Updates-page/`ServerViewModel.updateAvailable` plumbing surfaces the
+  notice for free, no separate DB read path needed. The frontend just reads
+  `pack.platform === 'packwiz'` to render "restart" instead of "update".
+- If `server_packs.auto_restart_on_pack_change` is set (opt-in, off by
+  default — see `PacksService.setAutoRestart()`), it restarts the server
+  itself and re-pins `pinned_version_id` to the new hash. Otherwise the
+  notice just sits there until an admin hits "Restart now" (Mods tab →
+  `PackwizWatcherService.applyNow()`, `POST .../pack/packwiz-sync`), which
+  does the same restart-then-repin.
+- Re-pinning is what clears the notice — nothing else advances
+  `pinned_version_id` for packwiz. A restart through any OTHER path (the
+  generic restart button, a schedule, a crash-loop recovery) actually DOES
+  pick up the new pack contents (itzg re-syncs from `PACKWIZ_URL` on every
+  boot regardless of how the restart was triggered) but leaves the notice
+  showing, since the panel's own pin record was never told about it. This is
+  a known, accepted gap in exchange for keeping `ServerLifecycleService`
+  free of a packwiz-specific dependency — hitting "Restart now" (even on an
+  already-current server) or waiting for the next auto-restart cycle is what
+  clears it.
+
 ## Cross-checking by project ref (slug), not just platform
 
 Trusting a `server_packs` row by platform alone is not enough. A server

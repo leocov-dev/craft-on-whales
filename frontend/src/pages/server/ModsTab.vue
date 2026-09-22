@@ -1,11 +1,11 @@
 <template>
   <div>
-    <q-banner v-if="server?.type === 'PACKWIZ'" rounded class="q-mb-md">
+    <q-banner v-if="isPackwiz" rounded class="q-mb-md">
       <template #avatar>
         <q-icon name="info" color="primary" />
       </template>
       Mods are managed by packwiz and can't be added, removed, or toggled from the panel.
-      <div v-if="server.pack?.ref">
+      <div v-if="server?.pack?.ref">
         Edit the pack at
         <a :href="server.pack.ref" target="_blank" rel="noopener" class="text-primary">{{
           server.pack.ref
@@ -14,7 +14,29 @@
       </div>
     </q-banner>
 
-    <div v-else class="row items-center q-gutter-x-sm q-mb-md">
+    <q-banner
+      v-if="isPackwiz && server?.updateAvailable"
+      rounded
+      class="bg-warning text-black q-mb-md"
+    >
+      <template #avatar>
+        <q-icon name="restart_alt" />
+      </template>
+      The pack changed since this server last started — restart to pick up the new mods.
+      <template #action>
+        <q-btn flat label="Restart now" :loading="syncing" @click="syncPackwiz" />
+      </template>
+    </q-banner>
+
+    <q-toggle
+      v-if="isPackwiz"
+      :model-value="server?.pack?.autoRestartOnPackChange ?? false"
+      label="Auto-restart when the pack changes (checked every 5 min)"
+      class="q-mb-md"
+      @update:model-value="toggleAutoRestart"
+    />
+
+    <div v-if="!isPackwiz" class="row items-center q-gutter-x-sm q-mb-md">
       <q-input
         v-model="addUrl"
         dense
@@ -26,7 +48,7 @@
       <q-btn color="primary" label="Add" :loading="adding" @click="addMod" />
     </div>
 
-    <template v-if="server?.type === 'PACKWIZ'">
+    <template v-if="isPackwiz">
       <q-item-label v-if="packwizMods.length === 0" caption>
         No mods found in this pack.
       </q-item-label>
@@ -92,21 +114,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { modsApi, type ContentItem, type PendingDownload } from '@/api/mods';
 import { packsApi, type PackModInfo } from '@/api/packs';
+import { tasksApi } from '@/api/tasks';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 
 const $q = useQuasar();
-const { server } = useServerDetail();
+const { server, refresh } = useServerDetail();
+
+const isPackwiz = computed(() => server.value?.pack?.platform === 'packwiz');
 
 const mods = ref<ContentItem[]>([]);
 const pending = ref<PendingDownload[]>([]);
 const packwizMods = ref<PackModInfo[]>([]);
 const addUrl = ref('');
 const adding = ref(false);
+const syncing = ref(false);
 
 function packwizModCaption(m: PackModInfo): string {
   return m.side ? (m.side === 'both' ? 'client + server' : m.side) : '—';
@@ -114,7 +140,7 @@ function packwizModCaption(m: PackModInfo): string {
 
 async function load() {
   if (!server.value) return;
-  if (server.value.type === 'PACKWIZ') {
+  if (isPackwiz.value) {
     const res = await packsApi.details({ serverId: server.value.id }).catch(() => null);
     packwizMods.value = res?.pack.mods ?? [];
     return;
@@ -151,6 +177,41 @@ async function toggle(m: ContentItem) {
     await load();
   } catch (err) {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Toggle failed.' });
+  }
+}
+
+async function syncPackwiz() {
+  if (!server.value) return;
+  syncing.value = true;
+  try {
+    const { taskId } = await packsApi.packwizSync(server.value.id);
+    const task = await tasksApi.waitFor<{ changed: boolean; hash: string }>(taskId);
+    if (task.result?.changed === false) {
+      $q.notify({ type: 'info', message: 'Already up to date.' });
+    } else {
+      $q.notify({ type: 'positive', message: 'Restarted with the updated pack.' });
+    }
+    await refresh();
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Restart failed.',
+    });
+  } finally {
+    syncing.value = false;
+  }
+}
+
+async function toggleAutoRestart(enabled: boolean) {
+  if (!server.value) return;
+  try {
+    await packsApi.setAutoRestart(server.value.id, enabled);
+    await refresh();
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not save.',
+    });
   }
 }
 

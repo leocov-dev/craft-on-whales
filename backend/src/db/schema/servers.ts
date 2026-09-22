@@ -94,6 +94,16 @@ export const serverPacks = sqliteTable('server_packs', {
     .default(sql`(datetime('now'))`),
   maxJavaVersion: integer('max_java_version'),
   channel: text('channel'),
+  // packwiz only: mods are fully author-controlled (no panel version
+  // selection), so the update checker never offers a version swap for this
+  // platform — it just tracks the pack.toml's index hash and, when opted in
+  // here, restarts the container itself the next time PackwizWatcherService
+  // sees the hash change. Off by default like every other auto-behavior.
+  autoRestartOnPackChange: integer('auto_restart_on_pack_change', {
+    mode: 'boolean',
+  })
+    .notNull()
+    .default(false),
 });
 
 export const serverContent = sqliteTable(

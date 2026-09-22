@@ -81,6 +81,10 @@ export const serverPacks = pgTable('server_packs', {
     .default(sql`now()::text`),
   maxJavaVersion: integer('max_java_version'),
   channel: text('channel'),
+  // See ../schema/servers.ts — same column, packwiz-only auto-restart opt-in.
+  autoRestartOnPackChange: boolean('auto_restart_on_pack_change')
+    .notNull()
+    .default(false),
 });
 
 export const serverContent = pgTable(

@@ -1,0 +1,1 @@
+ALTER TABLE "server_packs" ADD COLUMN "auto_restart_on_pack_change" boolean DEFAULT false NOT NULL;
