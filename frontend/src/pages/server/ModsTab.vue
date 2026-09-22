@@ -7,7 +7,9 @@
       Mods are managed by packwiz and can't be added, removed, or toggled from the panel.
       <div v-if="server.pack?.ref">
         Edit the pack at
-        <a :href="server.pack.ref" target="_blank" rel="noopener">{{ server.pack.ref }}</a>
+        <a :href="server.pack.ref" target="_blank" rel="noopener" class="text-primary">{{
+          server.pack.ref
+        }}</a>
         and re-apply the URL to update.
       </div>
     </q-banner>
