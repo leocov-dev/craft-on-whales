@@ -8,6 +8,13 @@ The first time you open the panel, it asks you to create an administrator accoun
 
 Pick a username and a password of at least 8 characters. That's it — you're signed in and taken straight to the dashboard.
 
+> **Setup PIN:** if the panel is reachable from outside localhost (e.g. `PANEL_HOST=0.0.0.0` or a
+> LAN address) during this first-run step, you'll also be asked for a one-time PIN — printed to the
+> panel's own server console/log output, never sent anywhere over the network. This stops someone
+> who can merely reach the port from claiming the admin account ahead of you. A loopback-only bind
+> skips this — check the machine or container's console/logs for a line starting with "First-run
+> setup PIN:".
+
 ## Signing in
 
 After setup, the panel is protected by a login screen. Enter your username and password to continue.

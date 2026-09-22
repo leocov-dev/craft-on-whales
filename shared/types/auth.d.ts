@@ -11,6 +11,8 @@ export interface SessionUser {
 /** `GET /auth/status`'s response body. */
 export interface AuthStatus {
   firstRunNeeded: boolean;
+  /** True when `POST /setup` requires the console-printed setup PIN (non-loopback bind, first run). */
+  setupPinRequired: boolean;
 }
 
 export type SetupCheckLevel = 'pass' | 'warn' | 'fail';

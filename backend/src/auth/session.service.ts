@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Store, type SessionData } from 'express-session';
 import * as signature from 'cookie-signature';
-import { eq, lt } from 'drizzle-orm';
+import { eq, lt, ne } from 'drizzle-orm';
 import { ConfigService } from '../config/config.service';
 import { DbService } from '../db/db.service';
 import { sessions } from '../db/schema';
@@ -110,6 +110,38 @@ export class SessionService {
     await this.dbService.db
       .delete(sessions)
       .where(lt(sessions.expiresAt, new Date().toISOString()));
+  }
+
+  /**
+   * Delete every OTHER session row belonging to `userId` (used when 2FA is
+   * turned on for an account — see AUTH_NOTES.md's "Session revocation on
+   * 2FA enable" section). `sessions.dataJson` is an opaque JSON blob (it's
+   * express-session's own serialized SessionData, no indexed userId column),
+   * so this is a full-table scan-and-filter rather than a WHERE clause —
+   * acceptable here: it runs once per 2FA-enable action, not per request,
+   * against a self-hosted panel's session table (dozens of rows, not millions).
+   */
+  async revokeSessionsForUser(
+    userId: string,
+    exceptSid?: string,
+  ): Promise<void> {
+    const rows = await this.dbService.db
+      .select()
+      .from(sessions)
+      .where(exceptSid ? ne(sessions.sid, exceptSid) : undefined);
+    const toDelete = rows
+      .filter((row) => {
+        try {
+          const data = JSON.parse(row.dataJson) as { userId?: string };
+          return data.userId === userId;
+        } catch {
+          return false;
+        }
+      })
+      .map((row) => row.sid);
+    for (const sid of toDelete) {
+      await this.dbService.db.delete(sessions).where(eqSid(sid));
+    }
   }
 
   /**

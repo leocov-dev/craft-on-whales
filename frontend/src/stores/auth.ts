@@ -9,6 +9,8 @@ interface State {
   status: Status;
   /** null = not yet checked. Resolved once via fetchFirstRunNeeded(). */
   firstRunNeeded: boolean | null;
+  /** Whether /setup requires the console-printed setup PIN (non-loopback bind). */
+  setupPinRequired: boolean;
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -16,6 +18,7 @@ export const useAuthStore = defineStore('auth', {
     user: null,
     status: 'unknown',
     firstRunNeeded: null,
+    setupPinRequired: false,
   }),
 
   getters: {
@@ -31,9 +34,11 @@ export const useAuthStore = defineStore('auth', {
       try {
         const { status } = await authApi.status();
         this.firstRunNeeded = status.firstRunNeeded;
+        this.setupPinRequired = status.setupPinRequired;
       } catch {
         // Fail open: if the check itself fails, don't trap the user on /setup.
         this.firstRunNeeded = false;
+        this.setupPinRequired = false;
       }
     },
 
@@ -70,8 +75,8 @@ export const useAuthStore = defineStore('auth', {
       this.status = 'anonymous';
     },
 
-    async setup(username: string, password: string): Promise<void> {
-      await authApi.setup(username, password);
+    async setup(username: string, password: string, pin?: string): Promise<void> {
+      await authApi.setup(username, password, pin);
       this.firstRunNeeded = false;
       await this.fetchSession();
     },

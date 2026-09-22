@@ -22,6 +22,8 @@ import { EventsService } from '../events/events.service';
 import { DockerConnectionService } from '../docker/docker-connection.service';
 import { AuthService } from './auth.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
+import { SetupPinService } from './setup-pin.service';
+import { SessionService } from './session.service';
 import { Public } from './public.decorator';
 import { AllowViewerWrite } from './allow-viewer-write.decorator';
 import type {
@@ -39,6 +41,9 @@ const loginSchema = z.object({
 const setupSchema = z.object({
   username: z.string().trim().min(2).max(32),
   password: z.string().min(8).max(200),
+  // Only actually required when SetupPinService.required() is true — validated
+  // against the generated PIN in the handler, not by shape here.
+  pin: z.string().trim().max(16).optional(),
 });
 const totpCodeSchema = z.object({ code: z.string().trim().min(1).max(64) });
 const confirmTotpSchema = z.object({
@@ -54,6 +59,16 @@ const passwordSchema = z.object({ password: z.string().min(1).max(200) });
 // the event loop on a small self-hosted box.
 const SETUP_WINDOW_MS = 60_000;
 const SETUP_MAX = 20;
+
+// Setup-PIN lockout reuses LoginRateLimitService's generic "subject|ip"
+// lockout as-is (no new rate-limit code) — see AUTH_NOTES.md's "Setup-PIN
+// lockout" section. Per-IP uses the real caller IP under a fixed pseudo
+// subject; the "global" counter uses a fixed pseudo IP too, so every caller
+// regardless of address shares one decaying counter (distributed brute force
+// across many source IPs can only ever spend this one budget).
+const SETUP_PIN_SUBJECT = 'setup-pin';
+const SETUP_PIN_GLOBAL_SUBJECT = 'setup-pin-global';
+const SETUP_PIN_GLOBAL_IP = '*';
 
 /**
  * First-run setup, login (+ 2FA), logout, and the SPA's session check.
@@ -71,6 +86,8 @@ export class AuthController {
     private readonly config: ConfigService,
     private readonly rateLimit: LoginRateLimitService,
     private readonly docker: DockerConnectionService,
+    private readonly setupPin: SetupPinService,
+    private readonly sessionService: SessionService,
   ) {}
 
   private throttleSetup(userId: string, nowMs: number): boolean {
@@ -100,7 +117,10 @@ export class AuthController {
   async authStatus(): Promise<{ ok: true; status: AuthStatus }> {
     return {
       ok: true,
-      status: { firstRunNeeded: await this.authService.firstRunNeeded() },
+      status: {
+        firstRunNeeded: await this.authService.firstRunNeeded(),
+        setupPinRequired: this.setupPin.required(),
+      },
     };
   }
 
@@ -167,13 +187,36 @@ export class AuthController {
   async setup(@Req() req: Request, @Res() res: Response) {
     if (!(await this.authService.firstRunNeeded()))
       throw new BadRequestException('Setup already complete');
-    const { username, password } = parseBody(setupSchema, req.body);
+    const { username, password, pin } = parseBody(setupSchema, req.body);
+    if (this.setupPin.required()) {
+      this.rateLimit.checkLoginAllowed(SETUP_PIN_SUBJECT, req.ip);
+      this.rateLimit.checkLoginAllowed(
+        SETUP_PIN_GLOBAL_SUBJECT,
+        SETUP_PIN_GLOBAL_IP,
+      );
+      if (!pin || !this.setupPin.verify(pin)) {
+        this.rateLimit.recordLoginFailure(SETUP_PIN_SUBJECT, req.ip);
+        this.rateLimit.recordLoginFailure(
+          SETUP_PIN_GLOBAL_SUBJECT,
+          SETUP_PIN_GLOBAL_IP,
+        );
+        throw new UnauthorizedException(
+          'Incorrect or missing setup PIN — check the panel’s server console/logs.',
+        );
+      }
+      this.rateLimit.clearLoginFailures(SETUP_PIN_SUBJECT, req.ip);
+      this.rateLimit.clearLoginFailures(
+        SETUP_PIN_GLOBAL_SUBJECT,
+        SETUP_PIN_GLOBAL_IP,
+      );
+    }
     // createUser only returns null when role/username conflicts are pre-checked
     // elsewhere; firstRunNeeded() above guarantees a fresh admin account here.
     const user = (await this.authService.createUser(
       { username, password, role: 'admin' },
       { actor: 'setup' },
     ))!;
+    this.setupPin.consume();
     // Rotate the session id on privilege establishment (anti-fixation), matching login.
     req.session.regenerate((err) => {
       if (err)
@@ -341,6 +384,16 @@ export class AuthController {
       throw err;
     }
     this.rateLimit.clearLoginFailures(currentUser(req).username, req.ip);
+    // 2FA just went from off to on: force every OTHER session for this
+    // account to re-authenticate, so a stale unauthenticated session (left
+    // open on a shared/borrowed device, or hijacked before this upgrade)
+    // can't keep riding a session cookie that predates it. The session that
+    // just did the enrolling stays signed in — it already proved the
+    // password and the live code.
+    await this.sessionService.revokeSessionsForUser(
+      currentUser(req).id,
+      req.sessionID,
+    );
     return { ok: true, backupCodes: result.backupCodes };
   }
 

@@ -6,12 +6,14 @@ import {
   Param,
   Post,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { AuthService } from '../auth/auth.service';
+import { LoginRateLimitService } from '../auth/login-rate-limit.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { currentUser } from '../auth/current-user';
@@ -21,7 +23,10 @@ import { currentUser } from '../auth/current-user';
 @UseGuards(RolesGuard)
 @Roles('admin')
 export class UsersController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly rateLimit: LoginRateLimitService,
+  ) {}
 
   @Get()
   async list() {
@@ -61,18 +66,40 @@ export class UsersController {
     return { ok: true };
   }
 
+  // Re-checks the ACTING admin's own current password before changing anyone's
+  // password (including their own) — see AUTH_NOTES.md's "Re-auth to change a
+  // password" section. Without this, a hijacked-but-unlocked admin session
+  // (no password needed for anything else here) could silently take over
+  // every other account by resetting its password, and self-service password
+  // rotation (an admin changing THEIR OWN password) had no re-auth of its own
+  // either. Shares the login lockout with the password/2FA steps, same as the
+  // other password re-checks in AuthController.
   @Post(':id/password')
   async setPassword(
     @Req() req: Request,
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    const { password } = parseBody(
-      z.object({ password: z.string().min(8).max(200) }),
+    const { password, adminPassword } = parseBody(
+      z.object({
+        password: z.string().min(8).max(200),
+        adminPassword: z.string().min(1).max(200),
+      }),
       body,
     );
+    const actor = currentUser(req);
+    this.rateLimit.checkLoginAllowed(actor.username, req.ip);
+    const verified = await this.authService.verifyCredentials(
+      actor.username,
+      adminPassword,
+    );
+    if (!verified) {
+      this.rateLimit.recordLoginFailure(actor.username, req.ip);
+      throw new UnauthorizedException('Your current password is incorrect.');
+    }
+    this.rateLimit.clearLoginFailures(actor.username, req.ip);
     await this.authService.setPassword(id, password, {
-      actor: currentUser(req).username,
+      actor: actor.username,
     });
     return { ok: true };
   }

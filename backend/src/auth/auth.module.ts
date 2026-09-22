@@ -6,6 +6,7 @@ import { TotpService } from './totp.service';
 import { SecretsService } from './secrets.service';
 import { SessionService } from './session.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
+import { SetupPinService } from './setup-pin.service';
 import { AuthController } from './auth.controller';
 import { OriginGuard } from './guards/origin.guard';
 import { SessionAuthGuard } from './guards/session-auth.guard';
@@ -20,6 +21,7 @@ import { WriteGuard } from './guards/write.guard';
     SecretsService,
     SessionService,
     LoginRateLimitService,
+    SetupPinService,
     // Global guards, in the same order as legacy app.ts's middleware chain:
     // origin check first (CSRF, doesn't need auth), then the session gate,
     // then the viewer-read-only write block.
@@ -33,6 +35,7 @@ import { WriteGuard } from './guards/write.guard';
     SecretsService,
     SessionService,
     LoginRateLimitService,
+    SetupPinService,
   ],
 })
 export class AuthModule {}
