@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { ConfigService } from '../../config/config.service';
+import { SKIP_ORIGIN_CHECK_KEY } from '../skip-origin-check.decorator';
 
 /**
  * Rejects cross-origin state changes (defense in depth next to the
@@ -15,12 +17,26 @@ import { ConfigService } from '../../config/config.service';
  * browser no CSRF protection (it's sent cross-site by design), so a
  * state-changing request carrying neither header is rejected outright
  * rather than waved through as "presumably same-site."
+ *
+ * Routes marked `@SkipOriginCheck()` (the public Bearer-token API — see
+ * `API_TOKENS_NOTES.md`) skip this check entirely: a Bearer token isn't
+ * auto-attached by the browser, so there's nothing for a same-origin check
+ * to defend there.
  */
 @Injectable()
 export class OriginGuard implements CanActivate {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly reflector: Reflector,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
+    const skip = this.reflector.getAllAndOverride<boolean>(
+      SKIP_ORIGIN_CHECK_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (skip) return true;
+
     const req = context.switchToHttp().getRequest<Request>();
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return true;
 

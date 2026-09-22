@@ -18,6 +18,7 @@ export const serverContent = active.serverContent;
 export const users = active.users;
 export const sessions = active.sessions;
 export const userServerPermissions = active.userServerPermissions;
+export const apiTokens = active.apiTokens;
 
 export const events = active.events;
 export const crashReports = active.crashReports;

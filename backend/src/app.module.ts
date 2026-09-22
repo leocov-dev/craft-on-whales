@@ -37,6 +37,7 @@ import { FilesModule } from './files/files.module';
 import { WsModule } from './ws/ws.module';
 import { StorageModule } from './storage/storage.module';
 import { PermissionsModule } from './permissions/permissions.module';
+import { ApiTokensModule } from './api-tokens/api-tokens.module';
 
 // The SPA build (frontend/dist/spa) lives one directory up from backend/,
 // sibling to it — see the Dockerfile for how both get built and laid out
@@ -94,6 +95,7 @@ const SPA_ROOT = path.join(__dirname, '..', '..', 'frontend', 'dist', 'spa');
     FilesModule,
     WsModule,
     StorageModule,
+    ApiTokensModule,
   ],
   controllers: [AppController],
 })

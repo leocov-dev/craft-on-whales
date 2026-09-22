@@ -82,6 +82,13 @@
             </q-item-section>
             <q-item-section>Permissions</q-item-section>
           </q-item>
+
+          <q-item v-if="auth.isAdmin" clickable v-ripple to="/api-tokens" exact>
+            <q-item-section avatar>
+              <q-icon name="vpn_key" />
+            </q-item-section>
+            <q-item-section>Public API</q-item-section>
+          </q-item>
         </q-list>
 
         <q-space />
