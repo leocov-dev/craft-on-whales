@@ -117,7 +117,23 @@ const patchSchema = z
     autoStart: z.coerce.boolean().optional(),
     autoRestart: z.coerce.boolean().optional(),
     env: z.record(z.string(), z.string()).optional(),
-    routerHostname: z.string().trim().max(253).optional(),
+    // A URL-safe subdomain label (see McRouterService.composeHostname): lowercase
+    // alnum + hyphens, no leading/trailing hyphen, 1-30 chars. Capped short of
+    // DNS's 63-char label limit to keep generated hostnames readable.
+    routerHostname: z
+      .union([
+        z.literal(''),
+        z
+          .string()
+          .trim()
+          .toLowerCase()
+          .max(30)
+          .regex(
+            /^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$/,
+            'Use lowercase letters, numbers, and hyphens (no leading/trailing hyphen), max 30 chars',
+          ),
+      ])
+      .optional(),
     routerAutoScale: z.enum(['on', 'off']).nullable().optional(),
     ...dockerOverridesSchema,
   })
@@ -313,7 +329,11 @@ export class ServersController {
     if (row.routerHostname) {
       const routerCfg = await this.mcRouter.getConfig();
       if (routerCfg.enabled) {
-        addrs.push(`${row.routerHostname}:${routerCfg.listenPort}`);
+        const hostname = this.mcRouter.composeHostname(
+          row.routerHostname,
+          routerCfg.baseDomain,
+        );
+        addrs.push(`${hostname}:${routerCfg.listenPort}`);
       }
     }
 
@@ -338,6 +358,8 @@ export class ServersController {
         networkName: row.networkName,
         extraPorts: row.extraPorts,
         extraBinds: row.extraBinds,
+        routerHostname: row.routerHostname,
+        routerAutoScale: row.routerAutoScale,
         addresses: [...new Set(addrs)],
       },
     };

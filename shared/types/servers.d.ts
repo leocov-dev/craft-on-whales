@@ -76,6 +76,10 @@ export interface ServerDetail extends ServerViewModel {
   networkName: string | null;
   extraPorts: { hostPort: number; containerPort: number; protocol: 'tcp' | 'udp' }[];
   extraBinds: { hostPath: string; containerPath: string; readOnly?: boolean }[];
+  /** mc-router subdomain label for this server (see McRouterConfig's `baseDomain`); null if unrouted. */
+  routerHostname: string | null;
+  /** Per-server override of the global mc-router auto-scale settings; null = inherit. */
+  routerAutoScale: 'on' | 'off' | null;
   addresses: string[];
 }
 
@@ -97,4 +101,7 @@ export interface ServerPatch {
   autoStart?: boolean;
   autoRestart?: boolean;
   env?: Record<string, string>;
+  /** mc-router subdomain label; '' clears it. */
+  routerHostname?: string;
+  routerAutoScale?: 'on' | 'off' | null;
 }

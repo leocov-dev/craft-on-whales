@@ -23,6 +23,16 @@
             hint="The public port players connect to."
           />
 
+          <q-input
+            v-model="config.baseDomain"
+            label="Base domain"
+            filled
+            dense
+            class="q-mt-md"
+            placeholder="example.com"
+            hint="Appended to each server's subdomain (set per-server, under its Settings tab) to form its route hostname — e.g. subdomain 'survival' + this domain gives survival.example.com. Leave blank to type a full hostname per server instead."
+          />
+
           <div class="text-subtitle1 q-mt-lg q-mb-sm">Auto-scale</div>
           <q-toggle
             v-model="config.autoScaleUp"
@@ -74,45 +84,31 @@
         <q-card flat bordered class="q-pa-md">
           <div class="text-subtitle1 q-mb-sm">Routes</div>
           <q-list separator>
-            <q-item v-for="route in routes" :key="route.id">
+            <q-item
+              v-for="route in routes"
+              :key="route.id"
+              clickable
+              :to="`/servers/${route.id}/settings`"
+            >
               <q-item-section>
                 <q-item-label>{{ route.name }}</q-item-label>
-              </q-item-section>
-              <q-item-section>
-                <q-input
-                  v-model="route.hostname"
-                  dense
-                  filled
-                  placeholder="mc.example.com"
-                  class="font-mono"
-                />
-              </q-item-section>
-              <q-item-section style="max-width: 130px">
-                <q-select
-                  v-model="route.autoScale"
-                  dense
-                  filled
-                  emit-value
-                  map-options
-                  :options="autoScaleOptions"
-                />
+                <q-item-label caption class="font-mono">
+                  {{ route.hostname || '(no subdomain set)' }}
+                </q-item-label>
               </q-item-section>
               <q-item-section side>
-                <q-btn
-                  dense
-                  flat
-                  label="Save"
-                  color="primary"
-                  :loading="savingRoute === route.id"
-                  @click="saveRoute(route)"
-                />
+                {{ autoScaleLabel(route.autoScale) }}
               </q-item-section>
+            </q-item>
+            <q-item v-if="!routes.length">
+              <q-item-section class="text-caption">No servers yet.</q-item-section>
             </q-item>
           </q-list>
           <q-item-label caption class="q-mt-md" style="max-width: 60ch">
-            Setting or clearing a hostname requires recreating that server's container to apply the
-            new routing labels — it happens automatically the next time the server starts, or
-            immediately if it's already running.
+            Each server's subdomain and auto-scale mode are set on that server's own Settings tab,
+            under mc-route — click a row to jump there. Changing either recreates that server's
+            container to apply the new routing labels, automatically next start or immediately if
+            it's already running.
           </q-item-label>
         </q-card>
       </div>
@@ -131,6 +127,7 @@ const $q = useQuasar();
 const config = ref<McRouterConfig>({
   enabled: false,
   listenPort: 25565,
+  baseDomain: '',
   autoScaleUp: true,
   autoScaleDown: true,
   autoScaleDownAfter: '10m',
@@ -139,13 +136,12 @@ const config = ref<McRouterConfig>({
 });
 const routes = ref<RouterRoute[]>([]);
 const savingConfig = ref(false);
-const savingRoute = ref<string | null>(null);
 
-const autoScaleOptions = [
-  { label: 'Default', value: null },
-  { label: 'On', value: 'on' },
-  { label: 'Off', value: 'off' },
-];
+function autoScaleLabel(mode: 'on' | 'off' | null): string {
+  if (mode === 'on') return 'On';
+  if (mode === 'off') return 'Off';
+  return 'Default (follows global auto-scale)';
+}
 
 async function load() {
   const res = await mcRouterApi.get();
@@ -164,22 +160,6 @@ async function saveConfig() {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
   } finally {
     savingConfig.value = false;
-  }
-}
-
-async function saveRoute(route: RouterRoute) {
-  savingRoute.value = route.id;
-  try {
-    await mcRouterApi.saveRoute(
-      route.id,
-      route.hostname ?? '',
-      (route.autoScale as 'on' | 'off' | null) ?? null,
-    );
-    $q.notify({ type: 'positive', message: `Route saved for ${route.name}.` });
-  } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
-  } finally {
-    savingRoute.value = null;
   }
 }
 

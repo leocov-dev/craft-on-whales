@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { DockerModule } from '../docker/docker.module';
+import { McRouterModule } from '../mc-router/mc-router.module';
 import { AuthModule } from '../auth/auth.module';
 import { ApiKeysModule } from '../api-keys/api-keys.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -24,6 +25,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
 @Module({
   imports: [
     DockerModule,
+    McRouterModule,
     AuthModule,
     ApiKeysModule,
     SettingsModule,

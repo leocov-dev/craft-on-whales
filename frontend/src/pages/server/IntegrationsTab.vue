@@ -1,43 +1,64 @@
 <template>
   <div class="row q-col-gutter-md">
     <div class="col-12 col-md-6">
-      <q-card flat bordered class="q-pa-md q-gutter-md">
-        <div class="text-subtitle1">Discord webhook</div>
-        <q-toggle v-model="discord.enabled" label="Enabled" />
-        <q-input
-          v-model="discordWebhook"
-          label="Webhook URL"
-          filled
-          dense
-          :placeholder="discord.webhookMasked ?? 'https://discord.com/api/webhooks/…'"
-          hint="Leave blank to keep the current webhook"
-        />
-        <div class="row q-gutter-sm">
-          <q-btn dense outline label="Save" :loading="savingDiscord" @click="saveDiscord" />
-          <q-btn dense flat label="Test" :loading="testingDiscord" @click="testDiscord" />
+      <q-card flat bordered class="q-pa-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Discord webhook</div>
+          <q-toggle v-model="discord.enabled" label="Enabled" />
+          <q-input
+            v-model="discordWebhook"
+            label="Webhook URL"
+            filled
+            dense
+            :placeholder="discord.webhookMasked ?? 'https://discord.com/api/webhooks/…'"
+            hint="Leave blank to keep the current webhook"
+          />
+          <div class="row justify-end q-gutter-sm">
+            <q-btn dense flat label="Test" :loading="testingDiscord" @click="testDiscord" />
+            <q-btn
+              dense
+              color="primary"
+              label="Save"
+              :loading="savingDiscord"
+              @click="saveDiscord"
+            />
+          </div>
         </div>
       </q-card>
     </div>
 
     <div class="col-12 col-md-6">
-      <q-card flat bordered class="q-pa-md q-gutter-md">
-        <div class="text-subtitle1">Public status page</div>
-        <q-toggle v-model="statusPage.enabled" label="Enabled" />
-        <q-input v-model="statusSlug" label="Slug" filled dense placeholder="my-server" />
-        <q-btn dense outline label="Save" :loading="savingStatus" @click="saveStatusPage" />
+      <q-card flat bordered class="q-pa-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Public status page</div>
+          <q-toggle v-model="statusPage.enabled" label="Enabled" />
+          <q-input v-model="statusSlug" label="Slug" filled dense :placeholder="defaultSlug" />
+          <div class="row justify-end">
+            <q-btn
+              dense
+              color="primary"
+              label="Save"
+              :loading="savingStatus"
+              @click="saveStatusPage"
+            />
+          </div>
+        </div>
       </q-card>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { integrationsApi, type DiscordConfig, type StatusPageConfig } from '@/api/integrations';
 import { useServerDetail } from '@/composables/useServerDetail';
+import { slugify } from '@/utils/slug';
 
 const $q = useQuasar();
 const { server } = useServerDetail();
+
+const defaultSlug = computed(() => (server.value ? slugify(server.value.name) : ''));
 
 const discord = ref<DiscordConfig>({
   enabled: false,
@@ -102,7 +123,7 @@ async function saveStatusPage() {
   try {
     await integrationsApi.saveStatusPage(server.value.id, {
       enabled: statusPage.value.enabled,
-      slug: statusSlug.value || undefined,
+      slug: statusSlug.value || defaultSlug.value || undefined,
     });
     $q.notify({ type: 'positive', message: 'Status page settings saved.' });
   } catch (err) {

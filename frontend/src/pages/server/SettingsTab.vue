@@ -53,68 +53,112 @@
     </div>
 
     <div class="col-12 col-md-6">
-      <q-card flat bordered class="q-pa-md q-gutter-md">
-        <div class="text-subtitle1">Identity</div>
-        <q-input v-model="form.name" label="Name" filled dense />
-        <q-input
-          v-model="form.description"
-          label="Description"
-          filled
-          dense
-          type="textarea"
-          autogrow
-        />
-        <q-input v-model="tagsText" label="Tags (comma separated)" filled dense />
-        <q-input v-model="form.notes" label="Notes" filled dense type="textarea" autogrow />
+      <q-card flat bordered class="q-pa-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Identity</div>
+          <q-input v-model="form.name" label="Name" filled dense />
+          <q-input
+            v-model="form.description"
+            label="Description"
+            filled
+            dense
+            type="textarea"
+            autogrow
+          />
+          <q-input v-model="tagsText" label="Tags (comma separated)" filled dense />
+          <q-input v-model="form.notes" label="Notes" filled dense type="textarea" autogrow />
+        </div>
       </q-card>
     </div>
 
     <div class="col-12 col-md-6">
-      <q-card flat bordered class="q-pa-md q-gutter-md">
-        <div class="text-subtitle1">Resources</div>
-        <q-input
-          v-model.number="form.heapMb"
-          type="number"
-          label="Java heap (MB)"
-          :hint="HEAP_FIELD_HINT"
-          filled
-          dense
-        />
-        <q-input
-          v-model.number="form.containerMemoryMb"
-          type="number"
-          label="Container memory limit (MB)"
-          filled
-          dense
-        />
-        <q-input
-          v-model.number="form.cpus"
-          type="number"
-          step="0.5"
-          label="CPU limit (0 = unlimited)"
-          filled
-          dense
-        />
-        <q-input
-          v-model.number="form.diskQuotaGb"
-          type="number"
-          label="Disk quota (GB)"
-          filled
-          dense
-        />
+      <q-card flat bordered class="q-pa-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Resources</div>
+          <q-input
+            v-model.number="form.heapMb"
+            type="number"
+            label="Java heap (MB)"
+            :hint="HEAP_FIELD_HINT"
+            filled
+            dense
+          />
+          <q-input
+            v-model.number="form.containerMemoryMb"
+            type="number"
+            label="Container memory limit (MB)"
+            filled
+            dense
+          />
+          <q-input
+            v-model.number="form.cpus"
+            type="number"
+            step="0.5"
+            label="CPU limit (0 = unlimited)"
+            filled
+            dense
+          />
+          <q-input
+            v-model.number="form.diskQuotaGb"
+            type="number"
+            label="Disk quota (GB)"
+            filled
+            dense
+          />
+        </div>
       </q-card>
 
-      <q-card flat bordered class="q-pa-md q-gutter-md q-mt-md">
-        <div class="text-subtitle1">Lifecycle</div>
-        <q-toggle v-model="form.autoStart" label="Auto-start with the panel" />
-        <q-toggle v-model="form.autoRestart" label="Auto-restart on crash" />
-        <q-select
-          v-model="form.updatePolicy"
-          :options="['manual', 'notify', 'auto']"
-          filled
-          dense
-          label="Modpack update policy"
-        />
+      <q-card flat bordered class="q-pa-md q-mt-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Lifecycle</div>
+          <q-toggle v-model="form.autoStart" label="Auto-start with the panel" />
+          <q-toggle v-model="form.autoRestart" label="Auto-restart on crash" />
+          <q-select
+            v-model="form.updatePolicy"
+            :options="['manual', 'notify', 'auto']"
+            filled
+            dense
+            label="Modpack update policy"
+          />
+        </div>
+      </q-card>
+
+      <q-card v-if="routerEnabled" flat bordered class="q-pa-md q-mt-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">mc-route</div>
+          <q-input
+            v-model="form.routerHostname"
+            label="Subdomain"
+            filled
+            dense
+            :placeholder="defaultSubdomain"
+            hint="Lowercase letters, numbers, hyphens; max 30 chars. Leave blank to remove this server from the router."
+          >
+            <template #append>
+              <q-btn
+                flat
+                dense
+                round
+                icon="auto_fix_high"
+                title="Use suggested subdomain"
+                @click="form.routerHostname = defaultSubdomain"
+              />
+            </template>
+          </q-input>
+          <q-item-label caption class="font-mono">
+            {{ fullHostnamePreview || '(unrouted)' }}
+          </q-item-label>
+          <q-select
+            v-model="form.routerAutoScale"
+            label="Auto-scale mode"
+            filled
+            dense
+            emit-value
+            map-options
+            :options="autoScaleOptions"
+            hint="Default follows the global auto-scale settings on the Router page; On/Off override them for just this server."
+          />
+        </div>
       </q-card>
     </div>
 
@@ -125,12 +169,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { serversApi, type ServerPatch } from '@/api/servers';
 import { packsApi, type PackPlatform } from '@/api/packs';
+import { mcRouterApi } from '@/api/mcRouter';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
+import { slugify } from '@/utils/slug';
 
 const $q = useQuasar();
 const { server, refresh } = useServerDetail();
@@ -180,6 +226,27 @@ const form = ref<ServerPatch>({});
 const tagsText = ref('');
 const saving = ref(false);
 
+const routerEnabled = ref(false);
+const routerBaseDomain = ref('');
+const autoScaleOptions = [
+  { label: 'Default', value: null },
+  { label: 'On', value: 'on' },
+  { label: 'Off', value: 'off' },
+];
+
+const defaultSubdomain = computed(() => (server.value ? slugify(server.value.name) : ''));
+const fullHostnamePreview = computed(() => {
+  const subdomain = form.value.routerHostname || defaultSubdomain.value;
+  if (!subdomain) return '';
+  return routerBaseDomain.value ? `${subdomain}.${routerBaseDomain.value}` : subdomain;
+});
+
+onMounted(async () => {
+  const res = await mcRouterApi.get();
+  routerEnabled.value = res.config.enabled;
+  routerBaseDomain.value = res.config.baseDomain;
+});
+
 function loadForm() {
   if (!server.value) return;
   form.value = {
@@ -193,6 +260,8 @@ function loadForm() {
     autoStart: server.value.autoStart,
     autoRestart: server.value.autoRestart,
     updatePolicy: server.value.updatePolicy,
+    routerHostname: server.value.routerHostname ?? '',
+    routerAutoScale: server.value.routerAutoScale,
   };
   tagsText.value = server.value.tags.join(', ');
 }
