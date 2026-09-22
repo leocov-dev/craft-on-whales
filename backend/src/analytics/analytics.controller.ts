@@ -5,10 +5,13 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { ServerQueryService } from '../servers/server-query.service';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 import { StatsIngestService } from './stats-ingest.service';
 import { StatsProfileService } from './stats-profile.service';
 import { StatsXrayService } from './stats-xray.service';
@@ -56,6 +59,7 @@ const scoreboardSchema = z.object({
 
 /** Player analytics API. Ports `src/web/routes/analytics.ts` (mounted at /api/servers/:id/analytics). */
 @Controller('api/servers/:id/analytics')
+@UseGuards(ServerPermissionGuard)
 export class AnalyticsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -72,6 +76,7 @@ export class AnalyticsController {
   }
 
   @Get('timeline')
+  @RequireServerPermission('view')
   async timeline(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
     const q = parseBody(timelineSchema, query);
@@ -79,6 +84,7 @@ export class AnalyticsController {
   }
 
   @Get('sessions')
+  @RequireServerPermission('view')
   async sessions(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
     const { player } = parseBody(sessionsSchema, query);
@@ -89,6 +95,7 @@ export class AnalyticsController {
   }
 
   @Get('scoreboard')
+  @RequireServerPermission('view')
   async scoreboard(@Param('id') id: string, @Query() query: unknown) {
     await this.mustServer(id);
     const { metric, window } = parseBody(scoreboardSchema, query);
@@ -101,6 +108,7 @@ export class AnalyticsController {
   }
 
   @Get('profile/:uuid')
+  @RequireServerPermission('view')
   async profile(@Param('id') id: string, @Param('uuid') uuidParam: string) {
     await this.mustServer(id);
     const uuid = parseBody(
@@ -117,18 +125,21 @@ export class AnalyticsController {
   }
 
   @Get('players')
+  @RequireServerPermission('view')
   async players(@Param('id') id: string) {
     await this.mustServer(id);
     return { ok: true, players: await this.statsProfile.playersList(id) };
   }
 
   @Get('xray')
+  @RequireServerPermission('view')
   async xray(@Param('id') id: string) {
     await this.mustServer(id);
     return { ok: true, report: await this.statsXray.xrayReport(id) };
   }
 
   @Post('ingest-now')
+  @RequireServerPermission('players')
   async ingestNow(@Param('id') id: string) {
     await this.mustServer(id);
     const backfill = await this.ingest

@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -16,6 +17,8 @@ import { ItemRegistryService } from '../items/item-registry.service';
 import { InventoryService } from './inventory.service';
 import { playerNameSchema } from '../utils/player-name';
 import { actorOf } from '../utils/request-actor';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -97,6 +100,7 @@ const addSchema = z.object({
 
 /** Ports legacy `src/web/routes/inventory.ts`, mounted at /api/servers/:id/inventory. */
 @Controller('api/servers/:id/inventory')
+@UseGuards(ServerPermissionGuard)
 export class InventoryController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -118,6 +122,7 @@ export class InventoryController {
     return { server, running };
   }
 
+  @RequireServerPermission('content')
   @Get('players')
   async players(@Param('id') id: string) {
     const { server, running } = await this.loadContext(id);
@@ -128,6 +133,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Get('player/:uuid')
   async player(
     @Param('id') id: string,
@@ -153,6 +159,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('player/:uuid/slot')
   async slot(
     @Param('id') id: string,
@@ -170,6 +177,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('player/:uuid/move')
   async move(
     @Param('id') id: string,
@@ -187,6 +195,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('player/:uuid/add')
   async add(
     @Param('id') id: string,
@@ -204,6 +213,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Get('player/:uuid/snapshots')
   async snapshots(@Param('id') id: string, @Param('uuid') uuidRaw: string) {
     const uuid = parseBody(uuidSchema, uuidRaw);
@@ -214,6 +224,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('player/:uuid/snapshot')
   async takeSnapshot(@Param('id') id: string, @Param('uuid') uuidRaw: string) {
     const uuid = parseBody(uuidSchema, uuidRaw);
@@ -223,6 +234,7 @@ export class InventoryController {
     return { ok: true, snapshot: snap };
   }
 
+  @RequireServerPermission('content')
   @Get('snapshot')
   async getSnapshot(@Param('id') id: string, @Query('file') file: string) {
     const f = parseBody(snapshotFileSchema, file);
@@ -230,6 +242,7 @@ export class InventoryController {
     return { ok: true, snapshot: this.inventory.getSnapshot(f) };
   }
 
+  @RequireServerPermission('content')
   @Get('diff')
   async diff(
     @Param('id') id: string,
@@ -242,6 +255,7 @@ export class InventoryController {
     return { ok: true, diff: this.inventory.diffSnapshots(av, bv) };
   }
 
+  @RequireServerPermission('content')
   @Get('search')
   async search(@Param('id') id: string, @Query('q') q: string) {
     const query = parseBody(querySchema, q);
@@ -252,6 +266,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('give')
   async give(@Param('id') id: string, @Req() req: Request) {
     const { player, item, count } = parseBody(giveSchema, req.body);
@@ -268,6 +283,7 @@ export class InventoryController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('clear')
   async clear(@Param('id') id: string, @Req() req: Request) {
     const { player, item } = parseBody(clearSchema, req.body);

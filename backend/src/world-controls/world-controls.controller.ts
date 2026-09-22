@@ -1,10 +1,20 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
 import { ServerQueryService } from '../servers/server-query.service';
 import { WorldControlsService } from './world-controls.service';
 import { QUICK_ACTIONS } from './world-controls.constants';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const quickSchema = z.object({
   action: z.enum(Object.keys(QUICK_ACTIONS) as [string, ...string[]]),
@@ -12,12 +22,14 @@ const quickSchema = z.object({
 
 /** World quick controls (Overview tab). Ports the `/servers/:id/world/*` cluster of `api.ts`. */
 @Controller('api/servers/:id/world')
+@UseGuards(ServerPermissionGuard)
 export class WorldControlsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
     private readonly worldControls: WorldControlsService,
   ) {}
 
+  @RequireServerPermission('view')
   @Get('state')
   async state(@Param('id') id: string) {
     await this.serverQuery.mustGet(id);
@@ -32,6 +44,7 @@ export class WorldControlsController {
     }
   }
 
+  @RequireServerPermission('console')
   @Post('quick')
   async quick(
     @Param('id') id: string,

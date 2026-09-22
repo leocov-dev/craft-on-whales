@@ -27,6 +27,24 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { parseBody } from '../utils/parse-body';
 import type { BackupRow, ServerBackupRow } from '../../../shared/types/backups';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { PermissionsService } from '../permissions/permissions.service';
+
+/** Server id behind a backup id, for the `/backups/:backupId` routes. */
+async function backupServerId(
+  req: Request,
+  { db }: { db: DbService },
+): Promise<string | null> {
+  const backupId = req.params?.backupId;
+  if (typeof backupId !== 'string') return null;
+  const [row] = await db.db
+    .select({ serverId: backups.serverId })
+    .from(backups)
+    .where(eq(backups.id, backupId))
+    .limit(1);
+  return row ? row.serverId : null;
+}
 
 const createSchema = z.object({
   note: z.string().trim().max(500).optional(),
@@ -41,6 +59,7 @@ export class BackupsController {
     private readonly backupsService: BackupsService,
     private readonly serverQuery: ServerQueryService,
     private readonly tasks: TasksService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   private get db() {
@@ -48,6 +67,8 @@ export class BackupsController {
   }
 
   @Get('servers/:id/backups')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async listForServer(
     @Param('id') id: string,
   ): Promise<{ ok: true; backups: ServerBackupRow[] }> {
@@ -70,7 +91,7 @@ export class BackupsController {
   }
 
   @Get('backups')
-  async listAll(): Promise<{
+  async listAll(@Req() req: Request): Promise<{
     ok: true;
     backups: BackupRow[];
     totals: { count: number; bytes: number };
@@ -88,7 +109,12 @@ export class BackupsController {
       .from(backups)
       .innerJoin(servers, eq(servers.id, backups.serverId))
       .orderBy(desc(backups.createdAt));
-    const list = rows.map((b) => ({
+    const visibleIds = await this.permissions.visibleServerIds(req.user);
+    const visibleRows =
+      req.user?.role === 'admin'
+        ? rows
+        : rows.filter((r) => visibleIds.has(r.serverId));
+    const list = visibleRows.map((b) => ({
       id: b.id,
       serverId: b.serverId,
       server: b.displayName,
@@ -109,6 +135,8 @@ export class BackupsController {
 
   @Post('servers/:id/backups')
   @HttpCode(202)
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('backups')
   async create(
     @Req() req: Request,
     @Param('id') id: string,
@@ -141,6 +169,8 @@ export class BackupsController {
 
   @Post('servers/:id/backups/:backupId/restore')
   @HttpCode(202)
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('backups')
   async restore(
     @Req() req: Request,
     @Param('id') id: string,
@@ -161,8 +191,9 @@ export class BackupsController {
   }
 
   @Get('backups/:backupId/download')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ServerPermissionGuard)
   @Roles('admin', 'operator')
+  @RequireServerPermission('backups', backupServerId)
   async download(@Res() res: Response, @Param('backupId') backupId: string) {
     const [backup] = await this.db
       .select()
@@ -177,6 +208,8 @@ export class BackupsController {
   }
 
   @Delete('backups/:backupId')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('backups', backupServerId)
   async remove(@Req() req: Request, @Param('backupId') backupId: string) {
     const result = await this.backupsService.deleteBackup(backupId, {
       actor: currentUser(req).username,

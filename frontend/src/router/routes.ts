@@ -61,6 +61,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/UsersPage.vue'),
         meta: { adminOnly: true },
       },
+      {
+        path: 'permissions',
+        component: () => import('@/pages/PermissionsPage.vue'),
+        meta: { adminOnly: true },
+      },
       { path: 'blueprints', component: () => import('@/pages/BlueprintsPage.vue') },
       { path: 'modpacks', component: () => import('@/pages/ModpacksPage.vue') },
       { path: 'worlds', component: () => import('@/pages/WorldsPage.vue') },

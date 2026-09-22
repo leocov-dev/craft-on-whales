@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -18,6 +19,8 @@ import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
 import { playerNameSchema } from '../utils/player-name';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const RUNNING_STATES = new Set(['running', 'unhealthy']);
 
@@ -97,6 +100,7 @@ const teleportSchema = z.discriminatedUnion('mode', [
 
 /** Ports legacy `src/web/routes/players.ts`, mounted at /api/servers/:id/players. */
 @Controller('api/servers/:id/players')
+@UseGuards(ServerPermissionGuard)
 export class PlayersController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -120,6 +124,7 @@ export class PlayersController {
     return { server, ctx: { running, actor: currentUser(req).username } };
   }
 
+  @RequireServerPermission('view')
   @Get()
   async list(@Param('id') id: string, @Req() req: Request) {
     const { server, ctx } = await this.loadContext(id, req);
@@ -135,6 +140,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('view')
   @Get('structures')
   async structures(@Param('id') id: string, @Req() req: Request) {
     try {
@@ -150,6 +156,7 @@ export class PlayersController {
     }
   }
 
+  @RequireServerPermission('view')
   @Get('biomes')
   async biomesList(@Param('id') id: string, @Req() req: Request) {
     try {
@@ -182,6 +189,7 @@ export class PlayersController {
     }
   }
 
+  @RequireServerPermission('players')
   @Post('whitelist')
   async whitelist(@Param('id') id: string, @Req() req: Request) {
     const { name, on } = parseBody(whitelistSchema, req.body);
@@ -192,6 +200,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('whitelist-enforce')
   async whitelistEnforce(@Param('id') id: string, @Req() req: Request) {
     const { on } = parseBody(enforceSchema, req.body);
@@ -202,6 +211,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('op')
   async op(@Param('id') id: string, @Req() req: Request) {
     const { name, on, level } = parseBody(opSchema, req.body);
@@ -212,6 +222,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('ban')
   async ban(@Param('id') id: string, @Req() req: Request) {
     const { name, reason } = parseBody(banSchema, req.body);
@@ -222,6 +233,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('pardon')
   async pardon(@Param('id') id: string, @Req() req: Request) {
     const { name } = parseBody(pardonSchema, req.body);
@@ -232,6 +244,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('ban-ip')
   async banIp(@Param('id') id: string, @Req() req: Request) {
     const { ip, reason } = parseBody(banIpSchema, req.body);
@@ -242,6 +255,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('pardon-ip')
   async pardonIp(@Param('id') id: string, @Req() req: Request) {
     const { ip } = parseBody(pardonIpSchema, req.body);
@@ -249,6 +263,7 @@ export class PlayersController {
     return { ok: true, result: await this.roster.pardonIp(server.id, ip, ctx) };
   }
 
+  @RequireServerPermission('players')
   @Post('kick')
   async kick(@Param('id') id: string, @Req() req: Request) {
     const { name, message } = parseBody(kickSchema, req.body);
@@ -259,6 +274,7 @@ export class PlayersController {
     };
   }
 
+  @RequireServerPermission('players')
   @Post('teleport')
   async teleport_(@Param('id') id: string, @Req() req: Request) {
     const body = parseBody(teleportSchema, req.body);

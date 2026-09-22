@@ -6,9 +6,11 @@ import {
   Param,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Cron } from 'croner';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { SchedulerService, TASK_TYPES } from '../scheduler/scheduler.service';
@@ -18,6 +20,32 @@ import type {
   TaskTypeOption,
 } from '../../../shared/types/schedules';
 import { currentUser } from '../auth/current-user';
+import type { DbService } from '../db/db.service';
+import { schedules } from '../db/schema';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { PermissionsService } from '../permissions/permissions.service';
+
+/** `serverId` from the create body — `null`/absent means a panel-wide schedule. */
+function serverIdFromBody(req: { body?: unknown }): string | null {
+  const body = req.body as { serverId?: unknown } | undefined;
+  return typeof body?.serverId === 'string' ? body.serverId : null;
+}
+
+/** The server a schedule targets, for the `:id/toggle` and `:id` routes. */
+async function scheduleServerId(
+  req: Request,
+  { db }: { db: DbService },
+): Promise<string | null> {
+  const id = req.params?.id;
+  if (typeof id !== 'string') return null;
+  const [row] = await db.db
+    .select({ serverId: schedules.serverId })
+    .from(schedules)
+    .where(eq(schedules.id, id))
+    .limit(1);
+  return row?.serverId ?? null;
+}
 
 /** Ports the "Schedules" section of legacy `src/web/routes/api.ts`. */
 @Controller('api/schedules')
@@ -25,6 +53,7 @@ export class SchedulesController {
   constructor(
     private readonly scheduler: SchedulerService,
     private readonly settings: SettingsService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   @Get('preview')
@@ -49,14 +78,23 @@ export class SchedulesController {
   }
 
   @Get()
-  async list(): Promise<{
+  async list(@Req() req: Request): Promise<{
     ok: true;
     schedules: ScheduleViewModel[];
     taskTypes: TaskTypeOption[];
   }> {
+    const all = await this.scheduler.listSchedules();
+    // A schedule naming a server the caller can't view is hidden the same
+    // way that server is everywhere else — panel-wide schedules
+    // (serverId null) are unaffected.
+    const visibleIds = await this.permissions.visibleServerIds(req.user);
+    const visible =
+      req.user?.role === 'admin'
+        ? all
+        : all.filter((s) => !s.serverId || visibleIds.has(s.serverId));
     return {
       ok: true,
-      schedules: await this.scheduler.listSchedules(),
+      schedules: visible,
       taskTypes: Object.entries(TASK_TYPES).map(([value, t]) => ({
         value,
         label: t.label,
@@ -66,6 +104,8 @@ export class SchedulesController {
   }
 
   @Post()
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power', serverIdFromBody)
   async create(
     @Req() req: Request,
     @Body() body: unknown,
@@ -94,6 +134,8 @@ export class SchedulesController {
   }
 
   @Post(':id/toggle')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power', scheduleServerId)
   async toggle(
     @Req() req: Request,
     @Param('id') id: string,
@@ -107,6 +149,8 @@ export class SchedulesController {
   }
 
   @Delete(':id')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power', scheduleServerId)
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.scheduler.deleteSchedule(id, {
       actor: currentUser(req).username,

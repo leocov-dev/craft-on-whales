@@ -30,6 +30,20 @@ import type { SimpleWorld } from '../../../shared/types/worlds';
 import { currentUser } from '../auth/current-user';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+
+/** `serverId` from the extract body — the source server being read from. */
+function extractSourceServerId(req: { body?: unknown }): string | null {
+  const body = req.body as { serverId?: unknown } | undefined;
+  return typeof body?.serverId === 'string' ? body.serverId : null;
+}
+
+/** `serverId` from the install body — the target server being written to. */
+function installTargetServerId(req: { body?: unknown }): string | null {
+  const body = req.body as { serverId?: unknown } | undefined;
+  return typeof body?.serverId === 'string' ? body.serverId : null;
+}
 
 function actorOf(req: Request): string {
   return currentUser(req).username;
@@ -108,6 +122,8 @@ export class WorldsController {
   }
 
   @Post('extract')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content', extractSourceServerId)
   async extract(@Req() req: Request) {
     const { serverId, name } = parseBody(
       z.object({
@@ -124,6 +140,8 @@ export class WorldsController {
   }
 
   @Post(':id/install')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content', installTargetServerId)
   async install(@Param('id') worldId: string, @Req() req: Request) {
     const { serverId, mode, newName, confirm } = parseBody(
       z.object({
@@ -201,14 +219,17 @@ export class WorldsController {
 
 /** Ports the per-server half of legacy `src/web/routes/worlds.ts`, mounted at /api/servers/:id/worlds. */
 @Controller('api/servers/:id/worlds')
+@UseGuards(ServerPermissionGuard)
 export class ServerWorldsController {
   constructor(private readonly ops: WorldOperationsService) {}
 
+  @RequireServerPermission('view')
   @Get()
   async list(@Param('id') id: string) {
     return { ok: true, worlds: await this.ops.listServerWorlds(id) };
   }
 
+  @RequireServerPermission('content')
   @Post('copy-to')
   async copyTo(@Param('id') id: string, @Req() req: Request) {
     const { targetServerId, mode, newName, confirm } = parseBody(
@@ -237,6 +258,7 @@ export class ServerWorldsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('duplicate')
   async duplicate(@Param('id') id: string, @Req() req: Request) {
     const { world } = parseBody(z.object({ world: worldNameSchema }), req.body);
@@ -246,6 +268,7 @@ export class ServerWorldsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('rename')
   async rename(@Param('id') id: string, @Req() req: Request) {
     const { world, newName } = parseBody(
@@ -260,6 +283,7 @@ export class ServerWorldsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('reset')
   async reset(@Param('id') id: string, @Req() req: Request) {
     const opts = parseBody(
@@ -279,6 +303,7 @@ export class ServerWorldsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('activate')
   async activate(@Param('id') id: string, @Req() req: Request) {
     const { world } = parseBody(z.object({ world: worldNameSchema }), req.body);
@@ -291,6 +316,7 @@ export class ServerWorldsController {
   // Pauses server saves and zips a fresh world snapshot to disk before
   // streaming it — a real side effect (not just a read), plus bulk
   // sensitive export, so it's role-gated.
+  @RequireServerPermission('content')
   @Get(':world/download')
   @UseGuards(RolesGuard)
   @Roles('admin', 'operator')
@@ -309,6 +335,7 @@ export class ServerWorldsController {
     });
   }
 
+  @RequireServerPermission('content')
   @Delete(':world')
   async remove(
     @Param('id') id: string,

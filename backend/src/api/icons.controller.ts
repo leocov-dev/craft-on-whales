@@ -8,6 +8,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -23,6 +24,8 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ConfigService } from '../config/config.service';
 import { EventsService } from '../events/events.service';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const ICON_MAX_BYTES = 512 * 1024;
 const ICON_EXTS: Record<string, string> = {
@@ -51,6 +54,8 @@ export class IconsController {
   // multipart field: 'icon'. Stores <dataDir>/library/icons/custom/<serverId><ext>
   // and sets servers.icon = 'custom:<filename>' (served via GET /api/icons/custom/:file).
   @Post('servers/:id/icon')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('settings')
   @UseInterceptors(
     FileInterceptor('icon', { limits: { fileSize: ICON_MAX_BYTES, files: 1 } }),
   )

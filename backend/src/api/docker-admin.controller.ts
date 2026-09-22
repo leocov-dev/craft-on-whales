@@ -9,6 +9,8 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { dockerOverridesSchema } from './docker-overrides.schema';
 import { parseBody } from './servers.controller';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const previewSchema = z.object({
   type: z.string().trim().max(32).optional(),
@@ -77,8 +79,9 @@ export class DockerAdminController {
   }
 
   @Get('servers/:id/docker-spec')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ServerPermissionGuard)
   @Roles('admin')
+  @RequireServerPermission('settings')
   async serverDockerSpec(@Param('id') id: string) {
     await this.query.mustGet(id);
     return {

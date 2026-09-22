@@ -16,7 +16,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
-import { and, eq, like, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
 import { events, servers } from '../db/schema';
@@ -25,6 +25,9 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { EventViewModel } from '../../../shared/types/events';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { PermissionsService } from '../permissions/permissions.service';
 
 const ACTIVITY_PER_PAGE = 50;
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
@@ -36,6 +39,7 @@ export class EventsController {
     private readonly dbService: DbService,
     private readonly config: ConfigService,
     private readonly eventsService: EventsService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   private get db() {
@@ -44,6 +48,7 @@ export class EventsController {
 
   @Get('events')
   async list(
+    @Req() req: Request,
     @Query('q') q = '',
     @Query('server') server = '',
     @Query('type') type = '',
@@ -52,9 +57,26 @@ export class EventsController {
     const qq = q.trim().slice(0, 200);
     const serverId = server.trim().slice(0, 40);
     const eventType = type.trim().slice(0, 60);
+    // A server hidden from this user is hidden from the activity feed too —
+    // panel-global events (serverId null) are never scoped to a server, so
+    // they stay visible to everyone.
+    const visible =
+      req.user?.role === 'admin'
+        ? null
+        : await this.permissions.visibleServerIds(req.user);
     const where = [
       ...(serverId ? [eq(events.serverId, serverId)] : []),
       ...(eventType ? [eq(events.type, eventType)] : []),
+      ...(visible
+        ? [
+            visible.size
+              ? or(
+                  isNull(events.serverId),
+                  inArray(events.serverId, [...visible]),
+                )!
+              : isNull(events.serverId),
+          ]
+        : []),
       ...(qq
         ? [
             or(
@@ -162,8 +184,9 @@ export class EventsController {
   }
 
   @Get('servers/:id/events/export')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ServerPermissionGuard)
   @Roles('admin', 'operator')
+  @RequireServerPermission('files')
   async exportForServer(
     @Res() res: Response,
     @Param('id') id: string,
@@ -204,8 +227,9 @@ export class EventsController {
   }
 
   @Get('servers/:id/logs/archived')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ServerPermissionGuard)
   @Roles('admin', 'operator')
+  @RequireServerPermission('files')
   async archivedList(@Param('id') idParam: string) {
     const id = parseBody(serverIdSchema, idParam);
     const dir = path.join(this.config.dataDir, 'logs', id, 'events');
@@ -224,8 +248,9 @@ export class EventsController {
   }
 
   @Get('servers/:id/logs/archived/:file')
-  @UseGuards(RolesGuard)
+  @UseGuards(RolesGuard, ServerPermissionGuard)
   @Roles('admin', 'operator')
+  @RequireServerPermission('files')
   archivedFile(
     @Res() res: Response,
     @Param('id') idParam: string,

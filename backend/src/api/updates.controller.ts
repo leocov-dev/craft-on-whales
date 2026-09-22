@@ -1,10 +1,20 @@
-import { Controller, Get, HttpCode, Param, Post, Req } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { UpdateCheckerService } from '../updates/update-checker.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { TasksService } from '../tasks/tasks.service';
 import type { OutdatedRow } from '../../../shared/types/updates';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 /** Ports the "Updates" section of legacy `src/web/routes/api.ts`. */
 @Controller('api')
@@ -52,6 +62,8 @@ export class UpdatesController {
 
   @Post('servers/:id/updates/check')
   @HttpCode(202)
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content')
   async checkForServer(@Req() req: Request, @Param('id') id: string) {
     const server = await this.serverQuery.mustGet(id);
     const actor = currentUser(req).username;

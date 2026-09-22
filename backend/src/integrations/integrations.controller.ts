@@ -20,6 +20,8 @@ import { DiscordService } from './discord.service';
 import { InvitesService } from './invites.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
@@ -75,6 +77,7 @@ const statusPageSchema = z
 
 /** Integrations API. Ports `src/web/routes/integrations.ts` (mounted at /api/servers/:id/integrations). */
 @Controller('api/servers/:id/integrations')
+@UseGuards(ServerPermissionGuard)
 export class IntegrationsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -91,6 +94,7 @@ export class IntegrationsController {
     return server;
   }
 
+  @RequireServerPermission('view')
   @Get()
   async get(@Param('id') id: string) {
     const server = await this.mustGet(id);
@@ -102,6 +106,7 @@ export class IntegrationsController {
     };
   }
 
+  @RequireServerPermission('settings')
   @Post('discord')
   async setDiscord(@Param('id') id: string, @Req() req: Request) {
     const server = await this.mustGet(id);
@@ -116,12 +121,14 @@ export class IntegrationsController {
     return { ok: true, discord: config };
   }
 
+  @RequireServerPermission('settings')
   @Post('discord/test')
   async testDiscord(@Param('id') id: string) {
     const server = await this.mustGet(id);
     return this.discord.testWebhook(server.id);
   }
 
+  @RequireServerPermission('view')
   @Get('invite')
   async invite(@Param('id') id: string) {
     const server = await this.mustGet(id);
@@ -131,6 +138,7 @@ export class IntegrationsController {
   // Generates a client .mrpack on the fly (fetches per-mod metadata from
   // Modrinth, writes a zip to data/tmp) rather than just reading data —
   // gated like the other archive-generating downloads in this PR.
+  @RequireServerPermission('content')
   @Get('invite/modpack.mrpack')
   @UseGuards(RolesGuard)
   @Roles('admin', 'operator')
@@ -147,6 +155,7 @@ export class IntegrationsController {
     });
   }
 
+  @RequireServerPermission('settings')
   @Post('status-page')
   async setStatusPage(@Param('id') id: string, @Req() req: Request) {
     const server = await this.mustGet(id);

@@ -62,6 +62,16 @@ long-polling transport skip backpressure entirely (matches legacy, which
 never had a polling fallback in the first place — it only ever spoke raw
 websocket).
 
+## Per-server permission check
+
+`authenticateGatewayConnection()` also checks `PermissionsService.can(user, serverId, 'view')`
+after the session/server-existence checks below, disconnecting the same way
+(`client.disconnect(true)`, no payload) on a server the caller may not view — the WS counterpart of
+`ServerPermissionGuard`'s HTTP 404. `ConsoleGateway`'s `cmd` handler separately checks the
+`console` capability (replacing a hardcoded `['admin', 'operator']` role check) before running any
+command, since an operator's role default can still be narrowed per-server. See
+`backend/src/permissions/PERMISSIONS_NOTES.md` for the full design.
+
 ## Handshake origin check
 
 `authenticateGatewayConnection()` (`gateway-auth.ts`) now also validates the
