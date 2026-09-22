@@ -18,32 +18,34 @@
 
       <div class="row q-col-gutter-md">
         <div class="col-12 col-md-6">
-          <q-card flat bordered class="q-pa-md q-gutter-md">
-            <div class="text-subtitle1">Access</div>
-            <q-toggle
-              :model-value="player.whitelisted"
-              label="Whitelisted"
-              @update:model-value="(v: boolean) => toggleWhitelist(v)"
-            />
-            <q-toggle
-              :model-value="player.op"
-              label="Operator"
-              @update:model-value="(v: boolean) => toggleOp(v)"
-            />
-            <div v-if="player.banned" class="text-caption text-negative">
-              Banned{{ player.banReason ? `: ${player.banReason}` : '' }}
-            </div>
-            <div class="row q-gutter-sm">
-              <q-btn v-if="player.online" dense outline label="Kick" @click="kickPlayer" />
-              <q-btn
-                v-if="!player.banned"
-                dense
-                outline
-                color="negative"
-                label="Ban"
-                @click="banPlayer"
+          <q-card flat bordered class="q-pa-md">
+            <div class="q-gutter-md">
+              <div class="text-subtitle1">Access</div>
+              <q-toggle
+                :model-value="player.whitelisted"
+                label="Whitelisted"
+                @update:model-value="(v: boolean) => toggleWhitelist(v)"
               />
-              <q-btn v-else dense outline label="Pardon" @click="pardonPlayer" />
+              <q-toggle
+                :model-value="player.op"
+                label="Operator"
+                @update:model-value="(v: boolean) => toggleOp(v)"
+              />
+              <div v-if="player.banned" class="text-caption text-negative">
+                Banned{{ player.banReason ? `: ${player.banReason}` : '' }}
+              </div>
+              <div class="row q-gutter-sm">
+                <q-btn v-if="player.online" dense outline label="Kick" @click="kickPlayer" />
+                <q-btn
+                  v-if="!player.banned"
+                  dense
+                  outline
+                  color="negative"
+                  label="Ban"
+                  @click="banPlayer"
+                />
+                <q-btn v-else dense outline label="Pardon" @click="pardonPlayer" />
+              </div>
             </div>
           </q-card>
         </div>
