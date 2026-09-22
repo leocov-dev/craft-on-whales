@@ -95,4 +95,3 @@ long-running self-hosted box. A hard, unmissable boot failure with an actionable
 in keeping with this project's existing config-validation style (see `numFromEnv`'s and
 `DATA_DIR_HOST`'s validation, both hard errors, not warnings) and with `AGENTS.md`'s "Defense in
 depth is a project goal" framing. The fix is a one-line `.env` edit either way.
-
