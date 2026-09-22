@@ -81,7 +81,9 @@
           <div v-if="server.pack?.platform === 'packwiz' && server.pack.ref" class="col-12">
             <q-item-label caption>Modpack (packwiz)</q-item-label>
             <div>
-              <a :href="server.pack.ref" target="_blank" rel="noopener">{{ server.pack.ref }}</a>
+              <a :href="server.pack.ref" target="_blank" rel="noopener" class="text-primary">{{
+                server.pack.ref
+              }}</a>
             </div>
           </div>
         </div>
