@@ -2,19 +2,30 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { BadRequestException } from '@nestjs/common';
+import { PathGuardService } from '../storage/path-guard.service';
+import {
+  buildZipFixture,
+  UNIX_MODE_SYMLINK,
+} from '../utils/zip-fixture.test-helpers';
 import { WorldArchiveService } from './world-archive.service';
 
 // Docker-free, DB-free: WorldArchiveService is pure fs/zip plumbing, so it's
-// instantiated directly. These cases feed it inputs a hostile or careless
-// upload could produce — truncated zip, non-archive bytes, corrupt tar — and
-// assert every one surfaces as a BadRequestException with a specific
-// sentence rather than the raw yauzl/tar parser error bubbling up as a 500.
+// instantiated directly (with a real PathGuardService — its own constructor
+// needs only `config.dataDir`, unused by the zip-extraction paths under
+// test here, so a minimal fake ConfigService is enough). These cases feed it
+// inputs a hostile or careless upload could produce — truncated zip,
+// non-archive bytes, corrupt tar — and assert every one surfaces as a
+// BadRequestException with a specific sentence rather than the raw
+// yauzl/tar parser error bubbling up as a 500.
 describe('WorldArchiveService — malformed archive handling', () => {
   let service: WorldArchiveService;
   let root: string;
 
   beforeEach(() => {
-    service = new WorldArchiveService();
+    const pathGuard = new PathGuardService({
+      dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'cow-world-archive-cfg-')),
+    } as ConstructorParameters<typeof PathGuardService>[0]);
+    service = new WorldArchiveService(pathGuard);
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'cow-world-archive-'));
   });
 
@@ -57,6 +68,52 @@ describe('WorldArchiveService — malformed archive handling', () => {
       await expect(
         service.extractZip(bogus, path.join(root, 'out3')),
       ).rejects.toThrow(/malformed zip/i);
+    });
+
+    it('rejects a zip-slip entry via the shared safe-zip-extractor guard', async () => {
+      const evil = path.join(root, 'evil.zip');
+      fs.writeFileSync(
+        evil,
+        buildZipFixture([{ name: '../escaped.txt', content: 'pwned' }]),
+      );
+
+      await expect(
+        service.extractZip(evil, path.join(root, 'out6')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(fs.existsSync(path.join(root, 'escaped.txt'))).toBe(false);
+    });
+
+    it('rejects a symlink entry via the shared safe-zip-extractor guard', async () => {
+      const linky = path.join(root, 'linky.zip');
+      fs.writeFileSync(
+        linky,
+        buildZipFixture([
+          {
+            name: 'link.txt',
+            content: '/etc/passwd',
+            unixMode: UNIX_MODE_SYMLINK,
+          },
+        ]),
+      );
+
+      await expect(
+        service.extractZip(linky, path.join(root, 'out7')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('extracts a normal valid zip intact', async () => {
+      const good = path.join(root, 'good.zip');
+      fs.writeFileSync(
+        good,
+        buildZipFixture([{ name: 'level.dat', content: 'nbt-ish bytes' }]),
+      );
+      const out = path.join(root, 'out8');
+
+      await service.extractZip(good, out);
+
+      expect(fs.readFileSync(path.join(out, 'level.dat'), 'utf8')).toBe(
+        'nbt-ish bytes',
+      );
     });
   });
 

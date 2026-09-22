@@ -117,6 +117,8 @@ describe('BackupsService', () => {
           provide: PathGuardService,
           useValue: {
             dataPath: (...parts: string[]) => path.join(root, ...parts),
+            safeJoin: (base: string, ...parts: string[]) =>
+              path.join(base, ...parts),
           },
         },
         {

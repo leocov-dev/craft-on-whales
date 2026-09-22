@@ -1,19 +1,20 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { BadRequestException } from '@nestjs/common';
 import { ZipArchive } from 'archiver';
 import * as yauzl from 'yauzl';
+import { PathGuardService } from '../storage/path-guard.service';
+import {
+  extractZipSafely,
+  isSafeZipEntryName,
+} from '../utils/safe-zip-extractor';
 
 export { ZipArchive };
 
-// ---- Zip helpers (all zip-slip-guarded) ----
+// ---- Zip helpers (all zip-slip-guarded — see utils/safe-zip-extractor.ts) ----
 
-export function safeEntryName(name: string): boolean {
-  if (!name || name.includes('\0') || name.includes('\\')) return false;
-  if (path.isAbsolute(name) || /^[a-zA-Z]:/.test(name)) return false;
-  return !name.split('/').includes('..');
-}
+/** @deprecated kept for callers outside this file; use isSafeZipEntryName. */
+export const safeEntryName = isSafeZipEntryName;
 
 export interface ZipEntry {
   name: string;
@@ -25,40 +26,44 @@ export function readZipIndex(
   zipPath: string,
 ): Promise<{ entries: ZipEntry[]; manifestText: string | null }> {
   return new Promise((resolve, reject) => {
-    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
-      if (err)
-        return reject(new BadRequestException('Not a valid zip archive'));
-      const entries: ZipEntry[] = [];
-      let manifestText: string | null = null;
-      zip.on('error', reject);
-      zip.on('end', () => resolve({ entries, manifestText }));
-      zip.on('entry', (entry) => {
-        if (!safeEntryName(entry.fileName)) {
-          zip.close();
-          return reject(
-            new BadRequestException(
-              `Archive entry escapes its destination: ${entry.fileName}`,
-            ),
-          );
-        }
-        entries.push({ name: entry.fileName, size: entry.uncompressedSize });
-        if (entry.fileName === 'manifest.json') {
-          zip.openReadStream(entry, (streamErr, readStream) => {
-            if (streamErr) return reject(streamErr);
-            const chunks: Buffer[] = [];
-            readStream.on('data', (c: Buffer) => chunks.push(c));
-            readStream.on('error', reject);
-            readStream.on('end', () => {
-              manifestText = Buffer.concat(chunks).toString('utf8');
-              zip.readEntry();
+    yauzl.open(
+      zipPath,
+      { lazyEntries: true, strictFileNames: true },
+      (err, zip) => {
+        if (err)
+          return reject(new BadRequestException('Not a valid zip archive'));
+        const entries: ZipEntry[] = [];
+        let manifestText: string | null = null;
+        zip.on('error', reject);
+        zip.on('end', () => resolve({ entries, manifestText }));
+        zip.on('entry', (entry) => {
+          if (!safeEntryName(entry.fileName)) {
+            zip.close();
+            return reject(
+              new BadRequestException(
+                `Archive entry escapes its destination: ${entry.fileName}`,
+              ),
+            );
+          }
+          entries.push({ name: entry.fileName, size: entry.uncompressedSize });
+          if (entry.fileName === 'manifest.json') {
+            zip.openReadStream(entry, (streamErr, readStream) => {
+              if (streamErr) return reject(streamErr);
+              const chunks: Buffer[] = [];
+              readStream.on('data', (c: Buffer) => chunks.push(c));
+              readStream.on('error', reject);
+              readStream.on('end', () => {
+                manifestText = Buffer.concat(chunks).toString('utf8');
+                zip.readEntry();
+              });
             });
-          });
-        } else {
-          zip.readEntry();
-        }
-      });
-      zip.readEntry();
-    });
+          } else {
+            zip.readEntry();
+          }
+        });
+        zip.readEntry();
+      },
+    );
   });
 }
 
@@ -69,93 +74,18 @@ export function readZipIndex(
 export const MAX_EXTRACT_BYTES = 8 * 1024 ** 3;
 
 /**
- * Extract a whole zip under destDir; every entry path is containment-checked
- * and the total decompressed size written is capped at `maxTotalBytes`
- * (defends against zip bombs — a small compressed file expanding to
- * exhaust host disk).
+ * Extract a whole zip under destDir. Every entry is guarded by the shared
+ * safe-zip-extractor (zip-slip containment via PathGuardService.safeJoin,
+ * backslash-separator rejection, per-entry/total decompressed-size caps,
+ * unsupported-entry-type refusal) — see UTILS_NOTES.md.
  */
 export function extractZipSafe(
+  pathGuard: PathGuardService,
   zipFile: string,
   destDir: string,
   maxTotalBytes: number = MAX_EXTRACT_BYTES,
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let totalBytes = 0;
-    let aborted = false;
-    const fail = (e: Error) => {
-      if (aborted) return;
-      aborted = true;
-      reject(
-        e instanceof BadRequestException
-          ? e
-          : new BadRequestException(
-              `Malformed zip archive — extraction failed: ${e.message}`,
-            ),
-      );
-    };
-    yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
-      if (err) return fail(new Error(`could not be opened: ${err.message}`));
-      const abort = (abortErr: Error) => {
-        if (aborted) return;
-        zip.close();
-        fail(abortErr);
-      };
-      zip.on('error', abort);
-      zip.on('end', () => {
-        if (!aborted) resolve();
-      });
-      zip.on('entry', (entry) => {
-        if (aborted) return;
-        if (!safeEntryName(entry.fileName)) {
-          return abort(
-            new BadRequestException(
-              `Archive entry escapes destination: ${entry.fileName}`,
-            ),
-          );
-        }
-        const target = path.resolve(destDir, entry.fileName);
-        if (
-          target !== path.resolve(destDir) &&
-          !target.startsWith(path.resolve(destDir) + path.sep)
-        ) {
-          return abort(
-            new BadRequestException(
-              `Archive entry escapes destination: ${entry.fileName}`,
-            ),
-          );
-        }
-        if (/\/$/.test(entry.fileName)) {
-          fs.mkdirSync(target, { recursive: true });
-          zip.readEntry();
-        } else {
-          fs.mkdirSync(path.dirname(target), { recursive: true });
-          zip.openReadStream(entry, (streamErr, readStream) => {
-            if (streamErr) return abort(streamErr);
-            const out = fs.createWriteStream(target);
-            readStream.on('data', (chunk: Buffer) => {
-              totalBytes += chunk.length;
-              if (totalBytes > maxTotalBytes) {
-                readStream.unpipe(out);
-                readStream.destroy();
-                out.destroy();
-                abort(
-                  new BadRequestException(
-                    `Archive exceeds the ${Math.round(maxTotalBytes / 1024 ** 3)}GB decompressed-size limit`,
-                  ),
-                );
-              }
-            });
-            out.on('close', () => {
-              if (!aborted) zip.readEntry();
-            });
-            out.on('error', abort);
-            readStream.pipe(out);
-          });
-        }
-      });
-      zip.readEntry();
-    });
-  });
+  return extractZipSafely(pathGuard, zipFile, destDir, { maxTotalBytes });
 }
 
 export function hashFile(absFile: string): Promise<string> {
