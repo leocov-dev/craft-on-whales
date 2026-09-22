@@ -14,6 +14,11 @@ const dependencySchema = z.object({
   relationType: z.number(),
 });
 
+const fileHashSchema = z.object({
+  value: z.string(),
+  algo: z.number(),
+});
+
 const fileSchema = z.object({
   id: z.number(),
   displayName: z.string(),
@@ -23,7 +28,7 @@ const fileSchema = z.object({
   releaseType: z.number().optional(),
   fileDate: z.string(),
   fileLength: z.number(),
-  hashes: z.array(z.unknown()).optional(),
+  hashes: z.array(fileHashSchema).optional(),
   serverPackFileId: z.number().nullable().optional(),
   dependencies: z.array(dependencySchema).optional(),
 });

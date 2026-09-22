@@ -13,6 +13,7 @@ import type {
   CurseforgeMod,
   CurseforgeFile,
   CurseforgeResolved,
+  ExpectedHash,
 } from './mods.types';
 import {
   modSearchResponseSchema,
@@ -23,6 +24,22 @@ import {
   type RawCfMod,
   type RawCfFile,
 } from './curseforge-api.schemas';
+
+/**
+ * Pick a Node-`crypto`-computable checksum off a CurseForge file's `hashes[]`
+ * (algo 1 = Sha1, 2 = Md5 per CurseForge's own enum — sha1 preferred when
+ * both are present). Returns null when the file carries no hash at all,
+ * which CurseForge does not guarantee on every file.
+ */
+export function curseforgeExpectedHash(
+  file: CurseforgeFile,
+): ExpectedHash | null {
+  const sha1 = file.hashes.find((h) => h.algo === 1);
+  if (sha1) return { algorithm: 'sha1', hex: sha1.value };
+  const md5 = file.hashes.find((h) => h.algo === 2);
+  if (md5) return { algorithm: 'md5', hex: md5.value };
+  return null;
+}
 
 const BASE = 'https://api.curseforge.com/v1';
 const GAME_MINECRAFT = 432;

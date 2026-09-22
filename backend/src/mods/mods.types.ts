@@ -4,6 +4,18 @@
 
 export type ModPlatform = 'modrinth' | 'curseforge';
 
+/**
+ * A registry-published checksum for a not-yet-downloaded file, carried
+ * alongside a download URL so LibraryService can verify the bytes it
+ * receives actually match what the registry advertised before trusting
+ * the file. Algorithm is whatever the source natively publishes — never
+ * invented per callsite.
+ */
+export interface ExpectedHash {
+  algorithm: 'sha1' | 'sha256' | 'sha512' | 'md5';
+  hex: string;
+}
+
 /** A Modrinth search hit, normalized from the raw API response. */
 export interface ModrinthSearchHit {
   projectId: string;
@@ -38,7 +50,8 @@ export interface CurseforgeFile {
   releaseType: 'release' | 'beta' | 'alpha';
   fileDate: string;
   fileLength: number;
-  hashes: unknown[];
+  // algo: 1 = Sha1, 2 = Md5 (CurseForge's own enum — see cfFileHashToExpectedHash).
+  hashes: { value: string; algo: number }[];
   serverPackFileId: number | null;
   dependencies: { modId: number; relation: number }[];
 }
