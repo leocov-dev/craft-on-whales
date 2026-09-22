@@ -7,6 +7,7 @@ import {
   ResourceDefaultsResolver,
 } from './resource-defaults.resolver';
 import { SessionSecretProvider } from './session-secret.provider';
+import { SecretKeyProvider } from './secret-key.provider';
 import { resolveDbDriver, DbDriver } from '../utils/db-driver';
 
 export type TrustProxy = boolean | number | string;
@@ -48,6 +49,13 @@ export class ConfigService {
   readonly isExposedBind: boolean;
   readonly runningInDocker: boolean;
   readonly sessionSecret: string;
+  /**
+   * Decoded 32-byte dedicated at-rest encryption key from `SECRET_KEY`, or
+   * `null` if unset (in which case `SecretsService` falls back to a key
+   * derived from `sessionSecret`). Resolution/validation is delegated to
+   * `SecretKeyProvider` — see `backend/src/auth/SECRETS_NOTES.md`.
+   */
+  readonly secretKey: Buffer | null;
   readonly cfApiKeySeed: string;
   readonly trustProxy: TrustProxy;
   readonly cookieSecure: CookieSecure;
@@ -67,6 +75,7 @@ export class ConfigService {
 
   constructor(
     private readonly sessionSecretProvider: SessionSecretProvider,
+    private readonly secretKeyProvider: SecretKeyProvider,
     private readonly resourceDefaultsResolver: ResourceDefaultsResolver,
   ) {
     // backend/ is one level deeper than src/ was (repo/backend/dist vs
@@ -142,6 +151,9 @@ export class ConfigService {
     if (!this.sessionSecret || this.sessionSecret.length < 16) {
       throw new Error('Failed to resolve a session secret.');
     }
+    // Throws on malformed/wrong-length SECRET_KEY (hard boot error); returns
+    // null (after a loud deprecation warning) when unset.
+    this.secretKey = this.secretKeyProvider.resolve();
   }
 
   private numFromEnv(
