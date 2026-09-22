@@ -59,6 +59,10 @@
         <q-banner v-if="error" class="bg-negative text-white q-mb-md" dense rounded>
           {{ error }}
         </q-banner>
+        <q-banner v-if="auth.setupPinRequired" class="bg-warning text-white q-mb-md" dense rounded>
+          This panel is reachable from outside localhost. Check the server's own console/log output
+          for the setup PIN and enter it below.
+        </q-banner>
         <q-form class="q-gutter-md" @submit="createAdmin">
           <q-input
             v-model="username"
@@ -73,6 +77,13 @@
             autocomplete="new-password"
             hint="At least 8 characters."
             :rules="[(v) => v.length >= 8 || 'At least 8 characters']"
+          />
+          <q-input
+            v-if="auth.setupPinRequired"
+            v-model="pin"
+            label="Setup PIN"
+            hint="Printed to the panel's server console/logs — never sent over the network."
+            :rules="[(v) => v.length > 0 || 'Required']"
           />
           <div class="row q-gutter-sm">
             <q-btn flat label="Back" icon="arrow_back" @click="step = 2" />
@@ -118,6 +129,7 @@ const checks = ref<SetupChecks | null>(null);
 const checksLoading = ref(false);
 const username = ref('');
 const password = ref('');
+const pin = ref('');
 const loading = ref(false);
 const error = ref('');
 
@@ -201,7 +213,7 @@ async function createAdmin() {
   loading.value = true;
   error.value = '';
   try {
-    await auth.setup(username.value, password.value);
+    await auth.setup(username.value, password.value, pin.value || undefined);
     step.value = 4;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : 'Something went wrong.';

@@ -52,7 +52,7 @@ export const authApi = {
     http.post<LoginResponse>('/login', { username, password, next }),
   loginTotp: (code: string) => http.post<TotpLoginResponse>('/login/2fa', { code }),
   logout: () => http.post<LogoutResponse>('/logout'),
-  setup: (username: string, password: string) =>
-    http.post<SetupResponse>('/setup', { username, password }),
+  setup: (username: string, password: string, pin?: string) =>
+    http.post<SetupResponse>('/setup', { username, password, pin }),
   setupChecks: () => http.get<SetupChecksResponse>('/setup/checks'),
 };
