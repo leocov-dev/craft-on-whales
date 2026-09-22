@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { EventsService } from '../events/events.service';
@@ -216,14 +216,24 @@ export class UpdateCheckerService {
     return null;
   }
 
-  /** Everything outdated, joined for the Updates page. */
-  async listOutdated(): Promise<OutdatedRow[]> {
+  /**
+   * Everything outdated, joined for the Updates page. Excludes a build the
+   * user has ignored (`ignoredVersion === latestVersion`) — see
+   * UPDATES_NOTES.md. Pass `includeIgnored: true` to get the full set
+   * instead (used by `listIgnored`).
+   */
+  async listOutdated({
+    includeIgnored = false,
+  }: { includeIgnored?: boolean } = {}): Promise<OutdatedRow[]> {
     const rows: OutdatedRow[] = [];
     const checks = await this.db
       .select()
       .from(updateChecks)
       .where(isNotNull(updateChecks.latestVersion));
     for (const c of checks) {
+      const isIgnored =
+        Boolean(c.ignoredVersion) && c.ignoredVersion === c.latestVersion;
+      if (isIgnored !== includeIgnored) continue;
       if (c.subjectType === 'pack') {
         const [server] = await this.db
           .select({ id: servers.id, displayName: servers.displayName })
@@ -245,6 +255,8 @@ export class UpdateCheckerService {
             latest: c.latestName,
             versionId: c.latestVersion,
             changelogUrl: c.changelogUrl || null,
+            subjectType: 'pack',
+            subjectId: c.subjectId,
           });
         }
       } else if (c.subjectType === 'content') {
@@ -277,11 +289,83 @@ export class UpdateCheckerService {
             latest: c.latestName,
             contentId: row.id,
             changelogUrl: c.changelogUrl || null,
+            subjectType: 'content',
+            subjectId: row.id,
           });
         }
       }
     }
     return rows;
+  }
+
+  /** Updates the user has ignored, for the "Ignored updates" panel. */
+  async listIgnored(): Promise<OutdatedRow[]> {
+    return this.listOutdated({ includeIgnored: true });
+  }
+
+  /**
+   * Ignore the currently-known latest build/version for one subject —
+   * removes it from `listOutdated` (and everything that reads through it)
+   * until a build newer than the one just ignored appears.
+   */
+  async ignoreUpdate(
+    subjectType: 'pack' | 'content',
+    subjectId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<{ ignoredVersion: string }> {
+    const [check] = await this.db
+      .select()
+      .from(updateChecks)
+      .where(
+        and(
+          eq(updateChecks.subjectType, subjectType),
+          eq(updateChecks.subjectId, subjectId),
+        ),
+      )
+      .limit(1);
+    if (!check || !check.latestVersion)
+      throw new ConflictException(
+        'No update is currently known for this — run an update check first',
+      );
+    await this.db
+      .update(updateChecks)
+      .set({ ignoredVersion: check.latestVersion })
+      .where(
+        and(
+          eq(updateChecks.subjectType, subjectType),
+          eq(updateChecks.subjectId, subjectId),
+        ),
+      );
+    this.events.recordEvent({
+      actor,
+      type: 'update-ignored',
+      summary: `Ignored update: ${check.latestName || check.latestVersion}`,
+      details: { subjectType, subjectId, ignoredVersion: check.latestVersion },
+    });
+    return { ignoredVersion: check.latestVersion };
+  }
+
+  /** Clear a previously-ignored build so it counts as "available" again. */
+  async clearIgnoredUpdate(
+    subjectType: 'pack' | 'content',
+    subjectId: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<void> {
+    await this.db
+      .update(updateChecks)
+      .set({ ignoredVersion: null })
+      .where(
+        and(
+          eq(updateChecks.subjectType, subjectType),
+          eq(updateChecks.subjectId, subjectId),
+        ),
+      );
+    this.events.recordEvent({
+      actor,
+      type: 'update-ignored',
+      summary: 'Cleared an ignored update',
+      details: { subjectType, subjectId },
+    });
   }
 
   async lastCheckedAt(): Promise<string | null> {

@@ -9,6 +9,7 @@ export type { OutdatedRow };
 interface UpdatesResponse {
   ok: true;
   updates: OutdatedRow[];
+  ignored: OutdatedRow[];
   lastChecked: string | null;
 }
 
@@ -29,4 +30,10 @@ export const updatesApi = {
     http.post<{ ok: true; installed: unknown }>(`/api/servers/${serverId}/mods/update`, {
       contentId,
     }),
+  ignore: (subjectType: OutdatedRow['subjectType'], subjectId: string) =>
+    http.post<{ ok: true; ignoredVersion: string }>(
+      `/api/updates/${subjectType}/${subjectId}/ignore`,
+    ),
+  unignore: (subjectType: OutdatedRow['subjectType'], subjectId: string) =>
+    http.delete<{ ok: true }>(`/api/updates/${subjectType}/${subjectId}/ignore`),
 };

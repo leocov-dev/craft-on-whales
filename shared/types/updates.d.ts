@@ -9,6 +9,9 @@ export interface OutdatedRow {
   versionId?: string | null;
   contentId?: string;
   changelog: string | null;
+  /** update_checks composite key — what an ignore/un-ignore call targets. */
+  subjectType: 'pack' | 'content';
+  subjectId: string;
 }
 
 export interface UpdateFinding {

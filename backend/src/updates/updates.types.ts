@@ -16,4 +16,6 @@ export interface OutdatedRow {
   versionId?: string | null;
   contentId?: string;
   changelogUrl: string | null;
+  subjectType: 'pack' | 'content';
+  subjectId: string;
 }
