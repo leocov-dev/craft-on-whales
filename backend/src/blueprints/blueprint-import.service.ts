@@ -32,7 +32,10 @@ import {
 } from '../library/library.service';
 import { ModsService } from '../mods/mods.service';
 import { ModrinthApiService } from '../mods/modrinth-api.service';
-import { CurseforgeApiService } from '../mods/curseforge-api.service';
+import {
+  CurseforgeApiService,
+  curseforgeExpectedHash,
+} from '../mods/curseforge-api.service';
 import { blueprints, libraryFiles, serverContent } from '../db/schema';
 import {
   extractZipSafe,
@@ -470,6 +473,7 @@ export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
           version: version.version_number,
           mcVersions: version.game_versions,
           loaders: version.loaders,
+          expectedHash: { algorithm: 'sha512', hex: file.hashes.sha512 },
         },
       };
     }
@@ -491,6 +495,7 @@ export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
           filename: file.fileName,
           version: file.name,
           mcVersions: file.gameVersions,
+          expectedHash: curseforgeExpectedHash(file),
         },
       };
     }
@@ -519,6 +524,7 @@ export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
           iconUrl: project.iconUrl,
           mcVersions: version.game_versions,
           loaders: version.loaders,
+          expectedHash: { algorithm: 'sha512', hex: file.hashes.sha512 },
         },
       };
     }

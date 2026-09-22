@@ -33,6 +33,7 @@
               </q-btn>
               <q-btn flat dense round icon="edit" @click="renamePrompt(w)" />
               <q-btn
+                v-if="auth.canWrite"
                 flat
                 dense
                 round
@@ -62,9 +63,11 @@ import { useQuasar } from 'quasar';
 import { serverWorldsApi, type ServerWorldSummary } from '@/api/serverWorlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
+import { useAuthStore } from '@/stores/auth';
 
 const $q = useQuasar();
 const { server } = useServerDetail();
+const auth = useAuthStore();
 
 const worlds = ref<ServerWorldSummary[]>([]);
 

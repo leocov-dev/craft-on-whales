@@ -60,7 +60,14 @@
               :loading="creatingId === bp.id"
               @click="createServer(bp)"
             />
-            <q-btn flat dense round icon="download" :href="blueprintsApi.downloadUrl(bp.id)" />
+            <q-btn
+              v-if="auth.canWrite"
+              flat
+              dense
+              round
+              icon="download"
+              :href="blueprintsApi.downloadUrl(bp.id)"
+            />
             <q-btn
               v-if="!bp.builtin"
               flat
@@ -185,12 +192,14 @@ import { blueprintsApi, type BlueprintViewModel, type ImportPreview } from '@/ap
 import { wizardApi } from '@/api/wizard';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
+import { useAuthStore } from '@/stores/auth';
 import type { ServerViewModel } from '@/api/servers';
 import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const router = useRouter();
 const servers = useServersStore();
+const auth = useAuthStore();
 
 const blueprints = ref<BlueprintViewModel[]>([]);
 const creatingId = ref<string | null>(null);

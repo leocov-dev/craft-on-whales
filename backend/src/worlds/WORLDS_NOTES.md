@@ -116,6 +116,27 @@ exercised live since they need a real Docker container (`execCapture`/
 `inspectStatus`) and real world files — confirmed by typecheck + code
 review only, not a live run.
 
+## Download routes gated to admin/operator (upstream parity 2.15)
+
+`WorldsController`'s `GET :id/download` (library world) and
+`ServerWorldsController`'s `GET :world/download` (per-server, calls
+`WorldTransferService.prepareWorldDownload`, which actually pauses saves
+and zips a fresh snapshot to `data/tmp`) both carry `@Roles('admin',
+'operator')` now. A bare GET streaming a full world save — potentially
+player data, and for the per-server route a real on-the-fly side effect,
+not just a read — was reachable by a logged-in `viewer` with no CSRF-shaped
+request needed (`OriginGuard` only gates non-GET verbs). Matches the same
+gate already on `backups.controller.ts`'s backup download. See
+`backend/src/auth/guards/roles.guard.side-effecting-gets.spec.ts`.
+
+**Frontend caveat**: `WorldsPage.vue` and `server/WorldsTab.vue`'s download
+buttons render unconditionally for every logged-in role today (no
+`viewer`-hiding logic exists client-side for these, or for any of the other
+routes this PR gated). A `viewer` clicking Download now gets a 403 instead
+of a file — flagged, not fixed, here; hiding/disabling those buttons for
+non-operator roles is frontend follow-up work, out of scope for this
+backend-only change.
+
 ## Known type-system wrinkles fixed post-port
 
 - `@types/archiver@8.0.0` ships no factory-function signature (only the
