@@ -57,3 +57,17 @@ from two concurrently-landing forks' unrelated pre-existing errors in
 `auth.controller.ts`/`crashes.controller.ts`/`upload-preflight.interceptor.ts`
 — none of which this module touches). See the task report for the live
 boot/curl verification performed.
+
+## Side-effecting GETs gated to admin/operator (upstream parity 2.15)
+
+`EventsController`'s `GET events/export` and `GET servers/:id/events/export`
+now carry `@Roles('admin', 'operator')` — a bulk export of every matching
+event/activity record (same sensitivity class as the archived-log routes
+right below them in the same file, which already had the role gate). A
+plain `<img>`/link-triggered GET (no CSRF-shaped body, so `OriginGuard`
+doesn't apply) was previously enough for any logged-in `viewer` to pull the
+full export; this closes that gap the same way `backups.controller.ts`'s
+`GET backups/:backupId/download` already does. See
+`backend/src/auth/guards/roles.guard.side-effecting-gets.spec.ts` for the
+full list of routes this PR gated across every module (events, blueprints,
+crashes, worlds, integrations `.mrpack`) and the tests covering each one.

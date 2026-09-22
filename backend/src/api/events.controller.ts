@@ -141,6 +141,8 @@ export class EventsController {
   }
 
   @Get('events/export')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async export(
     @Req() req: Request,
     @Res() res: Response,
@@ -160,6 +162,8 @@ export class EventsController {
   }
 
   @Get('servers/:id/events/export')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async exportForServer(
     @Res() res: Response,
     @Param('id') id: string,
