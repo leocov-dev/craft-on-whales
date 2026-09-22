@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   BadGatewayException,
   PayloadTooLargeException,
   HttpException,
@@ -9,6 +10,7 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { nanoid } from 'nanoid';
 import { eq, and, sql } from 'drizzle-orm';
@@ -18,6 +20,7 @@ import { EventsService } from '../events/events.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
 import { libraryFiles, serverContent } from '../db/schema';
+import type { ExpectedHash } from '../mods/mods.types';
 
 export type LibraryCategory =
   'mod' | 'plugin' | 'datapack' | 'resourcepack' | 'modpack' | 'world' | 'icon';
@@ -45,6 +48,14 @@ export interface DownloadMeta {
   iconUrl?: string | null;
   worldSource?: string | null;
   worldFlavor?: string | null;
+  /**
+   * Registry-published checksum for this download (Modrinth `hashes.sha512`,
+   * CurseForge `hashes[]`, a packwiz index entry's `hash`/`hash-format`, …).
+   * When present, verified against the downloaded bytes before the file is
+   * trusted/committed to the library — see downloadToLibrary's "Integrity
+   * verification" step and LIBRARY_NOTES.md.
+   */
+  expectedHash?: ExpectedHash | null;
 }
 
 export type LibraryFileRow = typeof libraryFiles.$inferSelect;
@@ -60,6 +71,8 @@ const MAX_DOWNLOAD_BYTES = 8 * 1024 ** 3;
  */
 @Injectable()
 export class LibraryService {
+  private readonly logger = new Logger(LibraryService.name);
+
   constructor(
     private readonly dbService: DbService,
     private readonly pathGuard: PathGuardService,
@@ -181,9 +194,23 @@ export class LibraryService {
       }
     }
 
+    const expectedHash = meta.expectedHash ?? null;
+    if (!expectedHash) {
+      // Not every source publishes a checksum up front (a plain direct-URL
+      // install has none to give us) — skip verification rather than hard
+      // failing every download that lacks one. See LIBRARY_NOTES.md.
+      this.logger.warn(
+        `Downloading "${meta.name || url}" with no registry-published checksum to verify against — integrity of this download is unverified`,
+      );
+    }
     const hash = crypto.createHash('sha256');
+    // Only allocate a second hash instance when verification needs an
+    // algorithm other than the sha256 we already compute for dedupe.
+    const verifyHash =
+      expectedHash && expectedHash.algorithm !== 'sha256'
+        ? crypto.createHash(expectedHash.algorithm)
+        : null;
     let receivedBytes = 0;
-    const { Transform } = await import('node:stream');
     const counter = new Transform({
       transform(
         chunk: Buffer,
@@ -191,6 +218,7 @@ export class LibraryService {
         cb: (err?: Error | null, chunk?: Buffer) => void,
       ) {
         hash.update(chunk);
+        verifyHash?.update(chunk);
         receivedBytes += chunk.length;
         if (receivedBytes > MAX_DOWNLOAD_BYTES) {
           // Hard abort — content-length can lie or be absent entirely.
@@ -216,6 +244,26 @@ export class LibraryService {
     }
 
     const sha256 = hash.digest('hex');
+
+    // Integrity verification: compare the bytes we actually received
+    // against the checksum the registry published for this file, BEFORE
+    // the file is dedupe-checked, moved into the library, or installed
+    // anywhere. This is content-integrity only — it does not vet the
+    // download URL/host itself (see LIBRARY_NOTES.md: that guard was
+    // deliberately removed in 3719117 and is intentionally not being
+    // reintroduced here).
+    if (expectedHash) {
+      const actualHex = verifyHash ? verifyHash.digest('hex') : sha256;
+      if (actualHex.toLowerCase() !== expectedHash.hex.toLowerCase()) {
+        await fsp.rm(tmpFile, { force: true });
+        throw new BadGatewayException(
+          `Checksum mismatch for "${meta.name || meta.filename || url}": ` +
+            `registry said ${expectedHash.algorithm} ${truncateHash(expectedHash.hex)} ` +
+            `but the downloaded file hashed to ${truncateHash(actualHex)}`,
+        );
+      }
+    }
+
     const [existing] = await this.db
       .select()
       .from(libraryFiles)
@@ -441,6 +489,11 @@ export function humanBytes(n: number): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${Math.round(n / 1024)} KB`;
+}
+
+/** Shorten a hex digest to a reasonable length for an error message. */
+export function truncateHash(hex: string): string {
+  return hex.length > 16 ? `${hex.slice(0, 16)}…` : hex;
 }
 
 export function sanitizeFilename(name: string): string {
