@@ -9,6 +9,7 @@ import { DockerLogsService } from '../docker/docker-logs.service';
 import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { EventsService } from '../events/events.service';
 import { McRouterService } from '../mc-router/mc-router.service';
+import { SettingsService } from '../settings/settings.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { DockerSpecService } from './docker-spec.service';
 import { PackPinGuardService } from './pack-pin-guard.service';
@@ -89,6 +90,7 @@ describe('ServerLifecycleService.refreshStatuses (startup watchdog)', () => {
         },
         { provide: SecretsService, useValue: noop },
         { provide: ConfigService, useValue: noop },
+        { provide: SettingsService, useValue: noop },
         { provide: PathGuardService, useValue: noop },
         { provide: ApiKeysService, useValue: noop },
         { provide: PortsService, useValue: noop },

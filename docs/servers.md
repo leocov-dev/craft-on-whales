@@ -13,7 +13,7 @@ You choose:
 - A **name** (and optional icon, accent color, and tags to organize your fleet).
 - A **server type** — vanilla, Paper, Fabric, Forge, NeoForge, and more, each mapped to the right itzg image behind the scenes.
 - A **Minecraft version** — `LATEST`, a snapshot, or a specific version.
-- **Resources** — RAM (heap), container memory limit, CPU, and a disk quota.
+- **Resources** — RAM (heap), container memory limit, CPU, and a disk quota. These pre-fill from the panel's configured defaults (an admin can change them under **Settings → Defaults for new servers**) — override any of them per-server right here in the wizard.
 
 Prefer a modpack? The **From modpack** tab installs from a packwiz `pack.toml` URL, CurseForge, Modrinth, FTB, or GT New Horizons instead — see [Modpacks](modpacks.md). You can also start from a saved [Blueprint](blueprints.md).
 

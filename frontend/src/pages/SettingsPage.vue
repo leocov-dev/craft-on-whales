@@ -85,25 +85,82 @@
           </q-item-label>
 
           <div class="text-subtitle1 q-mt-lg q-mb-sm">Defaults for new servers</div>
-          <div v-if="settings" class="row q-col-gutter-md text-body2">
+          <div v-if="defaultsForm" class="row q-col-gutter-sm text-body2">
             <div class="col-6">
-              <q-item-label caption>Java heap</q-item-label>
-              <div>{{ settings.defaults.heapMb }} MB</div>
+              <q-input
+                v-model.number="defaultsForm.heapMb"
+                type="number"
+                filled
+                dense
+                label="Java heap (MB)"
+                :disable="!auth.isAdmin"
+              />
             </div>
             <div class="col-6">
-              <q-item-label caption>Container limit</q-item-label>
-              <div>{{ settings.defaults.containerMemoryMb }} MB</div>
+              <q-input
+                v-model.number="defaultsForm.containerMemoryMb"
+                type="number"
+                filled
+                dense
+                label="Container limit (MB)"
+                :disable="!auth.isAdmin"
+              />
             </div>
             <div class="col-6">
-              <q-item-label caption>Disk quota</q-item-label>
-              <div>{{ settings.defaults.diskQuotaGb }} GB</div>
+              <q-input
+                v-model.number="defaultsForm.diskQuotaGb"
+                type="number"
+                filled
+                dense
+                label="Disk quota (GB)"
+                :disable="!auth.isAdmin"
+              />
             </div>
             <div class="col-6">
-              <q-item-label caption>Quota warnings</q-item-label>
-              <div>
-                {{ settings.defaults.quotaWarnPct }}% / {{ settings.defaults.quotaCriticalPct }}%
-              </div>
+              <q-input
+                v-model.number="defaultsForm.cpus"
+                type="number"
+                filled
+                dense
+                label="CPU limit (0 = unlimited)"
+                :disable="!auth.isAdmin"
+              />
             </div>
+            <div class="col-6">
+              <q-input
+                v-model.number="defaultsForm.quotaWarnPct"
+                type="number"
+                filled
+                dense
+                label="Quota warn %"
+                :disable="!auth.isAdmin"
+              />
+            </div>
+            <div class="col-6">
+              <q-input
+                v-model.number="defaultsForm.quotaCriticalPct"
+                type="number"
+                filled
+                dense
+                label="Quota critical %"
+                :disable="!auth.isAdmin"
+              />
+            </div>
+          </div>
+          <q-item-label v-if="defaultsCustomized" caption class="q-mt-xs">
+            Custom defaults are set — the create-server wizard and API-create fallback use these.
+          </q-item-label>
+          <q-item-label v-else caption class="q-mt-xs">
+            Using the built-in defaults derived from .env and this machine.
+          </q-item-label>
+          <div v-if="auth.isAdmin" class="row q-gutter-sm q-mt-sm">
+            <q-btn label="Save defaults" :loading="savingDefaults" @click="saveDefaults" />
+            <q-btn
+              flat
+              label="Restore built-ins"
+              :loading="restoringDefaults"
+              @click="restoreDefaults"
+            />
           </div>
 
           <div class="row q-gutter-sm items-start no-wrap q-mt-md">
@@ -135,14 +192,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
-import { settingsApi, type SettingsResponseData } from '@/api/settings';
+import { settingsApi, type SettingsResponseData, type ResourceDefaults } from '@/api/settings';
+import { useAuthStore } from '@/stores/auth';
 import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
+const auth = useAuthStore();
 
 const settings = ref<SettingsResponseData | null>(null);
+const defaultsForm = ref<ResourceDefaults | null>(null);
+const defaultsBase = ref<ResourceDefaults | null>(null);
+const savingDefaults = ref(false);
+const restoringDefaults = ref(false);
 const cfKey = ref('');
 const cfMasked = ref<string | null>(null);
 const publicHost = ref('');
@@ -156,6 +219,14 @@ const savingHost = ref(false);
 const savingPort = ref(false);
 const savingLoc = ref(false);
 
+const defaultsCustomized = computed(() => {
+  if (!defaultsForm.value || !defaultsBase.value) return false;
+  const base = defaultsBase.value;
+  return (Object.keys(base) as (keyof ResourceDefaults)[]).some(
+    (k) => defaultsForm.value![k] !== base[k],
+  );
+});
+
 async function load() {
   const [settingsRes, locRes] = await Promise.all([settingsApi.get(), settingsApi.localization()]);
   settings.value = settingsRes;
@@ -164,6 +235,38 @@ async function load() {
   startingPort.value = settingsRes.startingPort ?? 25565;
   timezone.value = locRes.localization.timezone;
   country.value = locRes.localization.country;
+  defaultsForm.value = { ...settingsRes.defaults };
+  defaultsBase.value = { ...settingsRes.defaultsBase };
+}
+
+async function saveDefaults() {
+  if (!defaultsForm.value) return;
+  savingDefaults.value = true;
+  try {
+    const res = await settingsApi.saveDefaults(defaultsForm.value);
+    defaultsForm.value = { ...res.defaults };
+    $q.notify({ type: 'positive', message: 'Defaults for new servers saved.' });
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
+  } finally {
+    savingDefaults.value = false;
+  }
+}
+
+async function restoreDefaults() {
+  restoringDefaults.value = true;
+  try {
+    const res = await settingsApi.restoreDefaults();
+    defaultsForm.value = { ...res.defaults };
+    $q.notify({ type: 'positive', message: 'Defaults restored to the built-in values.' });
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Restore failed.',
+    });
+  } finally {
+    restoringDefaults.value = false;
+  }
 }
 
 async function saveKey() {

@@ -59,11 +59,11 @@ export class DockerAdminController {
   @Post('docker/preview')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  dockerPreview(@Body() body: unknown) {
+  async dockerPreview(@Body() body: unknown) {
     const input = parseBody(previewSchema, body);
     return {
       ok: true,
-      yaml: this.dockerSpec.toYaml(this.preview.previewCreateSpec(input)),
+      yaml: this.dockerSpec.toYaml(await this.preview.previewCreateSpec(input)),
     };
   }
 
