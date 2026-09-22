@@ -119,6 +119,19 @@ const EXPLICIT_ROSTER = new Set<string>([
   'MapProxyController#proxy',
 ]);
 
+/**
+ * Routes the path heuristic would flag but that aren't
+ * `req.user`/`user_server_permissions`-scoped at all — `ServerPermissionGuard`
+ * reads `req.user`, which a `@Public()` Bearer-token route never has.
+ * `PublicApiController` (`backend/src/api-tokens/`) is `@Public()` +
+ * `@SkipOriginCheck()` + `BearerAuthGuard`, and scopes per-server visibility
+ * off the *token's* `server_ids_json` grant instead — see
+ * `API_TOKENS_NOTES.md`. Kept as its own tiny roster (not folded into
+ * `EXPLICIT_ROSTER`, which does the opposite job) so it stays a one-line,
+ * reviewer-visible exception rather than a silent gap in the heuristic.
+ */
+const EXCLUDE_ROSTER = new Set<string>(['PublicApiController#get']);
+
 function collectCases(): RouteCase[] {
   const cases: RouteCase[] = [];
 
@@ -160,6 +173,7 @@ function collectCases(): RouteCase[] {
         const fullPath = joinPaths(basePath, subPath);
 
         const rosterKey = `${className}#${methodName}`;
+        if (EXCLUDE_ROSTER.has(rosterKey)) continue;
         const mustGuard =
           actsOnServerByPath(fullPath) || EXPLICIT_ROSTER.has(rosterKey);
         if (!mustGuard) continue;

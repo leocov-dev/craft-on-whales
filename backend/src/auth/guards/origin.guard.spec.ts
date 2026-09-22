@@ -1,4 +1,5 @@
 import type { ExecutionContext } from '@nestjs/common';
+import type { Reflector } from '@nestjs/core';
 import { OriginGuard } from './origin.guard';
 import type {
   ConfigService,
@@ -11,6 +12,8 @@ function contextFor(req: {
 }): ExecutionContext {
   return {
     switchToHttp: () => ({ getRequest: () => req }),
+    getHandler: () => undefined,
+    getClass: () => undefined,
   } as unknown as ExecutionContext;
 }
 
@@ -18,9 +21,14 @@ function configWith(sameSite: CookieSameSite): ConfigService {
   return { cookieSameSite: sameSite } as unknown as ConfigService;
 }
 
+/** A Reflector stub — `skip: true` mimics a route carrying `@SkipOriginCheck()`. */
+function reflectorReturning(skip: boolean): Reflector {
+  return { getAllAndOverride: () => skip } as unknown as Reflector;
+}
+
 describe('OriginGuard', () => {
   it('passes GET/HEAD/OPTIONS through unconditionally, even cross-origin', () => {
-    const guard = new OriginGuard(configWith('lax'));
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(false));
     for (const method of ['GET', 'HEAD', 'OPTIONS']) {
       expect(
         guard.canActivate(
@@ -34,7 +42,7 @@ describe('OriginGuard', () => {
   });
 
   it('allows a same-origin POST via Origin', () => {
-    const guard = new OriginGuard(configWith('lax'));
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(false));
     expect(
       guard.canActivate(
         contextFor({
@@ -46,7 +54,7 @@ describe('OriginGuard', () => {
   });
 
   it('falls back to Referer when Origin is absent', () => {
-    const guard = new OriginGuard(configWith('lax'));
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(false));
     expect(
       guard.canActivate(
         contextFor({
@@ -61,7 +69,7 @@ describe('OriginGuard', () => {
   });
 
   it('rejects a cross-origin POST', () => {
-    const guard = new OriginGuard(configWith('lax'));
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(false));
     expect(() =>
       guard.canActivate(
         contextFor({
@@ -73,7 +81,7 @@ describe('OriginGuard', () => {
   });
 
   it('rejects a malformed Origin header', () => {
-    const guard = new OriginGuard(configWith('lax'));
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(false));
     expect(() =>
       guard.canActivate(
         contextFor({
@@ -87,7 +95,10 @@ describe('OriginGuard', () => {
   it.each(['lax', 'strict'] as const)(
     'allows a %s-mode POST with neither Origin nor Referer',
     (sameSite) => {
-      const guard = new OriginGuard(configWith(sameSite));
+      const guard = new OriginGuard(
+        configWith(sameSite),
+        reflectorReturning(false),
+      );
       expect(
         guard.canActivate(
           contextFor({ method: 'POST', headers: { host: 'panel.local' } }),
@@ -97,7 +108,10 @@ describe('OriginGuard', () => {
   );
 
   it('rejects a none-mode POST with neither Origin nor Referer', () => {
-    const guard = new OriginGuard(configWith('none'));
+    const guard = new OriginGuard(
+      configWith('none'),
+      reflectorReturning(false),
+    );
     expect(() =>
       guard.canActivate(
         contextFor({ method: 'POST', headers: { host: 'panel.local' } }),
@@ -106,12 +120,27 @@ describe('OriginGuard', () => {
   });
 
   it('still allows a same-origin POST under none mode', () => {
-    const guard = new OriginGuard(configWith('none'));
+    const guard = new OriginGuard(
+      configWith('none'),
+      reflectorReturning(false),
+    );
     expect(
       guard.canActivate(
         contextFor({
           method: 'POST',
           headers: { origin: 'https://panel.local', host: 'panel.local' },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('allows a cross-origin POST when @SkipOriginCheck() metadata is set', () => {
+    const guard = new OriginGuard(configWith('lax'), reflectorReturning(true));
+    expect(
+      guard.canActivate(
+        contextFor({
+          method: 'POST',
+          headers: { origin: 'https://evil.example', host: 'panel.local' },
         }),
       ),
     ).toBe(true);

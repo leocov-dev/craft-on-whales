@@ -30,6 +30,7 @@ A complete, self-hosted control panel for [itzg/docker-minecraft-server](https:/
 
 - **[Users & roles](users-and-roles.md)** — admin, operator, and viewer, and what each can do.
 - **[Two-factor authentication](two-factor-authentication.md)** — protect your login with an authenticator app.
+- **[Public API](public-api.md)** — an optional, off-by-default read-only API for other tools.
 
 ## Under the hood
 

@@ -9,6 +9,12 @@ declare global {
   namespace Express {
     interface Request {
       user?: PublicUser;
+      /**
+       * Populated by `BearerAuthGuard` for `/api/v1/*` public-API requests
+       * (`backend/src/api-tokens/`) — the resolved token's scope, never set
+       * on a cookie-session request. `serverIds: null` means "every server."
+       */
+      apiToken?: { id: string; label: string; serverIds: string[] | null };
     }
   }
 }

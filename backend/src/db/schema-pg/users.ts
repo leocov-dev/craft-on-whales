@@ -42,3 +42,18 @@ export const userServerPermissions = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.serverId] })],
 );
+
+// See ../schema/users.ts's apiTokens for the field-by-field writeup.
+export const apiTokens = pgTable('api_tokens', {
+  id: text('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  label: text('label').notNull(),
+  createdBy: text('created_by').notNull(),
+  serverIdsJson: text('server_ids_json'), // null = all servers
+  expiresAt: text('expires_at'),
+  revoked: boolean('revoked').notNull().default(false),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`now()::text`),
+  lastUsedAt: text('last_used_at'),
+});
