@@ -16,7 +16,10 @@ import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
 import { LibraryService } from '../library/library.service';
 import { ModrinthApiService } from './modrinth-api.service';
-import { CurseforgeApiService } from './curseforge-api.service';
+import {
+  CurseforgeApiService,
+  curseforgeExpectedHash,
+} from './curseforge-api.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ModManifestService } from './mod-manifest.service';
@@ -384,6 +387,8 @@ export class ModsService {
         iconUrl: resolved.iconUrl,
         mcVersions: version.game_versions,
         loaders: version.loaders,
+        // Modrinth version files always carry hashes.sha512 in practice.
+        expectedHash: { algorithm: 'sha512', hex: file.hashes.sha512 },
       });
     } else if (source.kind === 'curseforge') {
       const resolved = await this.curseforge.resolveUrl(source.ref);
@@ -413,6 +418,7 @@ export class ModsService {
         version: file.name,
         iconUrl: resolved.iconUrl,
         mcVersions: file.gameVersions,
+        expectedHash: curseforgeExpectedHash(file),
       });
     }
     // source.kind === 'direct' → plain download of the URL as-is.
