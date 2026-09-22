@@ -7,12 +7,14 @@ import {
   ResourceDefaultsResolver,
 } from './resource-defaults.resolver';
 import { SessionSecretProvider } from './session-secret.provider';
+import { SecretKeyProvider } from './secret-key.provider';
 import { resolveDbDriver, DbDriver } from '../utils/db-driver';
 
 // `true` is deliberately not a valid value — see resolveTrustProxy()'s comment
 // and AUTH_NOTES.md's "TRUST_PROXY: refusing a bare boolean" section.
 export type TrustProxy = false | number | string;
 export type CookieSecure = boolean | 'auto';
+export type CookieSameSite = 'lax' | 'strict' | 'none';
 export type { DbDriver };
 
 export type { ResourceDefaults };
@@ -49,9 +51,17 @@ export class ConfigService {
   readonly isExposedBind: boolean;
   readonly runningInDocker: boolean;
   readonly sessionSecret: string;
+  /**
+   * Decoded 32-byte dedicated at-rest encryption key from `SECRET_KEY`, or
+   * `null` if unset (in which case `SecretsService` falls back to a key
+   * derived from `sessionSecret`). Resolution/validation is delegated to
+   * `SecretKeyProvider` — see `backend/src/auth/SECRETS_NOTES.md`.
+   */
+  readonly secretKey: Buffer | null;
   readonly cfApiKeySeed: string;
   readonly trustProxy: TrustProxy;
   readonly cookieSecure: CookieSecure;
+  readonly cookieSameSite: CookieSameSite;
   readonly mapProxyHost: string;
   readonly mcImageRepo: string;
   readonly mcRouterImage: string;
@@ -67,6 +77,7 @@ export class ConfigService {
 
   constructor(
     private readonly sessionSecretProvider: SessionSecretProvider,
+    private readonly secretKeyProvider: SecretKeyProvider,
     private readonly resourceDefaultsResolver: ResourceDefaultsResolver,
   ) {
     // backend/ is one level deeper than src/ was (repo/backend/dist vs
@@ -88,6 +99,19 @@ export class ConfigService {
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
     this.trustProxy = this.resolveTrustProxy();
     this.cookieSecure = this.resolveCookieSecure();
+    this.cookieSameSite = this.resolveCookieSameSite();
+    if (this.cookieSameSite === 'none' && this.cookieSecure === false) {
+      // Browsers silently drop a `SameSite=None` cookie that isn't also
+      // `Secure` — failing open into a cookie the browser never stores
+      // would be far worse than refusing to boot, so this is a hard error,
+      // not a warning. `COOKIE_SECURE=auto` is accepted here: it makes the
+      // cookie's `Secure` flag track the request's own scheme at runtime
+      // (see express-session's `cookie.secure: 'auto'`), which is exactly
+      // what a TLS-terminating reverse proxy setup needs.
+      throw new Error(
+        'COOKIE_SAMESITE=none requires COOKIE_SECURE=true (or "auto" behind a TLS-terminating reverse proxy) — browsers reject a SameSite=None cookie that is not also Secure.',
+      );
+    }
     this.mcImageRepo = (
       process.env.MC_IMAGE_REPO || 'itzg/minecraft-server'
     ).trim();
@@ -129,6 +153,9 @@ export class ConfigService {
     if (!this.sessionSecret || this.sessionSecret.length < 16) {
       throw new Error('Failed to resolve a session secret.');
     }
+    // Throws on malformed/wrong-length SECRET_KEY (hard boot error); returns
+    // null (after a loud deprecation warning) when unset.
+    this.secretKey = this.secretKeyProvider.resolve();
   }
 
   private numFromEnv(
@@ -176,6 +203,16 @@ export class ConfigService {
     if (raw === 'true') return true;
     if (raw === 'auto') return 'auto';
     return false;
+  }
+
+  private resolveCookieSameSite(): CookieSameSite {
+    const raw = (process.env.COOKIE_SAMESITE || '').trim().toLowerCase();
+    if (raw === 'strict') return 'strict';
+    if (raw === 'none') return 'none';
+    if (raw === '' || raw === 'lax') return 'lax';
+    throw new Error(
+      `COOKIE_SAMESITE must be "lax", "strict", or "none" — got "${raw}".`,
+    );
   }
 
   private resolveDataDirHost(): string {
