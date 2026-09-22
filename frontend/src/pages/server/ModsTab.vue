@@ -14,7 +14,11 @@
       </div>
     </q-banner>
 
-    <q-banner v-if="isPackwiz && server?.updateAvailable" rounded class="bg-warning text-black q-mb-md">
+    <q-banner
+      v-if="isPackwiz && server?.updateAvailable"
+      rounded
+      class="bg-warning text-black q-mb-md"
+    >
       <template #avatar>
         <q-icon name="restart_alt" />
       </template>
@@ -189,7 +193,10 @@ async function syncPackwiz() {
     }
     await refresh();
   } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Restart failed.' });
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Restart failed.',
+    });
   } finally {
     syncing.value = false;
   }
@@ -201,7 +208,10 @@ async function toggleAutoRestart(enabled: boolean) {
     await packsApi.setAutoRestart(server.value.id, enabled);
     await refresh();
   } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Could not save.' });
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not save.',
+    });
   }
 }
 
