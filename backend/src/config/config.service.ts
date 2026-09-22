@@ -9,7 +9,9 @@ import {
 import { SessionSecretProvider } from './session-secret.provider';
 import { resolveDbDriver, DbDriver } from '../utils/db-driver';
 
-export type TrustProxy = boolean | number | string;
+// `true` is deliberately not a valid value — see resolveTrustProxy()'s comment
+// and AUTH_NOTES.md's "TRUST_PROXY: refusing a bare boolean" section.
+export type TrustProxy = false | number | string;
 export type CookieSecure = boolean | 'auto';
 export type { DbDriver };
 
@@ -148,9 +150,24 @@ export class ConfigService {
   private resolveTrustProxy(): TrustProxy {
     const raw = (process.env.TRUST_PROXY || '').trim();
     if (!raw) return false;
-    if (/^\d+$/.test(raw)) return Number(raw);
-    if (raw.toLowerCase() === 'true') return true;
     if (raw.toLowerCase() === 'false') return false;
+    // A bare `true` trusts X-Forwarded-For from WHATEVER connected the TCP
+    // socket — spoofable the moment the panel is ever reachable directly
+    // (misconfigured proxy, or no proxy at all), since Express then reads the
+    // client's own self-reported header as req.ip. Require the operator to
+    // say how many proxy hops to trust, or exactly which proxy IPs/CIDRs, so
+    // req.ip only reflects a header a trusted hop actually added. See
+    // AUTH_NOTES.md for the migration path from TRUST_PROXY=true.
+    if (raw.toLowerCase() === 'true') {
+      throw new Error(
+        'TRUST_PROXY=true is no longer accepted — it trusts X-Forwarded-For from ' +
+          'any connecting client, which is spoofable. Set it to the number of ' +
+          'reverse-proxy hops to trust (usually 1), or a comma-separated list of ' +
+          "trusted proxy IPs/CIDRs (e.g. 127.0.0.1 or 10.0.0.0/8). See the README's " +
+          '`.env` table.',
+      );
+    }
+    if (/^\d+$/.test(raw)) return Number(raw);
     return raw;
   }
 
