@@ -10,6 +10,7 @@ import { ConfigService } from '../config/config.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
 import { authenticateGatewayConnection } from './gateway-auth';
+import { PermissionsService } from '../permissions/permissions.service';
 
 /**
  * `/ws/stats` — replaces legacy `src/ws/index.ts`'s `/ws/stats/:serverId`
@@ -28,6 +29,7 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly sessions: SessionService,
     private readonly serverQuery: ServerQueryService,
     private readonly stats: DockerStatsService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -42,6 +44,7 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.config,
       this.sessions,
       this.serverQuery,
+      this.permissions,
       client,
     );
     if (!auth) return;

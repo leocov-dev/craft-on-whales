@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -21,6 +22,8 @@ import { PLAYER_NAME_RE } from '../utils/player-name';
 import type { HydratedCommand } from './chat.types';
 import type { ChatCommand } from '../../../shared/types/chat-commands';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 /**
  * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
@@ -91,6 +94,7 @@ const patchSchema = z
 
 /** Custom chat commands API. Ports `src/web/routes/chatCommands.ts` (mounted at /api/servers/:id/chat-commands). */
 @Controller('api/servers/:id/chat-commands')
+@UseGuards(ServerPermissionGuard)
 export class ChatCommandsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -113,6 +117,7 @@ export class ChatCommandsController {
     }
   }
 
+  @RequireServerPermission('view')
   @Get()
   async list(@Param('id') id: string) {
     await this.requireServer(id);
@@ -131,6 +136,7 @@ export class ChatCommandsController {
     };
   }
 
+  @RequireServerPermission('console')
   @Post()
   async create(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);
@@ -146,6 +152,7 @@ export class ChatCommandsController {
     };
   }
 
+  @RequireServerPermission('console')
   @Patch(':cmdId')
   async update(
     @Param('id') id: string,
@@ -165,6 +172,7 @@ export class ChatCommandsController {
     };
   }
 
+  @RequireServerPermission('console')
   @Delete(':cmdId')
   async remove(
     @Param('id') id: string,
@@ -178,6 +186,7 @@ export class ChatCommandsController {
     return { ok: true };
   }
 
+  @RequireServerPermission('console')
   @Post(':cmdId/test')
   async test(
     @Param('id') id: string,
@@ -213,6 +222,7 @@ export class ChatCommandsController {
     return { ok: true, ...result };
   }
 
+  @RequireServerPermission('console')
   @Put('prefix')
   async setPrefix(@Param('id') id: string, @Req() req: Request) {
     await this.requireServer(id);

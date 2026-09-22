@@ -1,4 +1,4 @@
-import { All, Controller, Param, Req, Res } from '@nestjs/common';
+import { All, Controller, Param, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as http from 'node:http';
 import * as net from 'node:net';
@@ -8,6 +8,8 @@ import { ContainerService } from '../docker/container.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { MapService, BLUEMAP_CONTAINER_PORT } from './map.service';
 import type { Server } from '../servers/types';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const CONTAINER_PORT = parseInt(BLUEMAP_CONTAINER_PORT, 10); // '8100/tcp' -> 8100
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -112,6 +114,8 @@ export class MapProxyController {
   // one route (stacking two @All() decorators here silently drops one —
   // confirmed live, only the last-registered survived).
   @All(':id{/*path}')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async proxy(
     @Param('id') id: string,
     @Req() req: Request,

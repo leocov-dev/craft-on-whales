@@ -22,6 +22,8 @@ import { crashAbsPathFor } from './crash-paths';
 import type { CrashReport } from '../../../shared/types/crashes';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 /**
  * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
@@ -55,6 +57,7 @@ const crashIdSchema = z
 
 /** Crash-report API. Ports `src/web/routes/crashes.ts` (mounted at /api/servers/:id/crashes). */
 @Controller('api/servers/:id/crashes')
+@UseGuards(ServerPermissionGuard)
 export class CrashesController {
   constructor(
     private readonly crashes: CrashesService,
@@ -74,6 +77,7 @@ export class CrashesController {
     return row;
   }
 
+  @RequireServerPermission('files')
   @Get()
   async list(@Param('id') id: string) {
     const serverId = parseBody(serverIdSchema, id);
@@ -88,6 +92,7 @@ export class CrashesController {
   // Builds a zip of every crash-report file for the server on the fly —
   // bulk export of potentially sensitive log/stack-trace content, so
   // gated like the other archive-generating downloads in this PR.
+  @RequireServerPermission('files')
   @Get('export.zip')
   @UseGuards(RolesGuard)
   @Roles('admin', 'operator')
@@ -112,6 +117,7 @@ export class CrashesController {
     archive.finalize();
   }
 
+  @RequireServerPermission('files')
   @Delete()
   async deleteOlderThan(
     @Param('id') id: string,
@@ -131,6 +137,7 @@ export class CrashesController {
     };
   }
 
+  @RequireServerPermission('files')
   @Get(':crashId/text')
   async text(
     @Param('id') id: string,
@@ -143,12 +150,14 @@ export class CrashesController {
     res.type('text/plain').send(text);
   }
 
+  @RequireServerPermission('files')
   @Post(':crashId/viewed')
   async markViewed(@Param('id') id: string, @Param('crashId') crashId: string) {
     await this.crashes.markViewed((await this.ownedCrash(id, crashId)).id);
     return { ok: true };
   }
 
+  @RequireServerPermission('files')
   @Delete(':crashId')
   async deleteOne(
     @Param('id') id: string,

@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -28,6 +29,8 @@ import { UpdateUpgradeService } from '../updates/update-upgrade.service';
 import { TasksService } from '../tasks/tasks.service';
 import { DbService } from '../db/db.service';
 import { backups } from '../db/schema';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 import { and, desc, eq } from 'drizzle-orm';
 import type { PackSearchResult } from '../../../shared/types/packs';
 import { currentUser } from '../auth/current-user';
@@ -143,6 +146,8 @@ export class PacksController {
   }
 
   @Post('servers/:id/pack')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content')
   async applyToServer(
     @Req() req: Request,
     @Param('id') id: string,
@@ -174,6 +179,8 @@ export class PacksController {
   }
 
   @Post('servers/:id/pack/upgrade')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content')
   @HttpCode(202)
   async upgradePack(
     @Req() req: Request,
@@ -217,6 +224,8 @@ export class PacksController {
   }
 
   @Post('servers/:id/pack/rollback')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content')
   @HttpCode(202)
   async rollbackPack(
     @Req() req: Request,
@@ -392,6 +401,8 @@ export class PacksController {
   }
 
   @Get('servers/:id/pack/mods')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async packMods(@Param('id') id: string) {
     await this.serverQuery.mustGet(id);
     const pin = await this.packs.getPack(id);

@@ -34,6 +34,21 @@ import type { BlueprintViewModel } from '../../../shared/types/blueprints';
 import { currentUser } from '../auth/current-user';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+
+/**
+ * `export`/`clone` name their source server in the JSON body (`serverId`),
+ * not a route param — read it there so `ServerPermissionGuard` can resolve
+ * the same way it does for a `:id`-shaped route. Malformed/missing bodies
+ * resolve to `null`; the guard's no-server-to-resolve branch and the
+ * handler's own `parseBody()` both handle that the same way a bad request
+ * already would.
+ */
+function serverIdFromBody(req: { body?: unknown }): string | null {
+  const body = req.body as { serverId?: unknown } | undefined;
+  return typeof body?.serverId === 'string' ? body.serverId : null;
+}
 
 // Shared "Advanced Docker Settings" fields — ports `dockerOverridesSchema.ts`.
 const dockerOverridesSchema = {
@@ -154,6 +169,8 @@ export class BlueprintsController {
   }
 
   @Post('export')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('files', serverIdFromBody)
   async export(@Req() req: Request) {
     const input = parseBody(
       z.object({
@@ -256,6 +273,8 @@ export class BlueprintsController {
   }
 
   @Post('clone')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('files', serverIdFromBody)
   async clone(@Req() req: Request) {
     const input = parseBody(
       z.object({

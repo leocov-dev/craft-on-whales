@@ -36,6 +36,7 @@ import { ApiModule } from './api/api.module';
 import { FilesModule } from './files/files.module';
 import { WsModule } from './ws/ws.module';
 import { StorageModule } from './storage/storage.module';
+import { PermissionsModule } from './permissions/permissions.module';
 
 // The SPA build (frontend/dist/spa) lives one directory up from backend/,
 // sibling to it — see the Dockerfile for how both get built and laid out
@@ -63,6 +64,7 @@ const SPA_ROOT = path.join(__dirname, '..', '..', 'frontend', 'dist', 'spa');
     EventsModule,
     DockerModule,
     AuthModule,
+    PermissionsModule,
     PathGuardModule,
     ApiKeysModule,
     SettingsModule,

@@ -10,6 +10,7 @@ import {
   Put,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import * as os from 'node:os';
@@ -34,6 +35,9 @@ import {
   requireAdminForOverrides,
 } from './docker-overrides.schema';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { PermissionsService } from '../permissions/permissions.service';
 
 export function parseBody<T extends z.ZodType>(
   schema: T,
@@ -175,6 +179,7 @@ export class ServersController {
     private readonly vm: ServerViewModelService,
     private readonly mcRouter: McRouterService,
     private readonly config: ConfigService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   private get db() {
@@ -182,18 +187,25 @@ export class ServersController {
   }
 
   @Get('servers')
-  async list() {
-    const rows = await this.query.listServers();
+  async list(@Req() req: Request) {
+    const rows = await this.permissions.filterVisible(
+      req.user,
+      await this.query.listServers(),
+    );
     const list = await Promise.all(rows.map((s) => this.vm.serverVM(s)));
     return { ok: true, servers: list };
   }
 
   @Get('servers/live')
-  async live() {
+  async live(@Req() req: Request) {
+    const visible = await this.permissions.filterVisible(
+      req.user,
+      await this.db
+        .select({ id: servers.id, status: servers.status })
+        .from(servers),
+    );
     const out: Record<string, unknown> = {};
-    for (const row of await this.db
-      .select({ id: servers.id, status: servers.status })
-      .from(servers)) {
+    for (const row of visible) {
       out[row.id] = { status: row.status, ...LIVE_EMPTY, phase: null };
     }
     return { ok: true, servers: out };
@@ -211,18 +223,24 @@ export class ServersController {
   }
 
   @Post('servers/:id/start')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
   async start(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.startServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/stop')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
   async stop(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.stopServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/restart')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
   async restart(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.restartServer(id, {
       actor: currentUser(req).username,
@@ -231,12 +249,16 @@ export class ServersController {
   }
 
   @Post('servers/:id/kill')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
   async kill(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.killServer(id, { actor: currentUser(req).username });
     return { ok: true, server: publicServer(await this.query.getServer(id)) };
   }
 
   @Post('servers/:id/recreate')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
   async recreate(@Req() req: Request, @Param('id') id: string) {
     await this.lifecycle.recreateServer(id, {
       actor: currentUser(req).username,
@@ -245,6 +267,8 @@ export class ServersController {
   }
 
   @Patch('servers/:id')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('settings')
   async patch(
     @Req() req: Request,
     @Param('id') id: string,
@@ -278,6 +302,8 @@ export class ServersController {
   }
 
   @Delete('servers/:id')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('delete')
   async remove(
     @Req() req: Request,
     @Param('id') id: string,
@@ -291,12 +317,16 @@ export class ServersController {
   }
 
   @Get('servers/:id/logs')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async logs(@Param('id') id: string, @Query('tail') tail?: string) {
     const n = Math.max(1, Math.min(Number(tail) || 500, 5000));
     return this.dockerLogs.fetchLogs(id, { tail: n });
   }
 
   @Put('servers/:id/console-label')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('settings')
   async consoleLabel(@Param('id') id: string, @Body() body: unknown) {
     await this.query.mustGet(id);
     const { label } = parseBody(
@@ -310,11 +340,15 @@ export class ServersController {
   }
 
   @Get('servers/:id/stats')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async stats(@Param('id') id: string) {
     return { ok: true, stats: await this.dockerStats.statsOnce(id) };
   }
 
   @Get('servers/:id')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('view')
   async detail(@Param('id') id: string) {
     const row = await this.query.mustGet(id);
     const vm = await this.vm.serverVM(row);

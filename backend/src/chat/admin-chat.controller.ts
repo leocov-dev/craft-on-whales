@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -15,6 +16,8 @@ import { EventsService } from '../events/events.service';
 import { ChatService } from './chat.service';
 import type { ChatHistoryEntry } from '../../../shared/types/chat';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const sendSchema = z.object({
   mode: z.enum(['tellraw', 'say']).default('tellraw'),
@@ -30,6 +33,7 @@ const sendSchema = z.object({
 
 /** Admin chat (tellraw/say over RCON) + chat history. Ports the `/servers/:id/chat*` cluster of `api.ts`. */
 @Controller('api/servers/:id/chat')
+@UseGuards(ServerPermissionGuard)
 export class AdminChatController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -37,6 +41,7 @@ export class AdminChatController {
     private readonly chat: ChatService,
   ) {}
 
+  @RequireServerPermission('console')
   @Post()
   @HttpCode(201)
   async send(
@@ -53,6 +58,7 @@ export class AdminChatController {
     return { ok: true, ...result };
   }
 
+  @RequireServerPermission('view')
   @Get('history')
   async history(@Param('id') id: string, @Query('limit') limitRaw?: string) {
     await this.serverQuery.mustGet(id);

@@ -11,6 +11,7 @@ import {
   NotFoundException,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
@@ -24,6 +25,8 @@ import { serverContent, libraryFiles, updateChecks } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ModsService } from './mods.service';
 import { currentUser } from '../auth/current-user';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const uploadSchema = z.object({
   excludeFilename: z.string().trim().min(1).max(300).optional(),
@@ -34,6 +37,7 @@ const uploadSchema = z.object({
  * `/servers/:id/pending-downloads*` section of legacy `src/web/routes/api.ts`.
  */
 @Controller('api/servers/:id')
+@UseGuards(ServerPermissionGuard)
 export class ModsController {
   constructor(
     private readonly mods: ModsService,
@@ -45,11 +49,13 @@ export class ModsController {
     return this.dbService.db;
   }
 
+  @RequireServerPermission('view')
   @Get('mods')
   async list(@Param('id') id: string) {
     return { ok: true, mods: await this.mods.listContent(id) };
   }
 
+  @RequireServerPermission('content')
   @Post('mods')
   async install(
     @Req() req: Request,
@@ -79,6 +85,7 @@ export class ModsController {
 
   // Update one overlay mod to its latest checked version. Accepts the
   // installed filename ({file}) or the server_content row id ({contentId}).
+  @RequireServerPermission('content')
   @Post('mods/update')
   async update(
     @Req() req: Request,
@@ -188,6 +195,7 @@ export class ModsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('mods/toggle')
   async toggle(
     @Req() req: Request,
@@ -206,6 +214,7 @@ export class ModsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Delete('mods/:file')
   async remove(
     @Req() req: Request,
@@ -220,12 +229,14 @@ export class ModsController {
     };
   }
 
+  @RequireServerPermission('view')
   @Get('pending-downloads')
   async pending(@Param('id') id: string) {
     await this.serverQuery.mustGet(id);
     return { ok: true, mods: this.mods.pendingDownloads(id) };
   }
 
+  @RequireServerPermission('content')
   @Post('pending-downloads/exclude')
   async exclude(
     @Req() req: Request,
@@ -245,6 +256,7 @@ export class ModsController {
     return { ok: true, excluded: token, mods: this.mods.pendingDownloads(id) };
   }
 
+  @RequireServerPermission('content')
   @Post('mods/upload')
   @UseInterceptors(
     FileInterceptor('file', {

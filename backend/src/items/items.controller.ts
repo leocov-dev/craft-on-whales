@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -13,6 +14,8 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ItemRegistryService } from './item-registry.service';
 import { TasksService } from '../tasks/tasks.service';
 import { actorOf } from '../utils/request-actor';
+import { ServerPermissionGuard } from '../permissions/server-permission.guard';
+import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
 const searchSchema = z.object({
   q: z.string().trim().max(120).optional(),
@@ -27,6 +30,7 @@ const searchSchema = z.object({
  * mounted at `/api/servers/:id/items`.
  */
 @Controller('api/servers/:id/items')
+@UseGuards(ServerPermissionGuard)
 export class ItemsController {
   constructor(
     private readonly serverQuery: ServerQueryService,
@@ -34,6 +38,7 @@ export class ItemsController {
     private readonly tasks: TasksService,
   ) {}
 
+  @RequireServerPermission('view')
   @Get()
   async search(
     @Param('id') id: string,
@@ -57,6 +62,7 @@ export class ItemsController {
     };
   }
 
+  @RequireServerPermission('content')
   @Post('rebuild')
   @HttpCode(202)
   async rebuild(@Param('id') id: string, @Req() req: Request) {

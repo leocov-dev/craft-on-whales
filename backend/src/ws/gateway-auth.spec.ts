@@ -4,6 +4,13 @@ import type { SessionService } from '../auth/session.service';
 import type { ServerQueryService } from '../servers/server-query.service';
 import type { ConfigService, CookieSameSite } from '../config/config.service';
 import type { PublicUser } from '../auth/auth.service';
+import type { PermissionsService } from '../permissions/permissions.service';
+
+function permissionsAllowing(canView: boolean): PermissionsService {
+  return {
+    can: jest.fn().mockResolvedValue(canView),
+  } as unknown as PermissionsService;
+}
 
 function configWith(sameSite: CookieSameSite): ConfigService {
   return { cookieSameSite: sameSite } as unknown as ConfigService;
@@ -46,6 +53,7 @@ describe('authenticateGatewayConnection — handshake origin check', () => {
       configWith('lax'),
       sessionsReturning(user),
       serverQueryReturning(true),
+      permissionsAllowing(true),
       client,
     );
     expect(result).toBeNull();
@@ -62,6 +70,7 @@ describe('authenticateGatewayConnection — handshake origin check', () => {
       configWith('lax'),
       sessionsReturning(user),
       serverQueryReturning(true),
+      permissionsAllowing(true),
       client,
     );
     expect(result).toEqual({ user, serverId: 'srv1' });
@@ -76,6 +85,7 @@ describe('authenticateGatewayConnection — handshake origin check', () => {
         configWith(sameSite),
         sessionsReturning(user),
         serverQueryReturning(true),
+        permissionsAllowing(true),
         client,
       );
       expect(result).toEqual({ user, serverId: 'srv1' });
@@ -88,6 +98,7 @@ describe('authenticateGatewayConnection — handshake origin check', () => {
       configWith('none'),
       sessionsReturning(user),
       serverQueryReturning(true),
+      permissionsAllowing(true),
       client,
     );
     expect(result).toBeNull();

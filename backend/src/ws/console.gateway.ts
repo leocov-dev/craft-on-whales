@@ -20,6 +20,7 @@ import { EventsService } from '../events/events.service';
 import { rcon } from '../utils/rcon';
 import type { PublicUser } from '../auth/auth.service';
 import { authenticateGatewayConnection } from './gateway-auth';
+import { PermissionsService } from '../permissions/permissions.service';
 
 interface ConsoleSocketState {
   follower: FollowLogsResult | null;
@@ -51,6 +52,7 @@ export class ConsoleGateway
     private readonly containers: ContainerService,
     private readonly logs: DockerLogsService,
     private readonly events: EventsService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -66,6 +68,7 @@ export class ConsoleGateway
       this.config,
       this.sessions,
       this.serverQuery,
+      this.permissions,
       client,
     );
     if (!auth) return;
@@ -125,13 +128,16 @@ export class ConsoleGateway
     if (!state || typeof body?.command !== 'string') return;
     const { user, serverId } = state;
 
-    // Viewers may watch logs but never execute commands.
-    if (!['admin', 'operator'].includes(user.role)) {
+    // Console execution needs the `console` capability on this server —
+    // viewers lack it by default, but an operator can also be narrowed to
+    // view-only on one server via a per-server grant, so this can't be a
+    // static role check any more (see PermissionsService.can()).
+    if (!(await this.permissions.can(user, serverId, 'console'))) {
       this.send(client, {
         kind: 'cmd-result',
         command: body.command,
         output: '',
-        error: 'Your role (viewer) cannot run commands.',
+        error: "You don't have the console permission on this server.",
       });
       return;
     }

@@ -75,6 +75,13 @@
             </q-item-section>
             <q-item-section>Users</q-item-section>
           </q-item>
+
+          <q-item v-if="auth.isAdmin" clickable v-ripple to="/permissions" exact>
+            <q-item-section avatar>
+              <q-icon name="admin_panel_settings" />
+            </q-item-section>
+            <q-item-section>Permissions</q-item-section>
+          </q-item>
         </q-list>
 
         <q-space />

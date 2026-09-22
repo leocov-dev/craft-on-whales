@@ -25,6 +25,22 @@ A few things are restricted to admins on purpose:
 
 Custom container names also can't live in the panel's own `msm-` namespace, so a hand-named container can never shadow another server's and misdirect a stop or command to the wrong instance.
 
+## Per-server permissions
+
+Beyond the three roles, admins can fine-tune what an **operator** or **viewer** can do on a
+specific server under **Settings → Permissions**. Nine capabilities — View, Power, Console,
+Players, Content, Backups, Files, Settings, Delete — can each be granted or withheld per (user,
+server) pair, overriding that user's role default for just that one server.
+
+A user with **no** capabilities on a server can't see it at all: it's left out of their server
+list, dashboard, activity feed, and every other listing, and a direct link to it behaves exactly
+like a link to a server that doesn't exist. This is deliberate — the panel never confirms a
+hidden server's existence to someone who can't see it.
+
+Admins always have every capability on every server; per-server grants only affect operators and
+viewers, and only for that one server (their access to every other server still follows their
+role, unless separately overridden).
+
 ## Managing accounts
 
 Admins can create users, change roles, reset passwords, and delete accounts from the Users table. The **2FA** column shows whether each user has two-factor enabled; an admin can **reset** another user's 2FA (for the lost-phone-and-backup-codes case) — but never disable their own without their password, which the self-service flow handles instead.
