@@ -293,7 +293,7 @@ export class BlueprintImportService implements OnModuleInit, OnModuleDestroy {
           );
         }
         onProgress('Extracting blueprint payload…');
-        await extractZipSafe(zipPath, tmpDir);
+        await extractZipSafe(this.pathGuard, zipPath, tmpDir);
       }
 
       // Pinned modpack
