@@ -1,0 +1,1 @@
+ALTER TABLE `server_packs` ADD `auto_restart_on_pack_change` integer DEFAULT false NOT NULL;

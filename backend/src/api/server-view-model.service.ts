@@ -179,6 +179,7 @@ export class ServerViewModelService {
       latest: check?.latestName || pack.pinnedVersionName,
       latestVersionId: check?.latestVersion || null,
       ref: pack.projectRef ?? null,
+      autoRestartOnPackChange: Boolean(pack.autoRestartOnPackChange),
     };
   }
 

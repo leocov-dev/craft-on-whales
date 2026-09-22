@@ -26,6 +26,7 @@ import { ModrinthApiService } from '../mods/modrinth-api.service';
 import { CurseforgeApiService } from '../mods/curseforge-api.service';
 import { PackwizApiService } from '../mods/packwiz-api.service';
 import { UpdateUpgradeService } from '../updates/update-upgrade.service';
+import { PackwizWatcherService } from '../updates/packwiz-watcher.service';
 import { TasksService } from '../tasks/tasks.service';
 import { DbService } from '../db/db.service';
 import { backups } from '../db/schema';
@@ -113,6 +114,7 @@ export class PacksController {
     private readonly curseforge: CurseforgeApiService,
     private readonly packwiz: PackwizApiService,
     private readonly upgrade: UpdateUpgradeService,
+    private readonly packwizWatcher: PackwizWatcherService,
     private readonly tasks: TasksService,
     private readonly dbService: DbService,
   ) {}
@@ -260,6 +262,39 @@ export class PacksController {
           backupId: backupId || undefined,
           actor,
         });
+      },
+    );
+    return { ok: true, taskId };
+  }
+
+  @Post('servers/:id/pack/auto-restart')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('content')
+  async setAutoRestart(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const { enabled } = parseBody(z.object({ enabled: z.boolean() }), body);
+    await this.packs.setAutoRestart(id, enabled, {
+      actor: currentUser(req).username,
+    });
+    return { ok: true };
+  }
+
+  @Post('servers/:id/pack/packwiz-sync')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('power')
+  @HttpCode(202)
+  async syncPackwiz(@Req() req: Request, @Param('id') id: string) {
+    const server = await this.serverQuery.mustGet(id);
+    const actor = currentUser(req).username;
+    const taskId = this.tasks.run(
+      `Syncing packwiz pack on ${server.display_name}`,
+      { serverId: server.id, actor },
+      async (t) => {
+        t.step('Re-checking pack.toml and restarting');
+        return this.packwizWatcher.applyNow(server.id, { actor });
       },
     );
     return { ok: true, taskId };

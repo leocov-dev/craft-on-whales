@@ -21,6 +21,7 @@ import { SessionService } from '../auth/session.service';
 import { BackupsService } from '../worlds/backups.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { UpdateCheckerService } from '../updates/update-checker.service';
+import { PackwizWatcherService } from '../updates/packwiz-watcher.service';
 import type {
   CreateScheduleInput,
   ScheduleViewModel,
@@ -41,6 +42,7 @@ export const TASK_TYPES = {
   start: { label: 'Start server', serverScoped: true },
   rcon: { label: 'Run command', serverScoped: true },
   'update-check': { label: 'Update check', serverScoped: false },
+  'packwiz-check': { label: 'Packwiz pack check', serverScoped: false },
   'storage-scan': { label: 'Storage re-scan', serverScoped: false },
   'tmp-clean': { label: 'Purge tmp', serverScoped: false },
 } as const;
@@ -77,6 +79,7 @@ export class SchedulerService implements OnModuleInit {
     @Inject(forwardRef(() => ServerLifecycleService))
     private readonly lifecycle: ServerLifecycleService,
     private readonly updateChecker: UpdateCheckerService,
+    private readonly packwizWatcher: PackwizWatcherService,
   ) {}
 
   private get db() {
@@ -131,6 +134,9 @@ export class SchedulerService implements OnModuleInit {
         // findings summary — no separate schedule-fired bookkeeping needed
         // here beyond what runTask's caller (schedule()) already records.
         await this.updateChecker.checkAll({ actor });
+        break;
+      case 'packwiz-check':
+        await this.packwizWatcher.checkAll({ actor });
         break;
       case 'storage-scan':
         await this.indexer.scan();
@@ -229,6 +235,7 @@ export class SchedulerService implements OnModuleInit {
   private async seedGlobalDefaults(): Promise<void> {
     const defaults: { taskType: string; cron: string }[] = [
       { taskType: 'update-check', cron: '0 3 * * *' },
+      { taskType: 'packwiz-check', cron: '*/5 * * * *' },
       { taskType: 'storage-scan', cron: '0 */6 * * *' },
       { taskType: 'tmp-clean', cron: '30 4 * * *' },
     ];

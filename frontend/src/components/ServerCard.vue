@@ -8,7 +8,11 @@
       <div class="col min-width-0">
         <div class="row items-center q-gutter-x-xs">
           <div class="text-subtitle2 ellipsis">{{ server.name }}</div>
-          <q-badge v-if="server.updateAvailable" color="warning" label="update" />
+          <q-badge
+            v-if="server.updateAvailable"
+            color="warning"
+            :label="server.pack?.platform === 'packwiz' ? 'restart' : 'update'"
+          />
           <q-badge
             v-if="server.crashesUnread"
             color="negative"

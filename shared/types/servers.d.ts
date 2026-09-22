@@ -9,6 +9,9 @@ export interface PackViewModel {
   latestVersionId: string | null;
   /** Platform-specific project reference; for packwiz this is the pack.toml URL. */
   ref: string | null;
+  /** packwiz only: whether PackwizWatcherService restarts the server itself
+   *  on a pack.toml hash change instead of just showing a restart notice. */
+  autoRestartOnPackChange: boolean;
 }
 
 /** The server view model returned by `GET /api/servers` and `GET /api/servers/:id`. */
