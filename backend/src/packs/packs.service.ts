@@ -284,6 +284,21 @@ export class PacksService {
   }
 
   /**
+   * Given a packwiz pack.toml URL, re-derive the itzg image TYPE the pack's
+   * declared loader maps to (same rule as `packEnv()` above). Used by
+   * `PackwizTypeSweepService` to repair servers whose `type` column still
+   * literally holds `'PACKWIZ'` — a legacy value from installs applied
+   * before this derivation existed; the image itself has no such TYPE.
+   */
+  async packwizType(packUrl: string): Promise<string> {
+    const resolved = await this.packwiz.resolvePack(packUrl);
+    const loader = (['fabric', 'forge', 'neoforge', 'quilt'] as const).find(
+      (l) => resolved.pack.versions[l],
+    );
+    return loader ? loader.toUpperCase() : 'VANILLA';
+  }
+
+  /**
    * Apply a pack (install or version change) to an existing server:
    * updates env with the pinned reference, records server_packs, flags recreate.
    * The caller decides when to restart (upgrade orchestrator stops first).

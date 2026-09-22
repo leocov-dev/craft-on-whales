@@ -5,6 +5,7 @@ import { PathGuardModule } from '../storage/path-guard.module';
 import { WorldsModule } from '../worlds/worlds.module';
 import { PacksService } from './packs.service';
 import { PackPinSweepService } from './pack-pin-sweep.service';
+import { PackwizTypeSweepService } from './packwiz-type-sweep.service';
 
 // forwardRef: PacksModule sits on the ServersModule -> SchedulerModule ->
 // UpdatesModule -> PacksModule -> ServersModule cycle created once
@@ -21,7 +22,7 @@ import { PackPinSweepService } from './pack-pin-sweep.service';
   // module's concern; ServersModule -> PacksModule would be the reverse of
   // the forwardRef above and isn't needed (PackPinGuardService, the piece
   // ServerLifecycleService needs, lives in servers/ instead — see its NOTES).
-  providers: [PacksService, PackPinSweepService],
+  providers: [PacksService, PackPinSweepService, PackwizTypeSweepService],
   exports: [PacksService],
 })
 export class PacksModule {}
