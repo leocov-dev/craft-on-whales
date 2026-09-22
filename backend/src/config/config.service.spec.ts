@@ -1,13 +1,18 @@
 import { ConfigService } from './config.service';
 import type { SessionSecretProvider } from './session-secret.provider';
+import type { SecretKeyProvider } from './secret-key.provider';
 import type { ResourceDefaultsResolver } from './resource-defaults.resolver';
 
-// SessionSecretProvider/ResourceDefaultsResolver each own real filesystem /
-// host-memory side effects — faked here so this spec only exercises
-// ConfigService's own env-var resolution and boot-time validation.
+// SessionSecretProvider/SecretKeyProvider/ResourceDefaultsResolver each own
+// real filesystem / host-memory / env side effects — faked here so this spec
+// only exercises ConfigService's own env-var resolution and boot-time
+// validation.
 const fakeSecretProvider = {
   resolve: () => 'x'.repeat(48),
 } as unknown as SessionSecretProvider;
+const fakeSecretKeyProvider = {
+  resolve: () => null,
+} as unknown as SecretKeyProvider;
 const fakeDefaultsResolver = {
   resolve: () => ({
     heapMb: 1024,
@@ -42,7 +47,11 @@ describe('ConfigService — COOKIE_SAMESITE / COOKIE_SECURE', () => {
   });
 
   function build(): ConfigService {
-    return new ConfigService(fakeSecretProvider, fakeDefaultsResolver);
+    return new ConfigService(
+      fakeSecretProvider,
+      fakeSecretKeyProvider,
+      fakeDefaultsResolver,
+    );
   }
 
   it('defaults COOKIE_SAMESITE to lax', () => {
