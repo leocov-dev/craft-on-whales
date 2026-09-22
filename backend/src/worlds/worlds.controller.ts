@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -32,6 +33,7 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { PermissionsService } from '../permissions/permissions.service';
 
 /** `serverId` from the extract body — the source server being read from. */
 function extractSourceServerId(req: { body?: unknown }): string | null {
@@ -221,7 +223,10 @@ export class WorldsController {
 @Controller('api/servers/:id/worlds')
 @UseGuards(ServerPermissionGuard)
 export class ServerWorldsController {
-  constructor(private readonly ops: WorldOperationsService) {}
+  constructor(
+    private readonly ops: WorldOperationsService,
+    private readonly permissions: PermissionsService,
+  ) {}
 
   @RequireServerPermission('view')
   @Get()
@@ -241,6 +246,23 @@ export class ServerWorldsController {
       }),
       req.body,
     );
+    // The route guard only checks `content` on the source `:id` — this
+    // writes into targetServerId too, so it needs its own check. Mirrors
+    // ServerPermissionGuard's hidden-vs-403 contract: no `view` on the
+    // target looks like it doesn't exist, `view` but no `content` is a
+    // plain 403.
+    const targetEffective = await this.permissions.effective(
+      req.user,
+      targetServerId,
+    );
+    if (!targetEffective.includes('view')) {
+      throw new NotFoundException('Server not found');
+    }
+    if (!targetEffective.includes('content')) {
+      throw new ForbiddenException(
+        "You don't have the content permission on the target server.",
+      );
+    }
     const warnings = await this.ops.copyWarnings(id, targetServerId);
     if (warnings.length && !confirm)
       return { ok: true, requiresConfirm: true, warnings };
