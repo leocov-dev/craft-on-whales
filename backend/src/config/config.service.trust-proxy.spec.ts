@@ -1,5 +1,6 @@
 import { ConfigService } from './config.service';
 import { SessionSecretProvider } from './session-secret.provider';
+import { SecretKeyProvider } from './secret-key.provider';
 import { ResourceDefaultsResolver } from './resource-defaults.resolver';
 
 /**
@@ -13,6 +14,9 @@ describe('ConfigService — TRUST_PROXY resolution', () => {
   const sessionSecretProvider = {
     resolve: () => 'a'.repeat(32),
   } as unknown as SessionSecretProvider;
+  const secretKeyProvider = {
+    resolve: () => null,
+  } as unknown as SecretKeyProvider;
   const resourceDefaultsResolver = {
     resolve: () => ({
       heapMb: 1024,
@@ -32,7 +36,11 @@ describe('ConfigService — TRUST_PROXY resolution', () => {
     process.env = { ...originalEnv };
     if (trustProxy === undefined) delete process.env.TRUST_PROXY;
     else process.env.TRUST_PROXY = trustProxy;
-    return new ConfigService(sessionSecretProvider, resourceDefaultsResolver);
+    return new ConfigService(
+      sessionSecretProvider,
+      secretKeyProvider,
+      resourceDefaultsResolver,
+    );
   }
 
   it('defaults to false when unset', () => {
