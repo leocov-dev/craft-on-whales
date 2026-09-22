@@ -10,6 +10,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { UseGuards } from '@nestjs/common';
 import type {
   SettingsResponseData,
+  ServerDefaultsResponseData,
   Localization,
 } from '../../../shared/types/settings';
 
@@ -30,7 +31,8 @@ export class SettingsController {
       publicHost: await this.settings.getPublicHost(),
       curseforge: { masked: await this.apiKeys.maskedKey('curseforge') },
       panel: { host: this.config.host, port: this.config.port },
-      defaults: this.config.defaults,
+      defaults: await this.settings.getEffectiveDefaults(),
+      defaultsBase: this.config.defaults,
       startingPort: await this.settings.getStartingPort(),
       startingPortOverriddenByEnv: this.config.hasStartingPortEnv,
     };
@@ -57,6 +59,39 @@ export class SettingsController {
       savedPort = await this.settings.getStartingPort();
     }
     return { ok: true, publicHost: saved, startingPort: savedPort };
+  }
+
+  @Get('defaults')
+  async getDefaults(): Promise<ServerDefaultsResponseData> {
+    return {
+      ok: true,
+      defaults: await this.settings.getEffectiveDefaults(),
+      base: this.config.defaults,
+    };
+  }
+
+  @Post('defaults')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async setDefaults(
+    @Body() body: unknown,
+  ): Promise<ServerDefaultsResponseData> {
+    const parsed = parseBody(
+      z.object({
+        reset: z.boolean().optional(),
+        heapMb: z.coerce.number().optional(),
+        containerMemoryMb: z.coerce.number().optional(),
+        cpus: z.coerce.number().optional(),
+        diskQuotaGb: z.coerce.number().optional(),
+        quotaWarnPct: z.coerce.number().optional(),
+        quotaCriticalPct: z.coerce.number().optional(),
+      }),
+      body,
+    );
+    const defaults = parsed.reset
+      ? await this.settings.resetServerDefaults()
+      : await this.settings.setServerDefaults(parsed);
+    return { ok: true, defaults, base: this.config.defaults };
   }
 
   @Get('localization')

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '../config/config.service';
+import { SettingsService } from '../settings/settings.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { DockerImagesService } from '../docker/docker-images.service';
 import { ContainerService } from '../docker/container.service';
@@ -57,6 +58,7 @@ export interface PreviewSpec {
 export class ServerPreviewService {
   constructor(
     private readonly config: ConfigService,
+    private readonly settings: SettingsService,
     private readonly pathGuard: PathGuardService,
     private readonly images: DockerImagesService,
     private readonly containers: ContainerService,
@@ -72,7 +74,7 @@ export class ServerPreviewService {
    * ports show as a placeholder since the real ones aren't claimed until
    * creation).
    */
-  previewCreateSpec(input: PreviewCreateSpecInput): PreviewSpec {
+  async previewCreateSpec(input: PreviewCreateSpecInput): Promise<PreviewSpec> {
     const javaTag =
       input.javaTag ||
       this.javaMatrix.pickJavaTag(
@@ -80,7 +82,7 @@ export class ServerPreviewService {
         input.type || 'VANILLA',
       );
     const image = this.images.imageRef(javaTag);
-    const defaults = this.config.defaults;
+    const defaults = await this.settings.getEffectiveDefaults();
     const env: Record<string, string> = { ...(input.env || {}) };
     env.EULA = 'TRUE';
     env.TYPE = input.type || 'VANILLA';

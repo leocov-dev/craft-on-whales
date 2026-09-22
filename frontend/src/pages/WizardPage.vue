@@ -110,6 +110,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { wizardApi, type MojangVersionEntry } from '@/api/wizard';
+import { settingsApi } from '@/api/settings';
 import { useServersStore } from '@/stores/servers';
 import { HEAP_FIELD_HINT } from '@/composables/useServerStatus';
 
@@ -130,6 +131,8 @@ const typeOptions = [
 const allVersions = ref<MojangVersionEntry[]>([]);
 const versionOptions = ref<string[]>([]);
 
+// Placeholder values until the admin-configured defaults load in `load()` —
+// overwritten before the user can see/submit the form in the common case.
 const form = ref({
   name: '',
   type: 'PAPER',
@@ -204,13 +207,17 @@ async function load() {
   if (!servers.loaded) {
     await servers.fetchServers();
   }
-  const [versionsRes, portsRes] = await Promise.all([
+  const [versionsRes, portsRes, defaultsRes] = await Promise.all([
     wizardApi.versions(),
     wizardApi.suggestPorts(),
+    settingsApi.getDefaults(),
   ]);
   allVersions.value = versionsRes.versions;
   versionOptions.value = ['LATEST', ...allVersions.value.slice(0, 50).map((v) => v.id)];
   form.value.portGame = portsRes.ports.game;
+  form.value.heapMb = defaultsRes.defaults.heapMb;
+  form.value.containerMemoryMb = defaultsRes.defaults.containerMemoryMb;
+  form.value.diskQuotaGb = defaultsRes.defaults.diskQuotaGb;
 }
 
 async function create() {

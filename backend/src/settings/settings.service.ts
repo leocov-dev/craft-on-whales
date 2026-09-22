@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { ConfigService } from '../config/config.service';
+import type { ResourceDefaults } from '../config/resource-defaults.resolver';
 import { settings } from '../db/schema';
 
 export interface Localization {
@@ -248,5 +249,87 @@ export class SettingsService {
       timezone: await this.getTimezone(),
       locale: await this.resolveLocale(),
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // Defaults for new servers: an admin can override a subset of
+  // `ConfigService.defaults` (itself env/host-derived via
+  // `ResourceDefaultsResolver`) so the create-wizard and API-create fallback
+  // pre-fill from a panel-wide choice instead of always re-deriving from
+  // .env/host memory. Overrides are stored as a partial patch under one key
+  // and layered on top of the resolved base at read time — see
+  // SETTINGS_NOTES.md for the full design writeup.
+
+  private static readonly SERVER_DEFAULTS_KEY = 'server_creation_defaults';
+
+  private static readonly SERVER_DEFAULTS_FIELDS = [
+    'heapMb',
+    'containerMemoryMb',
+    'cpus',
+    'diskQuotaGb',
+    'quotaWarnPct',
+    'quotaCriticalPct',
+  ] as const;
+
+  // Mirrors the bounds already enforced on these fields elsewhere (server
+  // create/patch schemas in `api/servers.controller.ts`, blueprint resource
+  // schema in `blueprints/blueprints.types.ts`) so a saved default can never
+  // produce a value those endpoints would themselves reject.
+  private static readonly SERVER_DEFAULTS_CLAMPS: Record<
+    (typeof SettingsService.SERVER_DEFAULTS_FIELDS)[number],
+    [number, number]
+  > = {
+    heapMb: [512, 262144],
+    containerMemoryMb: [1024, 524288],
+    cpus: [0, 128],
+    diskQuotaGb: [0, 16384],
+    quotaWarnPct: [0, 99],
+    quotaCriticalPct: [1, 100],
+  };
+
+  /** Sanitizes an incoming patch to known fields, clamped to sane bounds. Unknown/invalid keys are dropped, not rejected — a partial save should never fail because of one bad field. */
+  private sanitizeDefaultsPatch(
+    patch: Record<string, unknown>,
+  ): Partial<ResourceDefaults> {
+    const out: Partial<ResourceDefaults> = {};
+    for (const key of SettingsService.SERVER_DEFAULTS_FIELDS) {
+      const raw = patch[key];
+      if (raw === undefined || raw === null) continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) continue;
+      const [min, max] = SettingsService.SERVER_DEFAULTS_CLAMPS[key];
+      const clamped = Math.min(max, Math.max(min, n));
+      out[key] = key === 'cpus' ? clamped : Math.round(clamped);
+    }
+    return out;
+  }
+
+  /** The effective server-creation defaults: `config.defaults` layered with any saved admin overrides. */
+  async getEffectiveDefaults(): Promise<ResourceDefaults> {
+    const overrides = await this.get<Partial<ResourceDefaults>>(
+      SettingsService.SERVER_DEFAULTS_KEY,
+      {},
+    );
+    return { ...this.config.defaults, ...(overrides ?? {}) };
+  }
+
+  /** Persist a partial admin override, layered onto any existing one. Returns the new effective defaults. */
+  async setServerDefaults(
+    patch: Record<string, unknown>,
+  ): Promise<ResourceDefaults> {
+    const existing =
+      (await this.get<Partial<ResourceDefaults>>(
+        SettingsService.SERVER_DEFAULTS_KEY,
+        {},
+      )) ?? {};
+    const merged = { ...existing, ...this.sanitizeDefaultsPatch(patch) };
+    await this.set(SettingsService.SERVER_DEFAULTS_KEY, merged);
+    return this.getEffectiveDefaults();
+  }
+
+  /** Clears every saved override — back to `config.defaults`. Returns the new effective defaults. */
+  async resetServerDefaults(): Promise<ResourceDefaults> {
+    await this.remove(SettingsService.SERVER_DEFAULTS_KEY);
+    return this.getEffectiveDefaults();
   }
 }

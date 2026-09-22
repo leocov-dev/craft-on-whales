@@ -15,9 +15,19 @@ export interface SettingsResponseData {
   publicHost: string;
   curseforge: { masked: string | null };
   panel: { host: string; port: number };
+  /** Effective server-creation defaults: `defaultsBase` with any admin overrides layered on. */
   defaults: ResourceDefaults;
+  /** The built-in/env/host-derived defaults, before any admin override — what "Restore built-ins" resets to. */
+  defaultsBase: ResourceDefaults;
   startingPort?: number;
   startingPortOverriddenByEnv?: boolean;
+}
+
+/** `GET`/`POST /api/settings/defaults`'s response body. */
+export interface ServerDefaultsResponseData {
+  ok: true;
+  defaults: ResourceDefaults;
+  base: ResourceDefaults;
 }
 
 export interface Localization {

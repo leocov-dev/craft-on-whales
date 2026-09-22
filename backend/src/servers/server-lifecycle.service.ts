@@ -30,6 +30,7 @@ import {
 import { EventsService } from '../events/events.service';
 import { SecretsService } from '../auth/secrets.service';
 import { ConfigService } from '../config/config.service';
+import { SettingsService } from '../settings/settings.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { PortsService } from './ports.service';
@@ -232,6 +233,7 @@ export class ServerLifecycleService implements OnModuleInit {
     private readonly events: EventsService,
     private readonly secrets: SecretsService,
     private readonly config: ConfigService,
+    private readonly settings: SettingsService,
     private readonly pathGuard: PathGuardService,
     private readonly apiKeys: ApiKeysService,
     private readonly ports: PortsService,
@@ -341,7 +343,7 @@ export class ServerLifecycleService implements OnModuleInit {
     });
 
     const rconPassword = this.secrets.generatePassword();
-    const defaults = this.config.defaults;
+    const defaults = await this.settings.getEffectiveDefaults();
 
     await this.db.insert(servers).values({
       id,

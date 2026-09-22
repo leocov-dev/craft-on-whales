@@ -6,11 +6,18 @@ import type { Role } from './auth';
 import type {
   ResourceDefaults,
   SettingsResponseData,
+  ServerDefaultsResponseData,
   Localization,
   PublicUser,
 } from '../../../shared/types/settings';
 
-export type { ResourceDefaults, SettingsResponseData, Localization, PublicUser };
+export type {
+  ResourceDefaults,
+  SettingsResponseData,
+  ServerDefaultsResponseData,
+  Localization,
+  PublicUser,
+};
 /** @deprecated use {@link PublicUser} — kept as an alias so existing imports don't break. */
 export type PanelUser = PublicUser;
 
@@ -45,6 +52,12 @@ export const settingsApi = {
   localization: () => http.get<LocalizationResponse>('/api/settings/localization'),
   saveLocalization: (input: Partial<Localization>) =>
     http.post<LocalizationResponse>('/api/settings/localization', input),
+
+  getDefaults: () => http.get<ServerDefaultsResponseData>('/api/settings/defaults'),
+  saveDefaults: (patch: Partial<ResourceDefaults>) =>
+    http.post<ServerDefaultsResponseData>('/api/settings/defaults', patch),
+  restoreDefaults: () =>
+    http.post<ServerDefaultsResponseData>('/api/settings/defaults', { reset: true }),
 
   users: () => http.get<UsersResponse>('/api/users'),
   createUser: (username: string, password: string, role: Role) =>
