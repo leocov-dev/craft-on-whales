@@ -61,6 +61,13 @@ export const updateChecks = sqliteTable(
     latestVersion: text('latest_version'),
     latestName: text('latest_name'),
     changelogUrl: text('changelog_url'),
+    // Set when the user dismisses a specific available build/version — holds
+    // the platform id (same id space as latest_version) of the build they
+    // ignored. An update stays hidden from "available" consideration only
+    // while latest_version still equals this value; once a newer build
+    // supersedes it, latest_version changes and the row surfaces again. See
+    // backend/src/updates/UPDATES_NOTES.md.
+    ignoredVersion: text('ignored_version'),
     checkedAt: text('checked_at')
       .notNull()
       .default(sql`(datetime('now'))`),

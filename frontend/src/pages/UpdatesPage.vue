@@ -45,11 +45,60 @@
             >
           </q-item-section>
           <q-item-section side>
-            <q-btn dense outline label="Update" :loading="busyIndex === i" @click="apply(u, i)" />
+            <div class="row q-gutter-sm">
+              <q-btn
+                dense
+                outline
+                label="Update"
+                :loading="busyKey === rowKey(u)"
+                @click="apply(u)"
+              />
+              <q-btn
+                dense
+                flat
+                label="Ignore"
+                :loading="busyKey === rowKey(u)"
+                @click="ignore(u)"
+              />
+            </div>
           </q-item-section>
         </q-item>
       </q-list>
     </q-card>
+
+    <q-expansion-item
+      v-if="ignored.length"
+      class="q-mt-lg"
+      icon="visibility_off"
+      :label="`Ignored updates (${ignored.length})`"
+    >
+      <q-card flat bordered>
+        <q-list separator>
+          <q-item v-for="(u, i) in ignored" :key="i">
+            <q-item-section>
+              <q-item-label>
+                <router-link :to="`/servers/${u.serverId}`" class="text-primary">{{
+                  u.server
+                }}</router-link>
+              </q-item-label>
+              <q-item-label caption>{{ u.kind }} · {{ u.subject }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-item-label caption>{{ u.current ?? '—' }} → {{ u.latest ?? '—' }}</q-item-label>
+            </q-item-section>
+            <q-item-section side>
+              <q-btn
+                dense
+                outline
+                label="Un-ignore"
+                :loading="busyKey === rowKey(u)"
+                @click="unignore(u)"
+              />
+            </q-item-section>
+          </q-item>
+        </q-list>
+      </q-card>
+    </q-expansion-item>
   </q-page>
 </template>
 
@@ -63,13 +112,19 @@ import PageHeader from '@/components/PageHeader.vue';
 const $q = useQuasar();
 
 const updates = ref<OutdatedRow[]>([]);
+const ignored = ref<OutdatedRow[]>([]);
 const lastChecked = ref<string | null>(null);
 const checking = ref(false);
-const busyIndex = ref<number | null>(null);
+const busyKey = ref<string | null>(null);
+
+function rowKey(u: OutdatedRow) {
+  return `${u.subjectType}:${u.subjectId}`;
+}
 
 async function load() {
   const res = await updatesApi.list();
   updates.value = res.updates;
+  ignored.value = res.ignored;
   lastChecked.value = res.lastChecked;
 }
 
@@ -87,8 +142,8 @@ async function checkAll() {
   }
 }
 
-async function apply(u: OutdatedRow, index: number) {
-  busyIndex.value = index;
+async function apply(u: OutdatedRow) {
+  busyKey.value = rowKey(u);
   try {
     if (u.kind === 'Modpack') {
       const { taskId } = await updatesApi.upgradePack(u.serverId, u.versionId ?? undefined);
@@ -101,7 +156,36 @@ async function apply(u: OutdatedRow, index: number) {
   } catch (err) {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Update failed.' });
   } finally {
-    busyIndex.value = null;
+    busyKey.value = null;
+  }
+}
+
+async function ignore(u: OutdatedRow) {
+  busyKey.value = rowKey(u);
+  try {
+    await updatesApi.ignore(u.subjectType, u.subjectId);
+    $q.notify({ type: 'positive', message: `Ignoring ${u.subject} ${u.latest ?? ''}.` });
+    await load();
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Ignore failed.' });
+  } finally {
+    busyKey.value = null;
+  }
+}
+
+async function unignore(u: OutdatedRow) {
+  busyKey.value = rowKey(u);
+  try {
+    await updatesApi.unignore(u.subjectType, u.subjectId);
+    $q.notify({ type: 'positive', message: `${u.subject} will show updates again.` });
+    await load();
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Un-ignore failed.',
+    });
+  } finally {
+    busyKey.value = null;
   }
 }
 

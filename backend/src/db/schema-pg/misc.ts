@@ -66,6 +66,9 @@ export const updateChecks = pgTable(
     latestVersion: text('latest_version'),
     latestName: text('latest_name'),
     changelogUrl: text('changelog_url'),
+    // Set when the user dismisses a specific available build/version — see
+    // ../schema/misc.ts and backend/src/updates/UPDATES_NOTES.md.
+    ignoredVersion: text('ignored_version'),
     checkedAt: text('checked_at')
       .notNull()
       .default(sql`now()::text`),

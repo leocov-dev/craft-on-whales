@@ -149,6 +149,7 @@ export class ServerViewModelService {
       .select({
         latestVersion: updateChecks.latestVersion,
         latestName: updateChecks.latestName,
+        ignoredVersion: updateChecks.ignoredVersion,
       })
       .from(updateChecks)
       .where(
@@ -189,6 +190,10 @@ export class ServerViewModelService {
       .limit(1);
     if (!pack) return false;
     const check = await this.getPackUpdateCheck(serverId);
+    // An ignored build doesn't count as available until a newer one
+    // supersedes it — see updates/UPDATES_NOTES.md.
+    if (check?.ignoredVersion && check.ignoredVersion === check.latestVersion)
+      return false;
     return Boolean(
       check?.latestVersion && check.latestVersion !== pack.pinnedVersionId,
     );

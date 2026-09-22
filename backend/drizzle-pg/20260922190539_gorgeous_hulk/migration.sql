@@ -1,0 +1,1 @@
+ALTER TABLE "update_checks" ADD COLUMN "ignored_version" text;
