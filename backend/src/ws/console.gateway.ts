@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import type { Socket } from 'socket.io';
 import { SessionService } from '../auth/session.service';
+import { ConfigService } from '../config/config.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import {
@@ -44,6 +45,7 @@ export class ConsoleGateway
   private static readonly CMD_THROTTLE_MS = 400;
 
   constructor(
+    private readonly config: ConfigService,
     private readonly sessions: SessionService,
     private readonly serverQuery: ServerQueryService,
     private readonly containers: ContainerService,
@@ -61,6 +63,7 @@ export class ConsoleGateway
     });
 
     const auth = await authenticateGatewayConnection(
+      this.config,
       this.sessions,
       this.serverQuery,
       client,
