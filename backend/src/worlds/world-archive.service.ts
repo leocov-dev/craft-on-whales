@@ -12,6 +12,8 @@ import * as zlib from 'node:zlib';
 import { ZipArchive } from 'archiver';
 import * as yauzl from 'yauzl';
 import * as tar from 'tar';
+import { PathGuardService } from '../storage/path-guard.service';
+import { extractZipSafely } from '../utils/safe-zip-extractor';
 
 export const DIM_SUFFIXES = ['_nether', '_the_end'];
 
@@ -34,6 +36,8 @@ const MAX_EXTRACT_ENTRIES = 200000;
  */
 @Injectable()
 export class WorldArchiveService {
+  constructor(private readonly pathGuard: PathGuardService) {}
+
   /**
    * Find the world root inside an extracted archive: the shallowest
    * directory containing a level.dat (handles nested single-folder wrappers
@@ -216,100 +220,12 @@ export class WorldArchiveService {
     });
   }
 
-  /** Zip-slip-safe extraction (yauzl) with a decompression-bomb ceiling. */
+  /** Zip-slip-safe extraction with a decompression-bomb ceiling — shared
+   *  guard logic lives in utils/safe-zip-extractor.ts (see UTILS_NOTES.md). */
   extractZip(zipFile: string, destDir: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      yauzl.open(zipFile, { lazyEntries: true }, (err, zip) => {
-        if (err)
-          return reject(
-            new BadRequestException(
-              `Malformed zip archive — could not be opened: ${err.message}`,
-            ),
-          );
-        let settled = false;
-        let entryCount = 0;
-        let writtenBytes = 0;
-        let declaredBytes = 0;
-        const fail = (e: Error) => {
-          if (settled) return;
-          settled = true;
-          try {
-            zip.destroy?.();
-          } catch {
-            /* */
-          }
-          reject(
-            e instanceof HttpException
-              ? e
-              : new BadRequestException(
-                  `Malformed zip archive — extraction failed: ${e.message}`,
-                ),
-          );
-        };
-        const done = () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        };
-        zip.on('error', fail);
-        zip.on('end', done);
-        zip.on('entry', (entry) => {
-          if (++entryCount > MAX_EXTRACT_ENTRIES) {
-            return fail(
-              new PayloadTooLargeException(
-                `Archive has too many entries (> ${MAX_EXTRACT_ENTRIES}) — refusing to extract.`,
-              ),
-            );
-          }
-          declaredBytes += entry.uncompressedSize || 0;
-          if (declaredBytes > MAX_EXTRACT_BYTES) {
-            return fail(
-              new PayloadTooLargeException(
-                `Archive is too large uncompressed (> ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB) — refusing to extract (possible decompression bomb).`,
-              ),
-            );
-          }
-          const target = path.resolve(destDir, entry.fileName);
-          if (
-            !target.startsWith(path.resolve(destDir) + path.sep) &&
-            target !== path.resolve(destDir)
-          ) {
-            return fail(
-              new BadRequestException(
-                `Archive entry escapes destination: ${entry.fileName}`,
-              ),
-            );
-          }
-          if (/\/$/.test(entry.fileName)) {
-            fs.mkdirSync(target, { recursive: true });
-            zip.readEntry();
-          } else {
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            zip.openReadStream(entry, (streamErr, readStream) => {
-              if (streamErr) return fail(streamErr);
-              const out = fs.createWriteStream(target);
-              readStream.on('data', (chunk: Buffer) => {
-                writtenBytes += chunk.length;
-                if (writtenBytes > MAX_EXTRACT_BYTES) {
-                  readStream.destroy();
-                  out.destroy();
-                  fail(
-                    new PayloadTooLargeException(
-                      `Archive exceeds the ${Math.round(MAX_EXTRACT_BYTES / 1024 ** 3)} GB extraction limit — aborted (possible decompression bomb).`,
-                    ),
-                  );
-                }
-              });
-              out.on('close', () => {
-                if (!settled) zip.readEntry();
-              });
-              out.on('error', fail);
-              readStream.pipe(out);
-            });
-          }
-        });
-        zip.readEntry();
-      });
+    return extractZipSafely(this.pathGuard, zipFile, destDir, {
+      maxTotalBytes: MAX_EXTRACT_BYTES,
+      maxEntries: MAX_EXTRACT_ENTRIES,
     });
   }
 

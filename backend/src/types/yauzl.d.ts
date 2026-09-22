@@ -9,6 +9,10 @@ declare module 'yauzl' {
   export interface Entry {
     fileName: string;
     uncompressedSize: number;
+    /** High byte identifies the authoring platform (3 = UNIX); low byte is the zip spec version. */
+    versionMadeBy: number;
+    /** High 16 bits are the UNIX st_mode bits (file type + permissions) when versionMadeBy is UNIX. */
+    externalFileAttributes: number;
   }
 
   export interface ZipFile extends NodeJS.EventEmitter {
@@ -30,6 +34,8 @@ declare module 'yauzl' {
   export interface Options {
     lazyEntries?: boolean;
     autoClose?: boolean;
+    /** Reject backslash/absolute/`..` entry names as malformed instead of silently normalizing (backslash -> forward-slash) before the 'entry' event fires. */
+    strictFileNames?: boolean;
   }
 
   export function open(
