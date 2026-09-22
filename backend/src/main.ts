@@ -42,7 +42,10 @@ async function bootstrap() {
       rolling: true,
       cookie: {
         httpOnly: true,
-        sameSite: 'strict',
+        // Default 'lax' (COOKIE_SAMESITE): paired with OriginGuard's
+        // Origin/Referer check below for CSRF defense-in-depth rather than
+        // relying on SameSite alone — see backend/src/auth/AUTH_NOTES.md.
+        sameSite: config.cookieSameSite,
         maxAge: 7 * 24 * 3600 * 1000,
         // Default false (plain-HTTP localhost/LAN). Set COOKIE_SECURE=true (or
         // 'auto' with TRUST_PROXY set) when serving over HTTPS behind a TLS proxy.

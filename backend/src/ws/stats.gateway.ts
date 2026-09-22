@@ -6,6 +6,7 @@ import {
 } from '@nestjs/websockets';
 import type { Socket } from 'socket.io';
 import { SessionService } from '../auth/session.service';
+import { ConfigService } from '../config/config.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
 import { authenticateGatewayConnection } from './gateway-auth';
@@ -23,6 +24,7 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   >();
 
   constructor(
+    private readonly config: ConfigService,
     private readonly sessions: SessionService,
     private readonly serverQuery: ServerQueryService,
     private readonly stats: DockerStatsService,
@@ -37,6 +39,7 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     const auth = await authenticateGatewayConnection(
+      this.config,
       this.sessions,
       this.serverQuery,
       client,

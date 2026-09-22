@@ -11,6 +11,7 @@ import { resolveDbDriver, DbDriver } from '../utils/db-driver';
 
 export type TrustProxy = boolean | number | string;
 export type CookieSecure = boolean | 'auto';
+export type CookieSameSite = 'lax' | 'strict' | 'none';
 export type { DbDriver };
 
 export type { ResourceDefaults };
@@ -50,6 +51,7 @@ export class ConfigService {
   readonly cfApiKeySeed: string;
   readonly trustProxy: TrustProxy;
   readonly cookieSecure: CookieSecure;
+  readonly cookieSameSite: CookieSameSite;
   readonly mapProxyHost: string;
   readonly mcImageRepo: string;
   readonly mcRouterImage: string;
@@ -86,6 +88,19 @@ export class ConfigService {
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
     this.trustProxy = this.resolveTrustProxy();
     this.cookieSecure = this.resolveCookieSecure();
+    this.cookieSameSite = this.resolveCookieSameSite();
+    if (this.cookieSameSite === 'none' && this.cookieSecure === false) {
+      // Browsers silently drop a `SameSite=None` cookie that isn't also
+      // `Secure` — failing open into a cookie the browser never stores
+      // would be far worse than refusing to boot, so this is a hard error,
+      // not a warning. `COOKIE_SECURE=auto` is accepted here: it makes the
+      // cookie's `Secure` flag track the request's own scheme at runtime
+      // (see express-session's `cookie.secure: 'auto'`), which is exactly
+      // what a TLS-terminating reverse proxy setup needs.
+      throw new Error(
+        'COOKIE_SAMESITE=none requires COOKIE_SECURE=true (or "auto" behind a TLS-terminating reverse proxy) — browsers reject a SameSite=None cookie that is not also Secure.',
+      );
+    }
     this.mcImageRepo = (
       process.env.MC_IMAGE_REPO || 'itzg/minecraft-server'
     ).trim();
@@ -159,6 +174,16 @@ export class ConfigService {
     if (raw === 'true') return true;
     if (raw === 'auto') return 'auto';
     return false;
+  }
+
+  private resolveCookieSameSite(): CookieSameSite {
+    const raw = (process.env.COOKIE_SAMESITE || '').trim().toLowerCase();
+    if (raw === 'strict') return 'strict';
+    if (raw === 'none') return 'none';
+    if (raw === '' || raw === 'lax') return 'lax';
+    throw new Error(
+      `COOKIE_SAMESITE must be "lax", "strict", or "none" — got "${raw}".`,
+    );
   }
 
   private resolveDataDirHost(): string {

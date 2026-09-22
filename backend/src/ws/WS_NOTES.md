@@ -62,6 +62,34 @@ long-polling transport skip backpressure entirely (matches legacy, which
 never had a polling fallback in the first place — it only ever spoke raw
 websocket).
 
+## Handshake origin check
+
+`authenticateGatewayConnection()` (`gateway-auth.ts`) now also validates the
+handshake's `Origin` (falling back to `Referer`) against the handshake's own
+`Host` header before doing anything else, disconnecting on a mismatch —
+the WS counterpart of the HTTP `OriginGuard`
+(`backend/src/auth/guards/origin.guard.ts`; see `AUTH_NOTES.md` for the
+full CSRF defense-in-depth reasoning shared by both).
+
+This is **not** redundant with `SameSite` on the session cookie: the
+browser `WebSocket` API is exempt from same-origin policy — a page on any
+origin can call `new WebSocket(...)` against this panel and, absent an
+explicit check, the browser will still attach the `msm.sid` cookie to the
+handshake under `SameSite=Lax`/`None` (lax allows the cross-site GET the
+WS upgrade rides on). Nothing else in this codebase was checking the
+handshake's `Origin` — `@WebSocketGateway()` here has no `cors` option
+configured, and socket.io does not apply an origin check unless one is
+configured, so the handshake was previously unguarded. Same rule as
+`OriginGuard`: under `COOKIE_SAMESITE=none`, a handshake carrying neither
+`Origin` nor `Referer` is rejected too (see `AUTH_NOTES.md`), since the
+cookie alone provides no CSRF protection in that mode.
+
+No new `ALLOWED_ORIGINS`-style config was added — same reasoning as
+`AUTH_NOTES.md`'s "why no ALLOWED_ORIGINS config" section: the panel is
+single-origin (no CORS setup exists anywhere in `backend/`), so the check
+is a same-origin host match against the handshake's own `Host`, not a
+configured allowlist.
+
 ## `main.ts` requires an explicit socket.io adapter
 
 `NestFactory.create()`'s default WS adapter is `@nestjs/websockets`'
