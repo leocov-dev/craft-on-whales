@@ -42,7 +42,14 @@
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn dense outline label="Install…" @click="openInstall(w)" />
-              <q-btn flat dense round icon="download" :href="worldsApi.downloadUrl(w.id)" />
+              <q-btn
+                v-if="auth.canWrite"
+                flat
+                dense
+                round
+                icon="download"
+                :href="worldsApi.downloadUrl(w.id)"
+              />
               <q-btn flat dense round icon="edit" @click="renamePrompt(w)" />
               <q-btn flat dense round icon="delete" color="negative" @click="removeWorld(w)" />
             </div>
@@ -98,11 +105,13 @@ import { worldsApi, type LibraryWorld } from '@/api/worlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
 import { useWorldUploadStore } from '@/stores/world-upload';
+import { useAuthStore } from '@/stores/auth';
 import PageHeader from '@/components/PageHeader.vue';
 
 const $q = useQuasar();
 const servers = useServersStore();
 const uploadStore = useWorldUploadStore();
+const auth = useAuthStore();
 
 const worlds = ref<LibraryWorld[]>([]);
 const fileInput = ref<HTMLInputElement>();

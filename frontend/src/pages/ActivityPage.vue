@@ -40,7 +40,7 @@
           @update:model-value="applyFilters"
         />
       </div>
-      <div class="col-12 col-sm-2 row justify-end q-gutter-x-xs">
+      <div v-if="auth.canWrite" class="col-12 col-sm-2 row justify-end q-gutter-x-xs">
         <q-btn
           flat
           dense
@@ -141,9 +141,11 @@
 import { ref, computed, onMounted } from 'vue';
 import { eventsApi, type EventViewModel, type EventsFilters } from '@/api/events';
 import { useServersStore } from '@/stores/servers';
+import { useAuthStore } from '@/stores/auth';
 import PageHeader from '@/components/PageHeader.vue';
 
 const servers = useServersStore();
+const auth = useAuthStore();
 
 const q = ref('');
 const server = ref<string | null>(null);
