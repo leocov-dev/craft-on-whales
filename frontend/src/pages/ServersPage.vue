@@ -20,6 +20,14 @@
       <div v-for="server in store.sorted" :key="server.id" class="col-12 col-sm-6 col-md-4">
         <ServerCard :server="server" />
       </div>
+      <div class="col-12 col-sm-6 col-md-4">
+        <router-link to="/servers/new" class="block">
+          <q-card flat bordered class="add-server-card column items-center justify-center">
+            <q-icon name="add" size="32px" color="grey-6" />
+            <div class="text-grey-6 q-mt-xs">Add server</div>
+          </q-card>
+        </router-link>
+      </div>
     </div>
   </q-page>
 </template>
@@ -36,3 +44,19 @@ onMounted(async () => {
   if (!store.loaded) await store.fetchServers();
 });
 </script>
+
+<style scoped>
+.block {
+  display: block;
+}
+.add-server-card {
+  min-height: 220px;
+  border: 2px dashed var(--q-primary);
+  background: transparent;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+.add-server-card:hover {
+  opacity: 0.8;
+}
+</style>
