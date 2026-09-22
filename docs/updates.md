@@ -22,3 +22,9 @@ Updates are never silent. When you choose to upgrade a pack, the panel:
 4. Monitors the first boot, with a per-platform time budget.
 
 If it doesn't come up healthy, you roll back to the pre-update backup. A stable-tracking server is never offered a beta, and the changelog link points at the real per-version diff where the source provides one.
+
+## Ignoring an update
+
+Not every available build is one you want to take right now. Hitting **Ignore** on an entry (a mod, modpack, or server) dismisses that specific version — it drops off the Updates page, the dashboard count, and any per-server "update available" badge.
+
+Ignoring isn't a permanent mute: it only suppresses the build you ignored. As soon as a _newer_ build is published, it reappears as a normal available update. Everything you've dismissed is listed under **Ignored updates** at the bottom of the Updates page, where you can un-ignore it at any time to bring it back immediately.

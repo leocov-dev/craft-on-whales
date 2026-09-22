@@ -168,6 +168,7 @@ export class ModsService {
       .select({
         latestVersion: updateChecks.latestVersion,
         latestName: updateChecks.latestName,
+        ignoredVersion: updateChecks.ignoredVersion,
       })
       .from(updateChecks)
       .where(
@@ -179,6 +180,10 @@ export class ModsService {
       .limit(1);
     // latestName is only set when the checker saw a genuinely newer build;
     // compare name-to-name (latestVersion holds the platform id, not a name).
+    // An ignored build (ignoredVersion === latestVersion) doesn't count as
+    // available until a newer one supersedes it — see UPDATES_NOTES.md.
+    if (check?.ignoredVersion && check.ignoredVersion === check.latestVersion)
+      return null;
     return check && check.latestName && check.latestName !== row.version
       ? check.latestName
       : null;
