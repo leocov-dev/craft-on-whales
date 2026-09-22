@@ -10,6 +10,7 @@ import {
   ROUTER_NETWORK_NAME,
 } from '../docker/docker-networks.service';
 import { DockerConnectionService } from '../docker/docker-connection.service';
+import { DockerImagesService } from '../docker/docker-images.service';
 import type {
   McRouterConfig,
   RouterRoute,
@@ -22,6 +23,7 @@ const SETTINGS_KEY = 'mc_router';
 const DEFAULT_CONFIG: McRouterConfig = {
   enabled: false,
   listenPort: 25565,
+  baseDomain: '',
   autoScaleUp: true,
   autoScaleDown: true,
   autoScaleDownAfter: '10m',
@@ -47,6 +49,7 @@ export class McRouterService {
     private readonly dockerRouter: McRouterDockerService,
     private readonly dockerNetworks: DockerNetworksService,
     private readonly connection: DockerConnectionService,
+    private readonly dockerImages: DockerImagesService,
   ) {}
 
   async getConfig(): Promise<McRouterConfig> {
@@ -79,7 +82,23 @@ export class McRouterService {
     return next;
   }
 
+  /**
+   * The `router_hostname` column stores just the subdomain label (e.g.
+   * `survival`) once a base domain is configured. Until then it's treated
+   * as a full hostname, for backward compatibility with values typed in
+   * before this field existed (see McRouterConfig's `baseDomain` doc
+   * comment) — so composing only kicks in once an admin sets one.
+   */
+  composeHostname(
+    subdomain: string | null,
+    baseDomain?: string,
+  ): string | null {
+    if (!subdomain) return null;
+    return baseDomain ? `${subdomain}.${baseDomain}` : subdomain;
+  }
+
   async listRoutes(): Promise<RouterRoute[]> {
+    const cfg = await this.getConfig();
     const rows = await this.dbService.db
       .select({
         id: servers.id,
@@ -95,8 +114,9 @@ export class McRouterService {
       id: r.id,
       name: r.displayName,
       containerName: r.containerName == null ? `msm-${r.id}` : r.containerName,
-      hostname: r.routerHostname,
-      autoScale: r.routerAutoScale,
+      subdomain: r.routerHostname,
+      hostname: this.composeHostname(r.routerHostname, cfg.baseDomain),
+      autoScale: r.routerAutoScale as 'on' | 'off' | null,
     }));
   }
 
@@ -117,6 +137,7 @@ export class McRouterService {
     }
     const networkName =
       await this.dockerNetworks.ensureNetwork(ROUTER_NETWORK_NAME);
+    await this.dockerImages.ensureImage(this.config.mcRouterImage);
 
     const info = await this.dockerRouter.inspectStatus();
     if (info.exists) {

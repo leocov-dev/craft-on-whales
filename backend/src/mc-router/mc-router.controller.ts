@@ -4,9 +4,27 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { McRouterService } from './mc-router.service';
 
+// A dot-separated run of DNS labels (1-63 chars each, alnum + hyphen, no
+// leading/trailing hyphen) — a real domain, not a bare word, since it's
+// meant to be a registrable base domain servers' subdomains attach to.
+const DOMAIN_RE =
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
 const configSchema = z.object({
   enabled: z.coerce.boolean(),
   listenPort: z.coerce.number().int().min(1024).max(65535),
+  baseDomain: z
+    .union([
+      z.literal(''),
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .max(253)
+        .regex(DOMAIN_RE, 'Use a domain like "example.com"'),
+    ])
+    .optional()
+    .default(''),
   autoScaleUp: z.coerce.boolean(),
   autoScaleDown: z.coerce.boolean(),
   autoScaleDownAfter: z

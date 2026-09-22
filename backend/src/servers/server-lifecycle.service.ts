@@ -39,6 +39,7 @@ import {
   type InspectStatusResult,
 } from '../docker/container.service';
 import { DockerImagesService } from '../docker/docker-images.service';
+import { McRouterService } from '../mc-router/mc-router.service';
 import { ROUTER_NETWORK_NAME } from '../docker/docker-networks.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
 import { DockerWatcherService } from '../docker/docker-watcher.service';
@@ -243,6 +244,7 @@ export class ServerLifecycleService implements OnModuleInit {
     private readonly environment: ServerEnvironmentService,
     private readonly locks: ServerLocksService,
     private readonly packPinGuard: PackPinGuardService,
+    private readonly mcRouter: McRouterService,
     @Inject(SCHEDULER_CONTRACT)
     private readonly scheduler: SchedulerContract,
   ) {}
@@ -622,7 +624,11 @@ export class ServerLifecycleService implements OnModuleInit {
         containerName: server.containerName ?? undefined,
         networkName: server.networkName ?? undefined,
         extraBinds: server.extraBinds,
-        routerHostname: server.routerHostname ?? undefined,
+        routerHostname:
+          this.mcRouter.composeHostname(
+            server.routerHostname,
+            (await this.mcRouter.getConfig()).baseDomain,
+          ) ?? undefined,
         routerAutoScale: server.routerAutoScale ?? undefined,
       });
     } catch (err: unknown) {
