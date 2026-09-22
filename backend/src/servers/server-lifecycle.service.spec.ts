@@ -8,6 +8,7 @@ import { DockerImagesService } from '../docker/docker-images.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
 import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { EventsService } from '../events/events.service';
+import { McRouterService } from '../mc-router/mc-router.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { DockerSpecService } from './docker-spec.service';
 import { PackPinGuardService } from './pack-pin-guard.service';
@@ -111,6 +112,13 @@ describe('ServerLifecycleService.refreshStatuses (startup watchdog)', () => {
         },
         { provide: ServerEnvironmentService, useValue: noop },
         { provide: ServerLocksService, useValue: noop },
+        {
+          provide: McRouterService,
+          useValue: {
+            composeHostname: (subdomain: string | null) => subdomain,
+            getConfig: () => Promise.resolve({ baseDomain: '' }),
+          },
+        },
         PackPinGuardService,
         { provide: SCHEDULER_CONTRACT, useValue: noop },
       ],
