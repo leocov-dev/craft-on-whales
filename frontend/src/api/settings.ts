@@ -51,8 +51,11 @@ export const settingsApi = {
     http.post<{ ok: true; user: PanelUser }>('/api/users', { username, password, role }),
   setUserRole: (id: string, role: Role) =>
     http.post<{ ok: true }>(`/api/users/${id}/role`, { role }),
-  setUserPassword: (id: string, password: string) =>
-    http.post<{ ok: true }>(`/api/users/${id}/password`, { password }),
+  setUserPassword: (id: string, password: string, adminPassword: string) =>
+    http.post<{ ok: true }>(`/api/users/${id}/password`, {
+      password,
+      adminPassword,
+    }),
   deleteUser: (id: string) => http.delete<{ ok: true }>(`/api/users/${id}`),
   resetUserTotp: (id: string) => http.post<{ ok: true }>(`/api/users/${id}/totp/disable`),
 };

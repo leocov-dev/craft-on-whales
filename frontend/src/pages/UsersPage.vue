@@ -68,6 +68,43 @@
       </q-card-section>
     </q-card>
 
+    <q-dialog v-model="changePasswordOpen">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-subtitle1">
+          Set a new password — {{ changePasswordTarget?.username }}
+        </q-card-section>
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model="changePasswordForm.password"
+            type="password"
+            label="New password"
+            hint="At least 8 characters."
+            filled
+            dense
+            autocomplete="new-password"
+          />
+          <q-input
+            v-model="changePasswordForm.adminPassword"
+            type="password"
+            label="Your current password"
+            hint="Confirms it's really you making this change."
+            filled
+            dense
+            autocomplete="current-password"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Set password"
+            :loading="changingPassword"
+            @click="submitChangePassword"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
     <q-dialog v-model="addUserOpen">
       <q-card style="min-width: 360px">
         <q-card-section class="text-subtitle1">Add user</q-card-section>
@@ -130,16 +167,45 @@ async function setRole(user: PanelUser, role: Role) {
   await load();
 }
 
+const changePasswordOpen = ref(false);
+const changingPassword = ref(false);
+const changePasswordTarget = ref<PanelUser | null>(null);
+const changePasswordForm = ref({ password: '', adminPassword: '' });
+
 function changePassword(user: PanelUser) {
-  $q.dialog({
-    title: `Set a new password — ${user.username}`,
-    prompt: { model: '', type: 'password', isValid: (v: string) => v.length >= 8 },
-    cancel: true,
-  }).onOk((password: string) => {
-    void settingsApi.setUserPassword(user.id, password).then(() => {
-      $q.notify({ type: 'positive', message: 'Password updated.' });
+  changePasswordTarget.value = user;
+  changePasswordForm.value = { password: '', adminPassword: '' };
+  changePasswordOpen.value = true;
+}
+
+async function submitChangePassword() {
+  const target = changePasswordTarget.value;
+  if (!target) return;
+  if (changePasswordForm.value.password.length < 8) {
+    $q.notify({ type: 'negative', message: 'New password must be at least 8 characters.' });
+    return;
+  }
+  if (!changePasswordForm.value.adminPassword) {
+    $q.notify({ type: 'negative', message: 'Enter your current password to confirm.' });
+    return;
+  }
+  changingPassword.value = true;
+  try {
+    await settingsApi.setUserPassword(
+      target.id,
+      changePasswordForm.value.password,
+      changePasswordForm.value.adminPassword,
+    );
+    changePasswordOpen.value = false;
+    $q.notify({ type: 'positive', message: 'Password updated.' });
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not update password.',
     });
-  });
+  } finally {
+    changingPassword.value = false;
+  }
 }
 
 function resetTotp(user: PanelUser) {

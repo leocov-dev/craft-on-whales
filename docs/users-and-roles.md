@@ -29,4 +29,8 @@ Custom container names also can't live in the panel's own `msm-` namespace, so a
 
 Admins can create users, change roles, reset passwords, and delete accounts from the Users table. The **2FA** column shows whether each user has two-factor enabled; an admin can **reset** another user's 2FA (for the lost-phone-and-backup-codes case) — but never disable their own without their password, which the self-service flow handles instead.
 
+Setting anyone's password — including your own — asks for **your own current password** first, to confirm it's really you making the change and not someone who merely found your browser signed in.
+
+Turning on two-factor authentication for an account signs that account out everywhere else it was signed in, so a session left open somewhere else can't keep working with only the old, weaker protection.
+
 Failed logins are rate-limited per account to slow down brute-force attempts, and the same limit covers the 2FA code step so a correct password can't reset the counter before code-guessing.
