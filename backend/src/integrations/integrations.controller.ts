@@ -7,6 +7,7 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
@@ -17,6 +18,8 @@ import { EventsService } from '../events/events.service';
 import { StatusService } from '../status/status.service';
 import { DiscordService } from './discord.service';
 import { InvitesService } from './invites.service';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 const serverIdSchema = z.string().regex(/^srv_[\w-]+$/, 'Invalid server id');
 
@@ -125,7 +128,12 @@ export class IntegrationsController {
     return { ok: true, invite: await this.invites.inviteInfo(server.id) };
   }
 
+  // Generates a client .mrpack on the fly (fetches per-mod metadata from
+  // Modrinth, writes a zip to data/tmp) rather than just reading data —
+  // gated like the other archive-generating downloads in this PR.
   @Get('invite/modpack.mrpack')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async mrpack(
     @Param('id') id: string,
     @Query('host') hostQuery: string | undefined,

@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
@@ -19,6 +20,8 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { CrashesService, type DecoratedCrash } from './crashes.service';
 import { crashAbsPathFor } from './crash-paths';
 import type { CrashReport } from '../../../shared/types/crashes';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 /**
  * Legacy's raw `dbApi` returned bare SQL rows (snake_case) directly as JSON;
@@ -82,7 +85,12 @@ export class CrashesController {
   }
 
   // Must be declared before /:crashId routes (matches legacy ordering).
+  // Builds a zip of every crash-report file for the server on the fly —
+  // bulk export of potentially sensitive log/stack-trace content, so
+  // gated like the other archive-generating downloads in this PR.
   @Get('export.zip')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async exportZip(@Param('id') id: string, @Res() res: Response) {
     const serverId = parseBody(serverIdSchema, id);
     const rows = await this.crashes.listCrashes(serverId);

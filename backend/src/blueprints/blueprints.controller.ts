@@ -8,6 +8,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -31,6 +32,8 @@ import {
 } from './blueprints-library.service';
 import type { BlueprintViewModel } from '../../../shared/types/blueprints';
 import { currentUser } from '../auth/current-user';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 // Shared "Advanced Docker Settings" fields — ports `dockerOverridesSchema.ts`.
 const dockerOverridesSchema = {
@@ -273,7 +276,12 @@ export class BlueprintsController {
     };
   }
 
+  // A blueprint zip can embed full server config (and, depending on what was
+  // exported, secrets baked into env/config files) — bulk sensitive export,
+  // gated the same way as world/backup downloads below.
   @Get(':id/download')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async download(@Param('id') id: string, @Res() res: Response) {
     const row = await this.library.getBlueprint(id);
     if (!row) throw new NotFoundException('Blueprint not found');

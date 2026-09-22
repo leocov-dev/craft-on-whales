@@ -10,6 +10,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -27,6 +28,8 @@ import { WorldOperationsService } from './world-operations.service';
 import { WorldLibraryService } from './world-library.service';
 import type { SimpleWorld } from '../../../shared/types/worlds';
 import { currentUser } from '../auth/current-user';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 
 function actorOf(req: Request): string {
   return currentUser(req).username;
@@ -142,7 +145,12 @@ export class WorldsController {
     return { ok: true, ...result };
   }
 
+  // Streams a full world save (may contain player data) — bulk sensitive
+  // export, gated like the per-server world download below and the
+  // existing backups/blueprints downloads.
   @Get(':id/download')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async download(@Param('id') id: string, @Res() res: Response) {
     const [lib] = await this.db.db
       .select()
@@ -280,7 +288,12 @@ export class ServerWorldsController {
     };
   }
 
+  // Pauses server saves and zips a fresh world snapshot to disk before
+  // streaming it — a real side effect (not just a read), plus bulk
+  // sensitive export, so it's role-gated.
   @Get(':world/download')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'operator')
   async download(
     @Param('id') id: string,
     @Param('world') worldRaw: string,
