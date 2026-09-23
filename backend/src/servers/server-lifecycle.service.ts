@@ -48,6 +48,7 @@ import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
 import { PackPinGuardService } from './pack-pin-guard.service';
+import { StatusBusService } from '../status-bus/status-bus.service';
 // Injected via SCHEDULER_CONTRACT (below) instead of a direct SchedulerService
 // reference — a plain `import { SchedulerService }` here would drag
 // scheduler.service.ts's own require chain (StorageIndexService,
@@ -247,6 +248,7 @@ export class ServerLifecycleService implements OnModuleInit {
     private readonly locks: ServerLocksService,
     private readonly packPinGuard: PackPinGuardService,
     private readonly mcRouter: McRouterService,
+    private readonly statusBus: StatusBusService,
     @Inject(SCHEDULER_CONTRACT)
     private readonly scheduler: SchedulerContract,
   ) {}
@@ -507,6 +509,7 @@ export class ServerLifecycleService implements OnModuleInit {
       .update(servers)
       .set({ status: 'starting', lastStartedAt: new Date().toISOString() })
       .where(eq(servers.id, id));
+    this.statusBus.emitStatusChanged({ serverId: id, status: 'starting' });
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -531,6 +534,7 @@ export class ServerLifecycleService implements OnModuleInit {
       .update(servers)
       .set({ status: 'stopped' })
       .where(eq(servers.id, id));
+    this.statusBus.emitStatusChanged({ serverId: id, status: 'stopped' });
     const excerpt = await this.logs
       .fetchLogs(id, { tail: 100 })
       .catch(() => '');
@@ -553,13 +557,22 @@ export class ServerLifecycleService implements OnModuleInit {
       type: 'restart-requested',
       summary: 'Restart requested',
     });
-    await this.stopServerImpl(id, { actor });
-    await this.startServerImpl(id, { actor });
+    await this.recreateServerImpl(id, { actor, quiet: true });
+    // recreateServerImpl already restarts a server that was running when it
+    // began, so this only covers the other case: restarting one that was
+    // stopped, which must still end up running.
+    if (
+      !['running', 'starting', 'unhealthy'].includes(
+        (await this.containers.inspectStatus(id)).status,
+      )
+    ) {
+      await this.startServerImpl(id, { actor });
+    }
     this.events.recordEvent({
       serverId: id,
       actor,
       type: 'restarted',
-      summary: 'Server restarted',
+      summary: 'Server restarted (container recreated)',
     });
   }
 
@@ -579,6 +592,7 @@ export class ServerLifecycleService implements OnModuleInit {
       .update(servers)
       .set({ status: 'stopped' })
       .where(eq(servers.id, id));
+    this.statusBus.emitStatusChanged({ serverId: id, status: 'stopped' });
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -603,10 +617,13 @@ export class ServerLifecycleService implements OnModuleInit {
     if (wasRunning) await this.containers.stopContainer(id);
     await this.containers.removeContainer(id);
 
-    const image = await this.environment.resolveImage(server);
-    await this.images.ensureImage(image);
+    // Everything from here on runs with the old container already gone, so it
+    // all shares the same recovery path below — an image pull that fails
+    // leaves the server just as container-less as a failed create.
     let containerId: string;
     try {
+      const image = await this.environment.resolveImage(server);
+      await this.images.ensureImage(image);
       containerId = await this.containers.createContainer({
         serverId: id,
         image,
@@ -634,20 +651,40 @@ export class ServerLifecycleService implements OnModuleInit {
         routerAutoScale: server.routerAutoScale ?? undefined,
       });
     } catch (err: unknown) {
-      if (
+      const conflict =
         (err as { statusCode?: number }).statusCode === 409 &&
         server.containerName
-      ) {
-        throw new ConflictException(
-          `Container name "${server.containerName}" is already in use by another Docker container`,
-        );
-      }
-      throw err;
+          ? new ConflictException(
+              `Container name "${server.containerName}" is already in use by another Docker container`,
+            )
+          : null;
+      // The old container is already gone at this point, so the server now
+      // has no container at all — record that honestly instead of leaving the
+      // pre-recreate status (often 'running') cached, and keep
+      // pendingRecreate set: the config changes still have not been applied.
+      // Restart routes through here too, so this is not a rare path.
+      const message =
+        conflict?.message ?? (err instanceof Error ? err.message : String(err));
+      await this.db
+        .update(servers)
+        .set({ status: 'stopped', containerId: null, pendingRecreate: true })
+        .where(eq(servers.id, id));
+      this.statusBus.emitStatusChanged({ serverId: id, status: 'stopped' });
+      this.events.recordEvent({
+        serverId: id,
+        actor,
+        type: 'recreate-failed',
+        summary: `Container could not be recreated — the server has no container until this is fixed: ${message}`,
+      });
+      throw conflict ?? err;
     }
     await this.db
       .update(servers)
       .set({ containerId, pendingRecreate: false })
       .where(eq(servers.id, id));
+    // The old container (and the console gateway's log follower bound to it)
+    // is gone — tell open pages to re-tail the new one.
+    this.statusBus.emitContainerReplaced({ serverId: id });
     if (!quiet)
       this.events.recordEvent({
         serverId: id,
@@ -1000,11 +1037,13 @@ export class ServerLifecycleService implements OnModuleInit {
             });
           }
         }
-        if (status !== server.status)
+        if (status !== server.status) {
           await this.db
             .update(servers)
             .set({ status })
             .where(eq(servers.id, server.id));
+          this.statusBus.emitStatusChanged({ serverId: server.id, status });
+        }
       } catch {
         /* daemon offline — leave cached */
       }

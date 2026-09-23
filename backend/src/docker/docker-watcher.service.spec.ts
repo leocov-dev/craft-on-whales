@@ -2,6 +2,10 @@ import { Test } from '@nestjs/testing';
 import { DbService } from '../db/db.service';
 import { servers } from '../db/schema';
 import { EventsService } from '../events/events.service';
+import {
+  StatusBusService,
+  type ServerStatusChangedEvent,
+} from '../status-bus/status-bus.service';
 import { ContainerService, LABEL } from './container.service';
 import { DockerConnectionService } from './docker-connection.service';
 import { DockerLogsService } from './docker-logs.service';
@@ -78,6 +82,7 @@ describe('DockerWatcherService', () => {
   let recorded: RecordedEvent[];
   let logTail: string;
   let restarted: string[];
+  let pushed: ServerStatusChangedEvent[];
   let inspectStatus: jest.Mock;
 
   const lastStatus = (): string | undefined => {
@@ -116,8 +121,12 @@ describe('DockerWatcherService', () => {
           },
         },
         { provide: DbService, useValue: { db: makeDb(state) } },
+        // The real bus, not a stub: it's a dependency-free EventEmitter, and
+        // the point of these assertions is that a status write reaches it.
+        StatusBusService,
       ],
     }).compile();
+    moduleRef.get(StatusBusService).onStatusChanged((e) => void pushed.push(e));
     service = moduleRef.get(DockerWatcherService);
     service.setAutoRestartHandler((id) => {
       restarted.push(id);
@@ -128,6 +137,7 @@ describe('DockerWatcherService', () => {
   beforeEach(() => {
     recorded = [];
     restarted = [];
+    pushed = [];
     logTail = '';
     inspectStatus = jest
       .fn()
@@ -182,6 +192,30 @@ describe('DockerWatcherService', () => {
 
       await service.handleEvent({ Action: 'oom', Actor: actor });
       expect(eventsOfType('oom')).toHaveLength(1);
+    });
+
+    it('pushes every status write onto the status bus', async () => {
+      // This watcher is the only source of the crash and healthy-promotion
+      // transitions, and refreshStatuses()'s poll can't recover a missed
+      // push (it only emits on a diff against the row written here), so an
+      // open detail page would keep showing the pre-crash status forever.
+      await build(false);
+      const actor = { Attributes: { [LABEL]: SERVER_ID } };
+
+      await service.handleEvent({ Action: 'start', Actor: actor });
+      await service.handleEvent({
+        Action: 'health_status: healthy',
+        Actor: actor,
+      });
+      await service.handleEvent(dieEvent('0', 'status'));
+      await service.handleEvent(dieEvent('1', 'status'));
+
+      expect(pushed).toEqual([
+        { serverId: SERVER_ID, status: 'starting' },
+        { serverId: SERVER_ID, status: 'running' },
+        { serverId: SERVER_ID, status: 'stopped' },
+        { serverId: SERVER_ID, status: 'crashed' },
+      ]);
     });
 
     it('ignores an event kind it does not handle', async () => {

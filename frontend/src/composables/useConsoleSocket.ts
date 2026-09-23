@@ -24,6 +24,11 @@ export interface ConsoleSocket {
   ended: Ref<boolean>;
   lastResult: Ref<CmdResult | null>;
   sendCommand: (command: string) => void;
+  /** Tears down and reopens the socket — a recreate gives the server a new container,
+   * and a stop ends the log stream, so the old connection's follower never resumes on
+   * its own; this re-tails from the current container. Clears `lines`, so call it only
+   * when the existing stream is actually dead (see ConsoleTab.vue's watchers). */
+  reconnect: () => void;
   close: () => void;
 }
 
@@ -47,49 +52,54 @@ export function useConsoleSocket(serverId: string): ConsoleSocket {
   const ended = ref(false);
   const lastResult = ref<CmdResult | null>(null);
 
-  // No explicit `transports` override: leave socket.io's default
-  // polling->websocket upgrade path intact so the initial handshake (which
-  // carries the msm.sid session cookie the backend authenticates with) isn't
-  // skipped. `withCredentials: true` is required for the browser to attach
-  // that cookie at all, same-origin or not.
-  const socket: Socket = io('/ws/console', {
-    query: { serverId },
-    withCredentials: true,
-    // socket.io-client auto-reconnects by default; legacy's raw-ws client
-    // never did (a drop just left `connected` false forever). Neither
-    // current call site (ConsoleTab.vue) reads `connected` today, so there's
-    // no existing "reconnecting" UI state to preserve or conflict with —
-    // auto-reconnect is a strict improvement here, not a behavior change
-    // anything currently depends on.
-  });
+  let socket: Socket;
 
-  socket.on('connect', () => {
-    connected.value = true;
-  });
-  socket.on('disconnect', () => {
-    connected.value = false;
-  });
+  function connect() {
+    // No explicit `transports` override: leave socket.io's default
+    // polling->websocket upgrade path intact so the initial handshake (which
+    // carries the msm.sid session cookie the backend authenticates with) isn't
+    // skipped. `withCredentials: true` is required for the browser to attach
+    // that cookie at all, same-origin or not.
+    socket = io('/ws/console', {
+      query: { serverId },
+      withCredentials: true,
+      // socket.io-client auto-reconnects by default; legacy's raw-ws client
+      // never did (a drop just left `connected` false forever). Neither
+      // current call site (ConsoleTab.vue) reads `connected` today, so there's
+      // no existing "reconnecting" UI state to preserve or conflict with —
+      // auto-reconnect is a strict improvement here, not a behavior change
+      // anything currently depends on.
+    });
 
-  socket.on('message', (msg: WireMessage) => {
-    if (msg.kind === 'log') {
-      const newLines = msg.text
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((text) => ({ text, level: levelOf(text) }));
-      lines.value.push(...newLines);
-      if (lines.value.length > MAX_LINES) lines.value.splice(0, lines.value.length - MAX_LINES);
-    } else if (msg.kind === 'log-end') {
-      ended.value = true;
-    } else if (msg.kind === 'cmd-result') {
-      lastResult.value = {
-        command: msg.command,
-        output: msg.output,
-        ...(msg.error ? { error: msg.error } : {}),
-      };
-    } else if (msg.kind === 'error') {
-      lastResult.value = { command: '', output: '', error: msg.message ?? 'Console error.' };
-    }
-  });
+    socket.on('connect', () => {
+      connected.value = true;
+    });
+    socket.on('disconnect', () => {
+      connected.value = false;
+    });
+
+    socket.on('message', (msg: WireMessage) => {
+      if (msg.kind === 'log') {
+        const newLines = msg.text
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((text) => ({ text, level: levelOf(text) }));
+        lines.value.push(...newLines);
+        if (lines.value.length > MAX_LINES) lines.value.splice(0, lines.value.length - MAX_LINES);
+      } else if (msg.kind === 'log-end') {
+        ended.value = true;
+      } else if (msg.kind === 'cmd-result') {
+        lastResult.value = {
+          command: msg.command,
+          output: msg.output,
+          ...(msg.error ? { error: msg.error } : {}),
+        };
+      } else if (msg.kind === 'error') {
+        lastResult.value = { command: '', output: '', error: msg.message ?? 'Console error.' };
+      }
+    });
+  }
+  connect();
 
   function sendCommand(command: string) {
     if (socket.connected) socket.emit('cmd', { command });
@@ -98,7 +108,19 @@ export function useConsoleSocket(serverId: string): ConsoleSocket {
   function close() {
     socket.disconnect();
   }
+
+  // A recreate gives the server a new container, and a stop ends the stream —
+  // either way the old connection's log follower never resumes on its own, so
+  // drop it and open a fresh connection, which re-tails from whatever
+  // container is current.
+  function reconnect() {
+    close();
+    lines.value = [];
+    ended.value = false;
+    connect();
+  }
+
   onUnmounted(close);
 
-  return { lines, connected, ended, lastResult, sendCommand, close };
+  return { lines, connected, ended, lastResult, sendCommand, reconnect, close };
 }

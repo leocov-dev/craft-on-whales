@@ -93,12 +93,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, provide, onMounted } from 'vue';
+import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { serversApi, type LifecycleAction, type ServerDetail } from '@/api/servers';
 import { statusMeta, iconSrc } from '@/composables/useServerStatus';
 import { serverDetailKey } from '@/composables/useServerDetail';
+import { useStatusSocket } from '@/composables/useStatusSocket';
 import { useServersStore } from '@/stores/servers';
 
 const route = useRoute();
@@ -165,17 +166,69 @@ function onTabChange(tab: string | number) {
 
 const meta = computed(() => statusMeta(server.value?.status ?? 'stopped'));
 
+// Never rejects: every caller (mount, a lifecycle action, a live status push)
+// fires this without awaiting the failure path, and an expired session or a
+// server deleted by another user would otherwise surface as an unhandled
+// rejection instead of a message.
 async function refresh() {
   loading.value = true;
   try {
     const res = await serversApi.get(serverId.value);
     server.value = res.server;
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not load this server.',
+    });
   } finally {
     loading.value = false;
   }
 }
 
-provide(serverDetailKey, { server, loading, refresh });
+const statusVersion = ref(0);
+const containerVersion = ref(0);
+provide(serverDetailKey, {
+  server,
+  loading,
+  refresh,
+  statusVersion,
+  containerVersion,
+});
+
+// Kept open for the whole page (not per-tab) so a status change is caught no
+// matter which tab is active — e.g. another user/tab restarting the server,
+// a crash, or the startup watchdog's stalled/running promotion. Triggers an
+// HTTP refetch (for the header/status chip and anything status-gated, like
+// MetricsTab's v-if) and bumps statusVersion so tabs with their own
+// long-lived socket (ConsoleTab) know to reconnect and re-tail.
+let statusSocket: ReturnType<typeof useStatusSocket> | null = null;
+let stopStatusWatch: (() => void) | null = null;
+function openStatusSocket() {
+  statusSocket?.close();
+  stopStatusWatch?.();
+  const sock = useStatusSocket(serverId.value);
+  statusSocket = sock;
+  // Watch the socket's own counters, not `status`: a repeated value (restart
+  // while already `starting` pushes `starting` again) is a real change, and a
+  // watcher on the value would drop it.
+  const stopStatus = watch(sock.version, () => {
+    statusVersion.value += 1;
+    void refresh();
+  });
+  const stopContainer = watch(sock.containerVersion, () => {
+    containerVersion.value += 1;
+  });
+  stopStatusWatch = () => {
+    stopStatus();
+    stopContainer();
+  };
+}
+watch(serverId, openStatusSocket);
+onMounted(openStatusSocket);
+onUnmounted(() => {
+  statusSocket?.close();
+  stopStatusWatch?.();
+});
 
 async function run(action: LifecycleAction) {
   actionBusy.value = true;
