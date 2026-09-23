@@ -6,6 +6,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Req,
   Res,
@@ -50,6 +51,10 @@ const createSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
+const renameSchema = z.object({
+  name: z.string().trim().max(120),
+});
+
 /** Ports the "Backups" section of legacy `src/web/routes/api.ts`. */
 @Controller('api')
 export class BackupsController {
@@ -83,6 +88,7 @@ export class BackupsController {
       backups: rows.map((b) => ({
         id: b.id,
         file: b.filename,
+        customName: b.customName,
         size: b.sizeBytes,
         reason: b.reason,
         ts: b.createdAt,
@@ -102,6 +108,7 @@ export class BackupsController {
         serverId: backups.serverId,
         displayName: servers.displayName,
         filename: backups.filename,
+        customName: backups.customName,
         sizeBytes: backups.sizeBytes,
         reason: backups.reason,
         createdAt: backups.createdAt,
@@ -119,6 +126,7 @@ export class BackupsController {
       serverId: b.serverId,
       server: b.displayName,
       file: b.filename,
+      customName: b.customName,
       size: b.sizeBytes,
       reason: b.reason,
       ts: b.createdAt,
@@ -205,6 +213,24 @@ export class BackupsController {
     if (!fs.existsSync(abs))
       throw new NotFoundException('Backup archive is missing on disk');
     res.download(abs, backup.filename);
+  }
+
+  @Patch('backups/:backupId')
+  @UseGuards(ServerPermissionGuard)
+  @RequireServerPermission('backups', backupServerId)
+  async rename(
+    @Req() req: Request,
+    @Param('backupId') backupId: string,
+    @Body() body: unknown,
+  ): Promise<{ ok: true; backup: { id: string; customName: string | null } }> {
+    const { name } = parseBody(renameSchema, body);
+    const updated = await this.backupsService.renameBackup(backupId, name, {
+      actor: currentUser(req).username,
+    });
+    return {
+      ok: true,
+      backup: { id: updated.id, customName: updated.customName },
+    };
   }
 
   @Delete('backups/:backupId')

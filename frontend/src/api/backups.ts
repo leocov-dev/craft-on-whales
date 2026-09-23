@@ -31,5 +31,10 @@ export const backupsApi = {
   restore: (serverId: string, backupId: string) =>
     http.post<TaskStartResponse>(`/api/servers/${serverId}/backups/${backupId}/restore`),
   downloadUrl: (backupId: string) => `/api/backups/${backupId}/download`,
+  rename: (backupId: string, name: string) =>
+    http.patch<{ ok: true; backup: { id: string; customName: string | null } }>(
+      `/api/backups/${backupId}`,
+      { name },
+    ),
   remove: (backupId: string) => http.delete<{ ok: true }>(`/api/backups/${backupId}`),
 };

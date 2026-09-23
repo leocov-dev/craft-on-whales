@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   HttpException,
   Injectable,
   NotFoundException,
@@ -17,6 +18,7 @@ import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
+import { SettingsService } from '../settings/settings.service';
 import { backups, servers } from '../db/schema';
 import { WorldArchiveService } from './world-archive.service';
 import { WorldSaveLockService } from './world-save-lock.service';
@@ -70,6 +72,7 @@ export class BackupsService {
     private readonly events: EventsService,
     private readonly archive: WorldArchiveService,
     private readonly saveLock: WorldSaveLockService,
+    private readonly settings: SettingsService,
   ) {}
 
   private get db() {
@@ -316,11 +319,83 @@ export class BackupsService {
     return { freedBytes: backup.sizeBytes };
   }
 
+  /** 1-120 chars, no path separators/`.`/`..`/control chars — a display label, never a filesystem path. */
+  private cleanBackupName(raw: string): string {
+    const name = raw.trim();
+    if (!name || name.length > 120) {
+      throw new BadRequestException('Use a name between 1 and 120 characters.');
+    }
+    if (/[\\/]/.test(name)) {
+      throw new BadRequestException(
+        'Backup names cannot contain path separators.',
+      );
+    }
+    // eslint-disable-next-line no-control-regex -- intentionally rejects control chars
+    if (name === '.' || name === '..' || /[\u0000-\u001f\u007f]/.test(name)) {
+      throw new BadRequestException('That backup name is not allowed.');
+    }
+    return name;
+  }
+
+  /**
+   * Give a backup a custom display name. Purely cosmetic: it never touches
+   * the archive's `filename`/`relPath` on disk, and has no bearing on
+   * retention bucketing or pruning — a renamed backup is pruned exactly as
+   * it would have been under its generated name. Pass an empty/blank
+   * `name` to clear the custom name (falls back to displaying `filename`).
+   */
+  async renameBackup(
+    backupId: string,
+    name: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ) {
+    const [backup] = await this.db
+      .select()
+      .from(backups)
+      .where(eq(backups.id, backupId))
+      .limit(1);
+    if (!backup) throw new NotFoundException('Backup not found');
+
+    const clean = name.trim() ? this.cleanBackupName(name) : null;
+    if (clean === (backup.customName ?? null)) return backup;
+
+    await this.db
+      .update(backups)
+      .set({ customName: clean })
+      .where(eq(backups.id, backupId));
+    this.events.recordEvent({
+      serverId: backup.serverId,
+      actor,
+      type: 'backup-renamed',
+      summary: clean
+        ? `Backup renamed: ${backup.filename} → ${clean}`
+        : `Backup name cleared: ${backup.filename}`,
+      details: { from: backup.customName ?? null, to: clean },
+    });
+    const [updated] = await this.db
+      .select()
+      .from(backups)
+      .where(eq(backups.id, backupId))
+      .limit(1);
+    return updated!;
+  }
+
   /**
    * Keep the newest N per reason bucket (see `RETENTION_BUCKETS`); older ones
    * in each bucket are pruned. Pruning is strictly PER BUCKET, never global:
    * a `pre-restore` safety snapshot must never be able to evict a `manual`
    * backup the user deliberately kept, and vice versa.
+   *
+   * On top of the count buckets, two panel-wide ceilings from
+   * `SettingsService.getBackupRetentionCeilings()` (both opt-in, 0 = off)
+   * are applied afterward, across the WHOLE server (not per bucket):
+   *   - `maxAgeDays`: drop anything older than N days.
+   *   - `maxTotalGb`: drop oldest-first (pre-restore, then scheduled, then
+   *     everything else, within an age tier) until the server's total
+   *     backup size is back under the cap.
+   * In every pass — buckets, age, size — the single newest backup for the
+   * server is never a candidate: a server must never end up with zero
+   * backups just because it went quiet or its world grew past a ceiling.
    *
    * Each deletion is isolated (one failure — a transient DB error, an EACCES
    * on the file — must not stop the rest from being pruned) and the whole
@@ -333,6 +408,18 @@ export class BackupsService {
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<number> {
     let deleted = 0;
+    const drop = async (id: string) => {
+      try {
+        await this.deleteBackup(id, { actor });
+        deleted++;
+      } catch (err) {
+        console.error(
+          `[backup] retention: could not delete ${id} for ${serverId}: ${(err as Error).message}`,
+        );
+      }
+    };
+
+    // 1) Per-reason count caps.
     for (const [reason, keep] of RETENTION_BUCKETS) {
       const rows = await this.db
         .select({ id: backups.id })
@@ -346,17 +433,73 @@ export class BackupsService {
       // in turn rejected by Postgres — see schema/DUAL_DIALECT_NOTES.md. A
       // bucket holds tens of rows, so the row count is never a concern.
       const stale = rows.slice(keep);
-      for (const b of stale) {
-        try {
-          await this.deleteBackup(b.id, { actor });
-          deleted++;
-        } catch (err) {
-          console.error(
-            `[backup] retention: could not delete ${b.id} for ${serverId}: ${(err as Error).message}`,
-          );
+      for (const b of stale) await drop(b.id);
+    }
+
+    // 2) & 3) Age / size ceilings, evaluated against what's left after the
+    // count-bucket pass above (a fresh read, not the pre-pass snapshot).
+    const ceilings = await this.settings.getBackupRetentionCeilings();
+    if (ceilings.maxAgeDays > 0 || ceilings.maxTotalGb > 0) {
+      const rows = await this.db
+        .select({
+          id: backups.id,
+          reason: backups.reason,
+          sizeBytes: backups.sizeBytes,
+          createdAt: backups.createdAt,
+        })
+        .from(backups)
+        .where(eq(backups.serverId, serverId))
+        // Newest first; id as a deterministic tiebreaker (see above).
+        .orderBy(desc(backups.createdAt), desc(backups.id));
+      const newestId = rows[0]?.id;
+
+      // Age ceiling: anything older than the cutoff, except the newest.
+      if (ceilings.maxAgeDays > 0) {
+        const cutoff = Date.now() - ceilings.maxAgeDays * 24 * 60 * 60 * 1000;
+        for (const r of rows) {
+          if (r.id === newestId) continue;
+          const ts = Date.parse(r.createdAt.replace(' ', 'T') + 'Z');
+          if (Number.isFinite(ts) && ts < cutoff) await drop(r.id);
+        }
+      }
+
+      // Size ceiling: oldest-first, sacrificing pre-restore/scheduled before
+      // manual/pre-update, until the server's total is back under the cap.
+      // Re-reads rows still standing after the age pass rather than reusing
+      // the earlier snapshot, so the two ceilings compose correctly.
+      if (ceilings.maxTotalGb > 0) {
+        const remaining = await this.db
+          .select({
+            id: backups.id,
+            reason: backups.reason,
+            sizeBytes: backups.sizeBytes,
+            createdAt: backups.createdAt,
+          })
+          .from(backups)
+          .where(eq(backups.serverId, serverId))
+          .orderBy(desc(backups.createdAt), desc(backups.id));
+        const stillNewestId = remaining[0]?.id;
+        const capBytes = ceilings.maxTotalGb * 1024 ** 3;
+        let total = remaining.reduce((sum, r) => sum + (r.sizeBytes || 0), 0);
+        const rank = (reason: string) =>
+          reason === 'pre-restore' ? 0 : reason === 'scheduled' ? 1 : 2;
+        const oldestFirst = [...remaining].sort(
+          (a, b) =>
+            Date.parse(a.createdAt.replace(' ', 'T') + 'Z') -
+            Date.parse(b.createdAt.replace(' ', 'T') + 'Z'),
+        );
+        const order = [...oldestFirst].sort(
+          (a, b) => rank(a.reason) - rank(b.reason),
+        );
+        for (const r of order) {
+          if (total <= capBytes) break;
+          if (r.id === stillNewestId) continue;
+          await drop(r.id);
+          total -= r.sizeBytes || 0;
         }
       }
     }
+
     return deleted;
   }
 

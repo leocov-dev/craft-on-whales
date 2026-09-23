@@ -58,6 +58,77 @@ Two mechanics worth knowing:
 see `../db/DRIZZLE_NOTES.md`), so adding `pre-restore` needed no migration;
 `drizzle-kit generate` reports no schema change for either dialect.
 
+## Backup rename + age/size retention ceilings (upstream parity 3.20)
+
+Upstream (`c12c445`, Express/raw-ws/single-SQLite — different stack, ported for
+_behavior_ only) added two things on top of the count buckets above: a rename
+endpoint, and two opt-in panel-wide ceilings (max age, max total size).
+
+**Rename (`BackupsService.renameBackup`)** — unlike upstream, this does NOT
+rename the archive file on disk. It sets a new nullable `backups.custom_name`
+column (added in both `db/schema/blueprints.ts` and `db/schema-pg/blueprints.ts`,
+migrated via `drizzle-kit generate` in both dialects) and leaves `filename`/
+`relPath` untouched. Reasons for diverging from upstream's on-disk rename:
+
+- It avoids adding filesystem rename logic (collision handling, a second path
+  through `PathGuardService`) for a feature that's purely cosmetic — smaller
+  surface area for the same user-visible result (a friendly name in the UI).
+- `filename`/`relPath` stay the single source of truth for where the archive
+  actually lives, so download/restore/retention code that reads those columns
+  needed zero changes.
+- A rename is a no-op with respect to `reason`/`createdAt`/retention bucketing
+  by construction, since it touches one unrelated column — no special-casing
+  needed anywhere else, matching upstream's own "rename doesn't move it
+  between buckets" behavior without having to say so.
+
+The API returns `customName` alongside the existing `file` (=`filename`) field;
+the frontend shows `customName || file` and, when a custom name is set, the
+original filename as a caption underneath.
+
+**Age/size ceilings** — panel-wide, not per-server: `SettingsService` gains
+`getBackupRetentionCeilings()`/`setBackupRetentionCeilings(patch)`, storing
+`{ maxAgeDays, maxTotalGb }` (both `0` = disabled, matching upstream's opt-in
+default) as a JSON blob under one `settings` key (`backup_retention_ceilings`)
+— the same partial-patch-under-one-key mechanism as `server_creation_defaults`
+(3.19) and `ApiTokensService`'s toggle. No new table, no per-server override
+(upstream has one; this port only needed the panel-wide case — no product
+requirement surfaced for per-server overrides here, and adding one would be
+speculative config per `AGENTS.md`).
+
+`BackupsService.pruneRetention` runs three passes, in order, against a server's
+backups:
+
+1. **Per-reason count buckets** (`RETENTION_BUCKETS`, unchanged from above).
+2. **Age ceiling** (opt-in): among what's left after (1), delete anything
+   older than `maxAgeDays`, any reason, except the single newest backup for
+   the server.
+3. **Size ceiling** (opt-in): among what's left after (2), if the server's
+   total backup size still exceeds `maxTotalGb`, delete oldest-first — but
+   sacrifice `pre-restore` snapshots before `scheduled`, before everything
+   else — until back under the cap, again except the single newest backup.
+
+**The single newest backup for a server is never a pruning candidate in any of
+the three passes** — this is the upstream test suite's load-bearing invariant
+(`test/backups-retention.test.js`: "the newest backup is always kept", even
+when it's the only backup and it individually violates a ceiling). A server
+must never end up with zero backups because it went quiet or its world grew
+past a size ceiling. `backups.service.spec.ts`'s age/size ceiling tests cover
+this directly, including the single-backup-violates-the-ceiling case.
+
+Ceiling comparisons parse `created_at` with the same `.replace(' ', 'T') +
+'Z'` idiom already used in `WorldLibraryService` for SQLite's
+`datetime('now')` text format, rather than doing the comparison in SQL — see
+`../db/schema/DUAL_DIALECT_NOTES.md` for why cross-dialect date SQL is
+avoided here the same way `pruneRetention`'s count-bucket slicing already
+avoids `OFFSET`.
+
+API: `PATCH /api/backups/:backupId` (rename, `{ name }`) is gated exactly like
+the existing `DELETE`/download routes — `ServerPermissionGuard` +
+`@RequireServerPermission('backups', backupServerId)`, so per-server
+permissions (not just role) apply. `GET`/`POST /api/settings/backup-retention`
+(`{ maxAgeDays?, maxTotalGb? }`) mirrors `GET`/`POST /api/settings/defaults`'s
+shape exactly: any signed-in user can read, only `admin` can write.
+
 ## Backup archive integrity check
 
 `createBackup` reopens each finished archive with

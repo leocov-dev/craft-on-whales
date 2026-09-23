@@ -20,7 +20,10 @@
     <q-card v-else flat bordered>
       <q-list separator>
         <q-item v-for="b in backups" :key="b.id">
-          <q-item-section class="font-mono">{{ b.file }}</q-item-section>
+          <q-item-section>
+            <q-item-label class="font-mono">{{ b.customName || b.file }}</q-item-label>
+            <q-item-label v-if="b.customName" caption class="font-mono">{{ b.file }}</q-item-label>
+          </q-item-section>
           <q-item-section side class="text-caption">{{ b.reason }}</q-item-section>
           <q-item-section side
             ><q-item-label caption>{{ formatBytes(b.size) }}</q-item-label></q-item-section
@@ -33,6 +36,7 @@
           <q-item-section side>
             <div class="row q-gutter-x-xs">
               <q-btn dense outline label="Restore" :loading="busyId === b.id" @click="restore(b)" />
+              <q-btn flat dense round icon="edit" @click="renameBackup(b)" />
               <q-btn flat dense round icon="download" :href="backupsApi.downloadUrl(b.id)" />
               <q-btn flat dense round icon="delete" color="negative" @click="removeBackup(b)" />
             </div>
@@ -103,6 +107,33 @@ function restore(b: ServerBackupRow) {
         busyId.value = null;
       }
     })();
+  });
+}
+
+function renameBackup(b: ServerBackupRow) {
+  $q.dialog({
+    title: 'Rename backup',
+    message: 'Display name only — the archive file on disk is unchanged.',
+    prompt: {
+      model: b.customName ?? b.file,
+      type: 'text',
+      isValid: (v: string) => v.trim().length > 0 && v.trim().length <= 120,
+    },
+    cancel: true,
+    ok: { label: 'Rename' },
+  }).onOk((name: string) => {
+    void backupsApi
+      .rename(b.id, name)
+      .then(() => {
+        $q.notify({ type: 'positive', message: 'Backup renamed.' });
+        return load();
+      })
+      .catch((err) => {
+        $q.notify({
+          type: 'negative',
+          message: err instanceof Error ? err.message : 'Rename failed.',
+        });
+      });
   });
 }
 

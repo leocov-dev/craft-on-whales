@@ -4,6 +4,8 @@ export interface BackupRow {
   serverId: string;
   server: string;
   file: string;
+  /** User-set display name (`PATCH /api/backups/:id`), or null if never renamed. */
+  customName: string | null;
   size: number;
   reason: string;
   ts: string;
@@ -13,6 +15,8 @@ export interface BackupRow {
 export interface ServerBackupRow {
   id: string;
   file: string;
+  /** User-set display name (`PATCH /api/backups/:id`), or null if never renamed. */
+  customName: string | null;
   size: number;
   reason: string;
   ts: string;
