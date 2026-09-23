@@ -46,12 +46,24 @@ import { useServerDetail } from '@/composables/useServerDetail';
 import { useAuthStore } from '@/stores/auth';
 
 const $q = useQuasar();
-const { server } = useServerDetail();
+const { server, statusVersion, containerVersion } = useServerDetail();
 const auth = useAuthStore();
 
 // server.value is already loaded — ServerDetailLayout awaits its fetch
 // before rendering <router-view>, so this tab only ever mounts once it's set.
 const socket = useConsoleSocket(server.value!.id);
+
+// Reconnect only when this socket's log stream is genuinely dead, since
+// reconnecting drops the scrollback (see useConsoleSocket.ts's reconnect()):
+//  - a recreate removed the container the follower was opened against;
+//  - or the stream already ended (a stop terminates it) and the server has
+//    since changed status, so there is a new run to tail.
+// A status change on a live stream (`starting` → `running` mid-boot) needs
+// nothing — the follower is still attached and the boot output stays put.
+watch(containerVersion, () => socket.reconnect());
+watch(statusVersion, () => {
+  if (socket.ended.value) socket.reconnect();
+});
 
 const command = ref('');
 const scrollEl = ref<HTMLElement>();
