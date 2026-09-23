@@ -102,3 +102,20 @@ export const playerStatSnapshots = pgTable(
   },
   (t) => [index('idx_statsnap').on(t.serverId, t.uuid, t.ts)],
 );
+
+// Mirror of ../schema/events.ts's playerNotes — see that file's comment.
+export const playerNotes = pgTable(
+  'player_notes',
+  {
+    id: text('id').primaryKey(),
+    serverId: text('server_id').notNull(),
+    uuid: text('uuid').notNull(),
+    name: text('name').notNull(),
+    note: text('note').notNull(),
+    author: text('author').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`now()::text`),
+  },
+  (t) => [index('idx_player_notes_lookup').on(t.serverId, t.uuid)],
+);

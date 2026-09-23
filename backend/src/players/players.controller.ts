@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -14,6 +15,7 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ContainerService } from '../docker/container.service';
 import { PlayerRosterService } from './player-roster.service';
 import { PlayerTeleportService } from './player-teleport.service';
+import { PlayerNotesService } from './player-notes.service';
 import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
 import { biomes } from './biomes';
@@ -30,6 +32,13 @@ const ipSchema = z
   .string()
   .trim()
   .regex(/^[0-9a-fA-F.:]{3,45}$/, 'Enter a valid IPv4 or IPv6 address');
+// Cap at 10 years — a "duration" past that is just a permanent ban with extra steps.
+const durationSchema = z.coerce
+  .number()
+  .int()
+  .positive()
+  .max(10 * 365 * 24 * 3600 * 1000)
+  .optional();
 
 const whitelistSchema = z.object({ name: nameSchema, on: z.coerce.boolean() });
 const enforceSchema = z.object({ on: z.coerce.boolean() });
@@ -38,10 +47,23 @@ const opSchema = z.object({
   on: z.coerce.boolean(),
   level: z.coerce.number().int().min(1).max(4).optional(),
 });
-const banSchema = z.object({ name: nameSchema, reason: reasonSchema });
+const banSchema = z.object({
+  name: nameSchema,
+  reason: reasonSchema,
+  durationMs: durationSchema,
+});
 const pardonSchema = z.object({ name: nameSchema });
-const banIpSchema = z.object({ ip: ipSchema, reason: reasonSchema });
+const banIpSchema = z.object({
+  ip: ipSchema,
+  reason: reasonSchema,
+  durationMs: durationSchema,
+  player: nameSchema.optional(),
+});
 const pardonIpSchema = z.object({ ip: ipSchema });
+const noteSchema = z.object({
+  name: nameSchema,
+  note: z.string().trim().min(1).max(1000),
+});
 const kickSchema = z.object({
   name: nameSchema,
   message: z.string().trim().max(256).optional(),
@@ -107,6 +129,7 @@ export class PlayersController {
     private readonly containers: ContainerService,
     private readonly roster: PlayerRosterService,
     private readonly teleport: PlayerTeleportService,
+    private readonly notes: PlayerNotesService,
     private readonly structureRegistry: StructureRegistryService,
     private readonly biomeRegistry: BiomeRegistryService,
   ) {}
@@ -225,11 +248,50 @@ export class PlayersController {
   @RequireServerPermission('players')
   @Post('ban')
   async ban(@Param('id') id: string, @Req() req: Request) {
-    const { name, reason } = parseBody(banSchema, req.body);
+    const { name, reason, durationMs } = parseBody(banSchema, req.body);
     const { server, ctx } = await this.loadContext(id, req);
     return {
       ok: true,
-      result: await this.roster.banPlayer(server.id, name, reason, ctx),
+      result: await this.roster.banPlayer(server.id, name, reason, {
+        ...ctx,
+        durationMs,
+      }),
+    };
+  }
+
+  /** Last IP the console logged this player joining from — powers the ban dialog's optional "also ban this IP" step. */
+  @RequireServerPermission('players')
+  @Get(':name/last-ip')
+  async lastIp(
+    @Param('id') id: string,
+    @Param('name') name: string,
+    @Req() req: Request,
+  ) {
+    const parsedName = nameSchema.parse(name);
+    const { server } = await this.loadContext(id, req);
+    return {
+      ok: true,
+      ip: await this.roster.getLastKnownIp(server.id, parsedName),
+    };
+  }
+
+  /**
+   * Full wipe: whitelist/op/ban roster state, offline playerdata, inventory
+   * snapshots, and moderator notes. Irreversible — refused while the player
+   * is online (see PlayerRosterService.deletePlayer).
+   */
+  @RequireServerPermission('players')
+  @Delete(':name')
+  async deletePlayer(
+    @Param('id') id: string,
+    @Param('name') name: string,
+    @Req() req: Request,
+  ) {
+    const parsedName = nameSchema.parse(name);
+    const { server, ctx } = await this.loadContext(id, req);
+    return {
+      ok: true,
+      result: await this.roster.deletePlayer(server.id, parsedName, ctx),
     };
   }
 
@@ -247,11 +309,15 @@ export class PlayersController {
   @RequireServerPermission('players')
   @Post('ban-ip')
   async banIp(@Param('id') id: string, @Req() req: Request) {
-    const { ip, reason } = parseBody(banIpSchema, req.body);
+    const { ip, reason, durationMs, player } = parseBody(banIpSchema, req.body);
     const { server, ctx } = await this.loadContext(id, req);
     return {
       ok: true,
-      result: await this.roster.banIp(server.id, ip, reason, ctx),
+      result: await this.roster.banIp(server.id, ip, reason, {
+        ...ctx,
+        durationMs,
+        player,
+      }),
     };
   }
 
@@ -261,6 +327,41 @@ export class PlayersController {
     const { ip } = parseBody(pardonIpSchema, req.body);
     const { server, ctx } = await this.loadContext(id, req);
     return { ok: true, result: await this.roster.pardonIp(server.id, ip, ctx) };
+  }
+
+  // Moderator notes — gated behind 'players' (same as ban/kick/op), so a
+  // viewer (view-only by default) can see the roster but not notes.
+  @RequireServerPermission('players')
+  @Get('notes')
+  async listNotes(@Param('id') id: string, @Req() req: Request) {
+    const { name } = z.object({ name: nameSchema }).parse(req.query);
+    const { server } = await this.loadContext(id, req);
+    const who = await this.roster.resolveIdentity(server.id, name);
+    return { ok: true, notes: await this.notes.listNotes(server.id, who.uuid) };
+  }
+
+  @RequireServerPermission('players')
+  @Post('notes')
+  async addNote(@Param('id') id: string, @Req() req: Request) {
+    const { name, note } = parseBody(noteSchema, req.body);
+    const { server, ctx } = await this.loadContext(id, req);
+    const who = await this.roster.resolveIdentity(server.id, name);
+    return {
+      ok: true,
+      note: await this.notes.addNote(server.id, who, note, ctx),
+    };
+  }
+
+  @RequireServerPermission('players')
+  @Delete('notes/:noteId')
+  async deleteNote(
+    @Param('id') id: string,
+    @Param('noteId') noteId: string,
+    @Req() req: Request,
+  ) {
+    const { server, ctx } = await this.loadContext(id, req);
+    await this.notes.deleteNote(server.id, noteId, ctx);
+    return { ok: true };
   }
 
   @RequireServerPermission('players')

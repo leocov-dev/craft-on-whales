@@ -1,18 +1,30 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { and, desc, eq } from 'drizzle-orm';
 import { EventsService } from '../events/events.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ServerPropertiesService } from '../servers/server-properties.service';
 import { ContainerService } from '../docker/container.service';
+import { DbService } from '../db/db.service';
+import { playerEvents } from '../db/schema';
 import { MojangProfilesService } from './mojang-profiles.service';
+import { PlayerNotesService } from './player-notes.service';
 import { PLAYER_NAME_RE, isBedrockName } from '../utils/player-name';
 import { parsePlayerList } from '../utils/rcon-list';
 import { rcon } from '../utils/rcon';
+// Plain, non-circular import — PlayerDataFileService has no dependency back
+// into players/ (same reasoning as player-teleport.service.ts's import of
+// it). Reused here (rather than re-deriving the modern/legacy playerdata
+// path) so deletePlayer()'s wipe can't drift out of sync with how the
+// inventory editor itself resolves a player's .dat file.
+import { PlayerDataFileService } from '../inventory/player-data-file.service';
 import type {
   PlayerListEntry,
   BannedIpEntry,
@@ -32,6 +44,8 @@ interface PlayerFileEntry {
   expires?: string;
   expiresOn?: string;
   ip?: string;
+  /** banned-ips.json only — player name this IP ban is tagged as belonging to. */
+  player?: string;
 }
 
 interface Identity {
@@ -42,6 +56,16 @@ interface Identity {
 interface RunOptions {
   running?: boolean;
   actor?: string;
+}
+
+interface BanRunOptions extends RunOptions {
+  /** Ban expires this many ms from now; omitted/undefined = permanent. */
+  durationMs?: number;
+}
+
+interface BanIpRunOptions extends BanRunOptions {
+  /** Player name this IP ban is tagged as belonging to (display only — not enforced by RCON). */
+  player?: string;
 }
 
 // Only these fixed filenames are ever touched — no user input reaches a path.
@@ -72,7 +96,14 @@ export class PlayerRosterService {
     private readonly containers: ContainerService,
     private readonly mojangProfiles: MojangProfilesService,
     private readonly properties: ServerPropertiesService,
+    private readonly dbService: DbService,
+    private readonly playerNotes: PlayerNotesService,
+    private readonly playerDataFiles: PlayerDataFileService,
   ) {}
+
+  private get db() {
+    return this.dbService.db;
+  }
 
   private assertName(name: unknown): string {
     if (!PLAYER_NAME_RE.test(String(name))) {
@@ -172,6 +203,40 @@ export class PlayerRosterService {
     return `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())} ${p(date.getUTCHours())}:${p(date.getUTCMinutes())}:${p(date.getUTCSeconds())} +0000`;
   }
 
+  private static readonly BAN_TIMESTAMP_RE =
+    /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) \+0000$/;
+
+  /** Inverse of banTimestamp(); null for 'forever'/absent or anything unparseable. */
+  private banTimestampToMs(expires: unknown): number | null {
+    const m = PlayerRosterService.BAN_TIMESTAMP_RE.exec(
+      typeof expires === 'string' ? expires : '',
+    );
+    if (!m) return null;
+    const [, y, mo, d, h, mi, s] = m;
+    return Date.UTC(
+      Number(y),
+      Number(mo) - 1,
+      Number(d),
+      Number(h),
+      Number(mi),
+      Number(s),
+    );
+  }
+
+  /**
+   * Lazy expiry check — mirrors the pattern SessionService uses for expired
+   * sessions (compare a stored timestamp against Date.now() at read time,
+   * no background timer). Vanilla itself already ignores an expired ban on
+   * connect; this just decides how the panel reads/displays the still-there
+   * file entry until something writes the file again (a pardon, another
+   * ban, etc.) — harmless since vanilla itself already ignores it on
+   * connect, and every panel read already treats it as pardoned.
+   */
+  private isBanExpired(expires: unknown): boolean {
+    const ms = this.banTimestampToMs(expires);
+    return ms !== null && ms <= Date.now();
+  }
+
   /** Find {uuid, name} in the server's own files (usercache + role files). */
   private localIdentity(serverId: string, name: string): Identity | null {
     const lower = name.toLowerCase();
@@ -241,7 +306,9 @@ export class PlayerRosterService {
           banReason: null,
           banDate: null,
           banSource: null,
+          banExpires: null,
           lastSeen: null,
+          lastKnownIp: null,
         };
         entries.push(entry);
       }
@@ -271,11 +338,17 @@ export class PlayerRosterService {
       });
     }
     for (const e of this.readJson(serverId, 'banned-players.json')) {
+      // An expired entry still sits in the file until the next sweep (or
+      // vanilla's own check on connect) actually removes it — display it as
+      // pardoned rather than confusingly still "banned" in the meantime.
+      const expired = this.isBanExpired(e.expires);
       upsert(e.name, e.uuid, {
-        banned: true,
-        banReason: e.reason || null,
-        banDate: e.created || null,
-        banSource: e.source || null,
+        banned: !expired,
+        banReason: expired ? null : e.reason || null,
+        banDate: expired ? null : e.created || null,
+        banSource: expired ? null : e.source || null,
+        banExpires:
+          expired || !e.expires || e.expires === 'forever' ? null : e.expires,
       });
     }
     for (const name of onlineNames) {
@@ -290,13 +363,16 @@ export class PlayerRosterService {
   }
 
   listBannedIps(serverId: string): BannedIpEntry[] {
-    return this.readJson(serverId, 'banned-ips.json').map((e) => ({
-      ip: e.ip as string,
-      reason: e.reason || null,
-      created: e.created || null,
-      source: e.source || null,
-      expires: e.expires || 'forever',
-    }));
+    return this.readJson(serverId, 'banned-ips.json')
+      .filter((e) => !this.isBanExpired(e.expires))
+      .map((e) => ({
+        ip: e.ip as string,
+        reason: e.reason || null,
+        created: e.created || null,
+        source: e.source || null,
+        expires: e.expires || 'forever',
+        player: e.player || null,
+      }));
   }
 
   // ---------------------------------------------------------------------- whitelist
@@ -446,13 +522,25 @@ export class PlayerRosterService {
     serverId: string,
     name: string,
     reasonInput: unknown,
-    { running = false, actor = 'system' }: RunOptions = {},
-  ): Promise<{ name: string; uuid: string; banned: true; banReason: string }> {
+    { running = false, actor = 'system', durationMs }: BanRunOptions = {},
+  ): Promise<{
+    name: string;
+    uuid: string;
+    banned: true;
+    banReason: string;
+    banExpires: string | null;
+  }> {
     const who = await this.resolveIdentity(serverId, name);
     const reason = this.cleanText(reasonInput, 'Banned by an operator.');
-    if (running) {
+    const expires = durationMs
+      ? this.banTimestamp(new Date(Date.now() + durationMs))
+      : 'forever';
+    if (running)
       await rcon(this.containers, serverId, ['ban', who.name, reason]);
-    } else {
+    // RCON's own `ban` always writes 'forever' to the file — and when
+    // stopped we have to write the file ourselves anyway — so (re)write the
+    // entry whenever a real expiry was requested.
+    if (!running || durationMs) {
       const list = this.readJson(serverId, 'banned-players.json').filter(
         (e) => e.uuid !== who.uuid,
       );
@@ -461,7 +549,7 @@ export class PlayerRosterService {
         name: who.name,
         created: this.banTimestamp(),
         source: 'Minecraft Server Manager',
-        expires: 'forever',
+        expires,
         reason,
       });
       this.writeJson(serverId, 'banned-players.json', list);
@@ -470,15 +558,22 @@ export class PlayerRosterService {
       serverId,
       actor,
       type: 'player-ban',
-      summary: `${who.name} banned: ${reason}${running ? '' : ' (file edit — applies on start)'}`,
+      summary: `${who.name} banned${durationMs ? ` until ${expires}` : ''}: ${reason}${running ? '' : ' (file edit — applies on start)'}`,
       details: {
         name: who.name,
         uuid: who.uuid,
         reason,
+        expires,
         via: running ? 'rcon' : 'file',
       },
     });
-    return { name: who.name, uuid: who.uuid, banned: true, banReason: reason };
+    return {
+      name: who.name,
+      uuid: who.uuid,
+      banned: true,
+      banReason: reason,
+      banExpires: durationMs ? expires : null,
+    };
   }
 
   async pardonPlayer(
@@ -515,13 +610,29 @@ export class PlayerRosterService {
     serverId: string,
     ipInput: unknown,
     reasonInput: unknown,
-    { running = false, actor = 'system' }: RunOptions = {},
-  ): Promise<{ ip: string; banned: true }> {
+    {
+      running = false,
+      actor = 'system',
+      durationMs,
+      player,
+    }: BanIpRunOptions = {},
+  ): Promise<{
+    ip: string;
+    banned: true;
+    banExpires: string | null;
+    player: string | null;
+  }> {
     const ip = this.assertIp(ipInput);
     const reason = this.cleanText(reasonInput, 'Banned by an operator.');
-    if (running) {
-      await rcon(this.containers, serverId, ['ban-ip', ip, reason]);
-    } else {
+    const expires = durationMs
+      ? this.banTimestamp(new Date(Date.now() + durationMs))
+      : 'forever';
+    const linkedPlayer = player ? this.assertName(player) : null;
+    if (running) await rcon(this.containers, serverId, ['ban-ip', ip, reason]);
+    // Same story as banPlayer: RCON always writes 'forever' and has no idea
+    // about the player-linkage tag, so (re)write the entry whenever either
+    // extension is used.
+    if (!running || durationMs || linkedPlayer) {
       const list = this.readJson(serverId, 'banned-ips.json').filter(
         (e) => e.ip !== ip,
       );
@@ -529,8 +640,9 @@ export class PlayerRosterService {
         ip,
         created: this.banTimestamp(),
         source: 'Minecraft Server Manager',
-        expires: 'forever',
+        expires,
         reason,
+        player: linkedPlayer || undefined,
       });
       this.writeJson(serverId, 'banned-ips.json', list);
     }
@@ -538,10 +650,21 @@ export class PlayerRosterService {
       serverId,
       actor,
       type: 'player-ban-ip',
-      summary: `IP ${ip} banned: ${reason}${running ? '' : ' (file edit — applies on start)'}`,
-      details: { ip, reason, via: running ? 'rcon' : 'file' },
+      summary: `IP ${ip} banned${durationMs ? ` until ${expires}` : ''}${linkedPlayer ? ` (linked to ${linkedPlayer})` : ''}: ${reason}${running ? '' : ' (file edit — applies on start)'}`,
+      details: {
+        ip,
+        reason,
+        expires,
+        player: linkedPlayer,
+        via: running ? 'rcon' : 'file',
+      },
     });
-    return { ip, banned: true };
+    return {
+      ip,
+      banned: true,
+      banExpires: durationMs ? expires : null,
+      player: linkedPlayer,
+    };
   }
 
   async pardonIp(
@@ -567,6 +690,149 @@ export class PlayerRosterService {
       details: { ip, via: running ? 'rcon' : 'file' },
     });
     return { ip, banned: false };
+  }
+
+  // ------------------------------------------------------------- last-known IP
+
+  /**
+   * Most recent join IP the console logged for this player on this server
+   * (from the "<player>[/<ip>] logged in with entity id" line —
+   * `LogClassifierService` strips the port; `LogIngestService` persists it
+   * as a `player_events` row of type 'join' with `target` = the IP). Null
+   * when nothing was ever captured (never joined, or joined before this
+   * feature/analytics ingestion was enabled). Powers the optional "also ban
+   * this IP" step on the ban dialog — see PLAYERS_NOTES.md for why this
+   * doesn't need any new IP-capture plumbing.
+   */
+  async getLastKnownIp(serverId: string, name: string): Promise<string | null> {
+    // Most recent joins first; a handful of rows back covers the (rare)
+    // case where the very latest join line raced ingestion and landed
+    // without its IP — no need for a real GROUP BY/aggregate query here.
+    const rows = await this.db
+      .select({ target: playerEvents.target })
+      .from(playerEvents)
+      .where(
+        and(
+          eq(playerEvents.serverId, serverId),
+          eq(playerEvents.player, name),
+          eq(playerEvents.type, 'join'),
+        ),
+      )
+      .orderBy(desc(playerEvents.id))
+      .limit(20);
+    const hit = rows.find((r) => r.target);
+    return hit ? hit.target : null;
+  }
+
+  // ---------------------------------------------------------------- delete player
+
+  private static readonly ROLE_FILES = [
+    'usercache.json',
+    'whitelist.json',
+    'ops.json',
+    'banned-players.json',
+  ];
+
+  /** Drop every entry matching a player's uuid (lowercase-name fallback) from a role file. */
+  private stripPlayerFromFile(
+    serverId: string,
+    file: string,
+    who: Identity,
+  ): void {
+    const lower = who.name.toLowerCase();
+    const remaining = this.readJson(serverId, file).filter(
+      (e) => e.uuid !== who.uuid && (e.name || '').toLowerCase() !== lower,
+    );
+    this.writeJson(serverId, file, remaining);
+  }
+
+  /**
+   * Permanently remove a player from this server's panel-visible state:
+   * every entry in usercache/whitelist/ops/banned-players, their offline
+   * playerdata (.dat/.dat_old, modern + legacy layout), their inventory
+   * snapshots, and their moderator notes. Irreversible — there is no undo.
+   *
+   * Refused while the player is online: a live player's role entries would
+   * just get re-minted by the running JVM the moment it next writes those
+   * files, and a running world keeps a live .dat in memory that would
+   * overwrite whatever we delete on its own next save. See PLAYERS_NOTES.md.
+   */
+  async deletePlayer(
+    serverId: string,
+    name: string,
+    { running = false, actor = 'system' }: RunOptions = {},
+  ): Promise<{
+    name: string;
+    uuid: string;
+    removed: { playerdata: number; snapshots: boolean; notes: number };
+  }> {
+    const who = await this.resolveIdentity(serverId, name);
+    if (running) {
+      const online = await this.listOnlineNames(serverId, {
+        throwOnError: true,
+      }).catch(() => [] as string[]);
+      if (online.some((n) => n.toLowerCase() === who.name.toLowerCase())) {
+        throw new ConflictException(
+          `${who.name} is still online — kick them or wait for them to leave before deleting their data`,
+        );
+      }
+      // Clear roles over RCON first so the JVM (which may still rewrite
+      // whitelist.json/ops.json/banned-players.json from its in-memory
+      // state on its own schedule) can't resurrect what we're about to
+      // delete from the files out from under us.
+      await rcon(this.containers, serverId, ['deop', who.name]).catch(() => {});
+      await rcon(this.containers, serverId, [
+        'whitelist',
+        'remove',
+        who.name,
+      ]).catch(() => {});
+      await rcon(this.containers, serverId, ['pardon', who.name]).catch(
+        () => {},
+      );
+    }
+
+    for (const file of PlayerRosterService.ROLE_FILES) {
+      this.stripPlayerFromFile(serverId, file, who);
+    }
+
+    const removed = { playerdata: 0, snapshots: false, notes: 0 };
+    try {
+      const dir = await this.playerDataFiles.playerdataDir(serverId);
+      for (const ext of ['.dat', '.dat_old']) {
+        const file = path.join(dir, `${who.uuid}${ext}`);
+        if (fs.existsSync(file)) {
+          fs.rmSync(file, { force: true });
+          removed.playerdata += 1;
+        }
+      }
+    } catch {
+      /* server/world may not exist yet — role-file cleanup above already ran */
+    }
+    try {
+      fs.rmSync(
+        this.pathGuard.dataPath('logs', serverId, 'inventories', who.uuid),
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+      removed.snapshots = true;
+    } catch {
+      /* no snapshots */
+    }
+    removed.notes = await this.playerNotes.deletePlayerNotes(
+      serverId,
+      who.uuid,
+    );
+
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: 'player-deleted',
+      summary: `${who.name} and all their panel data were deleted`,
+      details: { name: who.name, uuid: who.uuid, removed },
+    });
+    return { name: who.name, uuid: who.uuid, removed };
   }
 
   // ---------------------------------------------------------------------- kick

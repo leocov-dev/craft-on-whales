@@ -8,6 +8,7 @@ import { MojangService } from './mojang.service';
 import { MojangProfilesService } from './mojang-profiles.service';
 import { PlayerRosterService } from './player-roster.service';
 import { PlayerTeleportService } from './player-teleport.service';
+import { PlayerNotesService } from './player-notes.service';
 import { StructureRegistryService } from './structure-registry.service';
 import { BiomeRegistryService } from './biome-registry.service';
 import { PlayersController } from './players.controller';
@@ -28,6 +29,7 @@ import { ServersModule } from '../servers/servers.module';
     MojangProfilesService,
     PlayerRosterService,
     PlayerTeleportService,
+    PlayerNotesService,
     StructureRegistryService,
     BiomeRegistryService,
   ],
@@ -36,6 +38,7 @@ import { ServersModule } from '../servers/servers.module';
     MojangProfilesService,
     PlayerRosterService,
     PlayerTeleportService,
+    PlayerNotesService,
     StructureRegistryService,
     BiomeRegistryService,
   ],

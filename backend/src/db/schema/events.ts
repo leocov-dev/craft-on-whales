@@ -97,3 +97,25 @@ export const playerStatSnapshots = sqliteTable(
   },
   (t) => [index('idx_statsnap').on(t.serverId, t.uuid, t.ts)],
 );
+
+// Sticky moderator notes per player (per server): context ("reported for
+// griefing 3x") that should survive a pardon, unlike a ban reason which
+// disappears with it. Temp-ban expiry and IP-ban linkage do NOT need a
+// table of their own — both ride the vanilla banned-players.json /
+// banned-ips.json `expires`/`player` fields the game already reads on
+// connect; see PLAYERS_NOTES.md.
+export const playerNotes = sqliteTable(
+  'player_notes',
+  {
+    id: text('id').primaryKey(),
+    serverId: text('server_id').notNull(),
+    uuid: text('uuid').notNull(),
+    name: text('name').notNull(),
+    note: text('note').notNull(),
+    author: text('author').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => [index('idx_player_notes_lookup').on(t.serverId, t.uuid)],
+);

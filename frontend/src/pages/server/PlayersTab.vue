@@ -28,13 +28,14 @@
               <q-badge v-if="p.op" color="warning" label="op" class="q-ml-xs" />
               <q-badge v-if="p.banned" color="negative" label="banned" class="q-ml-xs" />
             </q-item-label>
-            <q-item-label caption
-              >{{ p.whitelisted ? 'Whitelisted' : 'Not whitelisted'
-              }}<template v-if="p.banReason"> · {{ p.banReason }}</template></q-item-label
-            >
+            <q-item-label caption>
+              {{ p.whitelisted ? 'Whitelisted' : 'Not whitelisted' }}
+              <template v-if="p.banReason"> · {{ p.banReason }}</template>
+              <template v-if="p.banExpires"> · expires {{ p.banExpires }}</template>
+            </q-item-label>
           </q-item-section>
           <q-item-section side>
-            <div class="row q-gutter-x-xs">
+            <div class="row q-gutter-x-xs items-center">
               <q-toggle
                 :model-value="p.whitelisted"
                 dense
@@ -54,9 +55,29 @@
                 flat
                 label="Ban"
                 color="negative"
-                @click="banPlayer(p)"
+                @click="openBanDialog(p)"
               />
               <q-btn v-else dense flat label="Pardon" @click="pardonPlayer(p)" />
+              <q-btn v-if="auth.canWrite" dense flat icon="more_vert">
+                <q-menu>
+                  <q-list>
+                    <q-item clickable v-close-popup @click="openNotesDialog(p)">
+                      <q-item-section avatar><q-icon name="sticky_note_2" /></q-item-section>
+                      <q-item-section>Moderator Notes…</q-item-section>
+                    </q-item>
+                    <q-item
+                      v-if="!p.online"
+                      clickable
+                      v-close-popup
+                      class="text-negative"
+                      @click="deletePlayer(p)"
+                    >
+                      <q-item-section avatar><q-icon name="delete_forever" /></q-item-section>
+                      <q-item-section>Delete Player…</q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-menu>
+              </q-btn>
             </div>
           </q-item-section>
         </q-item>
@@ -74,7 +95,11 @@
         <q-list separator>
           <q-item v-for="ip in bannedIps" :key="ip.ip">
             <q-item-section class="font-mono">{{ ip.ip }}</q-item-section>
+            <q-item-section side class="text-caption">{{ ip.player ?? '—' }}</q-item-section>
             <q-item-section side class="text-caption">{{ ip.reason ?? '—' }}</q-item-section>
+            <q-item-section side class="text-caption">
+              {{ ip.expires && ip.expires !== 'forever' ? `expires ${ip.expires}` : 'permanent' }}
+            </q-item-section>
             <q-item-section side>
               <q-btn dense flat label="Pardon" @click="pardonIpAddr(ip)" />
             </q-item-section>
@@ -82,6 +107,18 @@
         </q-list>
       </q-card>
     </div>
+
+    <PlayerBanDialog
+      v-model="banDialogOpen"
+      :server-id="server?.id ?? ''"
+      :player-name="banTarget?.name ?? ''"
+      @banned="load"
+    />
+    <PlayerNotesDialog
+      v-model="notesDialogOpen"
+      :server-id="server?.id ?? ''"
+      :player-name="notesTarget?.name ?? ''"
+    />
   </div>
 </template>
 
@@ -90,14 +127,23 @@ import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { playersApi, type PlayerListEntry, type BannedIpEntry } from '@/api/players';
 import { useServerDetail } from '@/composables/useServerDetail';
+import { useAuthStore } from '@/stores/auth';
+import PlayerBanDialog from '@/components/PlayerBanDialog.vue';
+import PlayerNotesDialog from '@/components/PlayerNotesDialog.vue';
 
 const $q = useQuasar();
+const auth = useAuthStore();
 const { server } = useServerDetail();
 
 const players = ref<PlayerListEntry[]>([]);
 const bannedIps = ref<BannedIpEntry[]>([]);
 const whitelistEnforced = ref(false);
 const running = ref(false);
+
+const banDialogOpen = ref(false);
+const banTarget = ref<PlayerListEntry | null>(null);
+const notesDialogOpen = ref(false);
+const notesTarget = ref<PlayerListEntry | null>(null);
 
 async function load() {
   if (!server.value) return;
@@ -136,16 +182,9 @@ function kickPlayer(p: PlayerListEntry) {
     });
 }
 
-function banPlayer(p: PlayerListEntry) {
-  if (!server.value) return;
-  $q.dialog({
-    title: `Ban ${p.name}?`,
-    prompt: { model: '', type: 'text', label: 'Reason (optional)' },
-    cancel: true,
-    ok: { color: 'negative', label: 'Ban' },
-  }).onOk((reason: string) => {
-    void playersApi.ban(server.value!.id, p.name, reason || undefined).then(load);
-  });
+function openBanDialog(p: PlayerListEntry) {
+  banTarget.value = p;
+  banDialogOpen.value = true;
 }
 
 function pardonPlayer(p: PlayerListEntry) {
@@ -156,6 +195,33 @@ function pardonPlayer(p: PlayerListEntry) {
 function pardonIpAddr(ip: BannedIpEntry) {
   if (!server.value) return;
   void playersApi.pardonIp(server.value.id, ip.ip).then(load);
+}
+
+function openNotesDialog(p: PlayerListEntry) {
+  notesTarget.value = p;
+  notesDialogOpen.value = true;
+}
+
+function deletePlayer(p: PlayerListEntry) {
+  if (!server.value) return;
+  const sid = server.value.id;
+  $q.dialog({
+    title: `Delete ${p.name}?`,
+    message:
+      'This permanently removes them from the whitelist, operators and bans, and deletes their saved inventory snapshots and moderator notes. This cannot be undone.',
+    cancel: true,
+    ok: { color: 'negative', label: 'Delete' },
+  }).onOk(() => {
+    void playersApi
+      .deletePlayer(sid, p.name)
+      .then(load)
+      .catch((err: unknown) => {
+        $q.notify({
+          type: 'negative',
+          message: err instanceof Error ? err.message : 'Delete failed.',
+        });
+      });
+  });
 }
 
 onMounted(load);
