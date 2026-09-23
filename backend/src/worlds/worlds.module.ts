@@ -4,6 +4,7 @@ import { ServersModule } from '../servers/servers.module';
 import { PathGuardModule } from '../storage/path-guard.module';
 import { StorageIndexModule } from '../storage/storage-index.module';
 import { LibraryModule } from '../library/library.module';
+import { SettingsModule } from '../settings/settings.module';
 import { MapModule } from '../map/map.module';
 import { MapService } from '../map/map.service';
 import { WorldArchiveService } from './world-archive.service';
@@ -28,6 +29,7 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
     PathGuardModule,
     StorageIndexModule,
     LibraryModule,
+    SettingsModule,
     forwardRef(() => MapModule),
   ],
   controllers: [WorldsController, ServerWorldsController],

@@ -332,4 +332,81 @@ export class SettingsService {
     await this.remove(SettingsService.SERVER_DEFAULTS_KEY);
     return this.getEffectiveDefaults();
   }
+
+  // ---------------------------------------------------------------------
+  // Backup retention ceilings: panel-wide "no backup older than X days" /
+  // "total backup storage capped at Y GB", layered on top of (not replacing)
+  // `BackupsService.RETENTION_BUCKETS`'s per-reason count caps. Same
+  // partial-JSON-blob-under-one-settings-key mechanism as
+  // `server_creation_defaults` above and `ApiTokensService`'s toggle — no
+  // schema change. See `backend/src/worlds/WORLDS_NOTES.md` for how
+  // `BackupsService.pruneRetention` consumes this.
+
+  private static readonly BACKUP_RETENTION_KEY = 'backup_retention_ceilings';
+
+  private static readonly BACKUP_RETENTION_DEFAULTS: BackupRetentionCeilings = {
+    maxAgeDays: 0, // 0 = disabled (never surprise-delete by default)
+    maxTotalGb: 0, // 0 = disabled
+  };
+
+  /** Sanitizes an incoming patch: known keys only, clamped, 0 (or omitted) means "off". */
+  private sanitizeRetentionCeilingsPatch(
+    patch: Record<string, unknown>,
+  ): Partial<BackupRetentionCeilings> {
+    const out: Partial<BackupRetentionCeilings> = {};
+    const bounds: Record<keyof BackupRetentionCeilings, [number, number]> = {
+      maxAgeDays: [0, 3650],
+      maxTotalGb: [0, 100000],
+    };
+    for (const key of Object.keys(
+      bounds,
+    ) as (keyof BackupRetentionCeilings)[]) {
+      const raw = patch[key];
+      if (raw === undefined || raw === null) continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) continue;
+      const [min, max] = bounds[key];
+      out[key] = Math.round(Math.min(max, Math.max(min, n)));
+    }
+    return out;
+  }
+
+  /** The effective panel-wide backup retention ceilings (0 = no limit). */
+  async getBackupRetentionCeilings(): Promise<BackupRetentionCeilings> {
+    const stored = await this.get<Partial<BackupRetentionCeilings>>(
+      SettingsService.BACKUP_RETENTION_KEY,
+      {},
+    );
+    return {
+      ...SettingsService.BACKUP_RETENTION_DEFAULTS,
+      ...this.sanitizeRetentionCeilingsPatch(stored ?? {}),
+    };
+  }
+
+  /** Admin-only write: persist a partial patch, merged onto any existing value. */
+  async setBackupRetentionCeilings(
+    patch: Record<string, unknown>,
+  ): Promise<BackupRetentionCeilings> {
+    const existing = await this.get<Partial<BackupRetentionCeilings>>(
+      SettingsService.BACKUP_RETENTION_KEY,
+      {},
+    );
+    const merged = {
+      ...(existing ?? {}),
+      ...this.sanitizeRetentionCeilingsPatch(patch),
+    };
+    await this.set(SettingsService.BACKUP_RETENTION_KEY, merged);
+    return this.getBackupRetentionCeilings();
+  }
+}
+
+/**
+ * Panel-wide backup retention ceilings. `0` means "no limit" for either
+ * field, matching upstream's opt-in default (never surprise-delete a backup
+ * nobody asked to cap). Layered on top of, not instead of,
+ * `BackupsService.RETENTION_BUCKETS`'s per-reason count caps.
+ */
+export interface BackupRetentionCeilings {
+  maxAgeDays: number;
+  maxTotalGb: number;
 }

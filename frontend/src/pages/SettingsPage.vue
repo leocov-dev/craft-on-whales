@@ -187,6 +187,43 @@
           </div>
         </q-card>
       </div>
+
+      <div class="col-12 col-lg-6">
+        <q-card flat bordered class="q-pa-md">
+          <div class="text-subtitle1 q-mb-md">Backup retention ceilings</div>
+          <div v-if="retentionForm" class="row q-col-gutter-sm text-body2">
+            <div class="col-6">
+              <q-input
+                v-model.number="retentionForm.maxAgeDays"
+                type="number"
+                filled
+                dense
+                label="Max age (days)"
+                hint="0 = no limit"
+                :disable="!auth.isAdmin"
+              />
+            </div>
+            <div class="col-6">
+              <q-input
+                v-model.number="retentionForm.maxTotalGb"
+                type="number"
+                filled
+                dense
+                label="Max total size (GB)"
+                hint="0 = no limit"
+                :disable="!auth.isAdmin"
+              />
+            </div>
+          </div>
+          <q-item-label caption class="q-mt-sm">
+            Applied per server, on top of the fixed per-reason backup counts (scheduled/pre-update/
+            manual/pre-restore). A server's newest backup is never deleted by either ceiling.
+          </q-item-label>
+          <div v-if="auth.isAdmin" class="row q-gutter-sm q-mt-sm">
+            <q-btn label="Save ceilings" :loading="savingRetention" @click="saveBackupRetention" />
+          </div>
+        </q-card>
+      </div>
     </div>
   </q-page>
 </template>
@@ -194,7 +231,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
-import { settingsApi, type SettingsResponseData, type ResourceDefaults } from '@/api/settings';
+import {
+  settingsApi,
+  type SettingsResponseData,
+  type ResourceDefaults,
+  type BackupRetentionCeilings,
+} from '@/api/settings';
 import { useAuthStore } from '@/stores/auth';
 import PageHeader from '@/components/PageHeader.vue';
 
@@ -206,6 +248,8 @@ const defaultsForm = ref<ResourceDefaults | null>(null);
 const defaultsBase = ref<ResourceDefaults | null>(null);
 const savingDefaults = ref(false);
 const restoringDefaults = ref(false);
+const retentionForm = ref<BackupRetentionCeilings | null>(null);
+const savingRetention = ref(false);
 const cfKey = ref('');
 const cfMasked = ref<string | null>(null);
 const publicHost = ref('');
@@ -228,7 +272,11 @@ const defaultsCustomized = computed(() => {
 });
 
 async function load() {
-  const [settingsRes, locRes] = await Promise.all([settingsApi.get(), settingsApi.localization()]);
+  const [settingsRes, locRes, retentionRes] = await Promise.all([
+    settingsApi.get(),
+    settingsApi.localization(),
+    settingsApi.getBackupRetention(),
+  ]);
   settings.value = settingsRes;
   cfMasked.value = settingsRes.curseforge.masked;
   publicHost.value = settingsRes.publicHost;
@@ -237,6 +285,21 @@ async function load() {
   country.value = locRes.localization.country;
   defaultsForm.value = { ...settingsRes.defaults };
   defaultsBase.value = { ...settingsRes.defaultsBase };
+  retentionForm.value = { ...retentionRes.ceilings };
+}
+
+async function saveBackupRetention() {
+  if (!retentionForm.value) return;
+  savingRetention.value = true;
+  try {
+    const res = await settingsApi.saveBackupRetention(retentionForm.value);
+    retentionForm.value = { ...res.ceilings };
+    $q.notify({ type: 'positive', message: 'Backup retention ceilings saved.' });
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
+  } finally {
+    savingRetention.value = false;
+  }
 }
 
 async function saveDefaults() {

@@ -32,7 +32,24 @@ Each reason keeps its own set of backups, pruned independently as new ones are t
 | pre-update  | 10              |
 | pre-restore | 5               |
 
-Because the buckets are separate, an automatic snapshot can never push out a backup you took yourself — a run of restores only ever trims older `pre-restore` snapshots. Once a bucket is full, its oldest entry is deleted (file and record) when a new one is added. To keep a backup permanently, download it.
+Because the buckets are separate, an automatic snapshot can never push out a backup you took yourself — a run of restores only ever trims older `pre-restore` snapshots. Once a bucket is full, its oldest entry is deleted (file and record) when a new one is added.
+
+An admin can also set two panel-wide ceilings in **Settings** (off by default):
+
+- **Max age (days)** — delete backups older than this, regardless of reason.
+- **Max total size (GB)** — once a server's backups exceed this, delete the oldest ones (safety
+  snapshots and scheduled backups go first) until it's back under the cap.
+
+These apply on top of, not instead of, the per-reason counts above. In every case — the counts and
+both ceilings — a server's single newest backup is never deleted, so a server never ends up with
+zero backups just because it went quiet or its world grew. To keep a specific older backup safe
+from a size/age ceiling, download it (a local copy is unaffected by the panel's retention).
+
+## Renaming
+
+Give a backup a custom display name from its row's rename (pencil) button. This only changes what's
+shown in the panel — the archive file on disk keeps its original name, and renaming has no effect
+on which retention bucket a backup is in or whether it gets pruned.
 
 ## Restoring
 

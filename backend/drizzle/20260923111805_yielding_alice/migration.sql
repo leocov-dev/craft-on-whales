@@ -1,0 +1,1 @@
+ALTER TABLE `backups` ADD `custom_name` text;

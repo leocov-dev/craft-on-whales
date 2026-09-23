@@ -30,6 +30,9 @@ export const backups = pgTable(
     sha256: text('sha256'),
     reason: text('reason').notNull(), // 'manual' | 'scheduled' | 'pre-update' | 'pre-restore'
     note: text('note').notNull().default(''),
+    // User-set display name (rename), independent of `filename`/`relPath` —
+    // renaming never touches the archive on disk. Null = show `filename`.
+    customName: text('custom_name'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`now()::text`),

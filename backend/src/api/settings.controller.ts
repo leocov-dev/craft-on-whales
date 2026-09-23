@@ -11,6 +11,7 @@ import { UseGuards } from '@nestjs/common';
 import type {
   SettingsResponseData,
   ServerDefaultsResponseData,
+  BackupRetentionResponseData,
   Localization,
 } from '../../../shared/types/settings';
 
@@ -92,6 +93,31 @@ export class SettingsController {
       ? await this.settings.resetServerDefaults()
       : await this.settings.setServerDefaults(parsed);
     return { ok: true, defaults, base: this.config.defaults };
+  }
+
+  @Get('backup-retention')
+  async getBackupRetention(): Promise<BackupRetentionResponseData> {
+    return {
+      ok: true,
+      ceilings: await this.settings.getBackupRetentionCeilings(),
+    };
+  }
+
+  @Post('backup-retention')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async setBackupRetention(
+    @Body() body: unknown,
+  ): Promise<BackupRetentionResponseData> {
+    const parsed = parseBody(
+      z.object({
+        maxAgeDays: z.coerce.number().optional(),
+        maxTotalGb: z.coerce.number().optional(),
+      }),
+      body,
+    );
+    const ceilings = await this.settings.setBackupRetentionCeilings(parsed);
+    return { ok: true, ceilings };
   }
 
   @Get('localization')

@@ -7,6 +7,8 @@ import type {
   ResourceDefaults,
   SettingsResponseData,
   ServerDefaultsResponseData,
+  BackupRetentionCeilings,
+  BackupRetentionResponseData,
   Localization,
   PublicUser,
 } from '../../../shared/types/settings';
@@ -15,6 +17,8 @@ export type {
   ResourceDefaults,
   SettingsResponseData,
   ServerDefaultsResponseData,
+  BackupRetentionCeilings,
+  BackupRetentionResponseData,
   Localization,
   PublicUser,
 };
@@ -58,6 +62,10 @@ export const settingsApi = {
     http.post<ServerDefaultsResponseData>('/api/settings/defaults', patch),
   restoreDefaults: () =>
     http.post<ServerDefaultsResponseData>('/api/settings/defaults', { reset: true }),
+
+  getBackupRetention: () => http.get<BackupRetentionResponseData>('/api/settings/backup-retention'),
+  saveBackupRetention: (patch: Partial<BackupRetentionCeilings>) =>
+    http.post<BackupRetentionResponseData>('/api/settings/backup-retention', patch),
 
   users: () => http.get<UsersResponse>('/api/users'),
   createUser: (username: string, password: string, role: Role) =>

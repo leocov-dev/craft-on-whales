@@ -30,6 +30,22 @@ export interface ServerDefaultsResponseData {
   base: ResourceDefaults;
 }
 
+/**
+ * Panel-wide backup retention ceilings, layered on top of the fixed
+ * per-reason count buckets (`BackupsService.RETENTION_BUCKETS`). `0` means
+ * "no limit" for either field.
+ */
+export interface BackupRetentionCeilings {
+  maxAgeDays: number;
+  maxTotalGb: number;
+}
+
+/** `GET`/`POST /api/settings/backup-retention`'s response body. */
+export interface BackupRetentionResponseData {
+  ok: true;
+  ceilings: BackupRetentionCeilings;
+}
+
 export interface Localization {
   timezone: string;
   country: string;
