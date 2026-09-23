@@ -9,9 +9,9 @@ described below is complete end-to-end.
 
 ## New connection shape
 
-- Namespaces: `/ws/console`, `/ws/stats` (one namespace each, not one
-  per-server room — simpler than the legacy per-URL-segment routing, and
-  socket.io's namespace model is the idiomatic fit).
+- Namespaces: `/ws/console`, `/ws/stats`, `/ws/status` (one namespace each,
+  not one per-server room — simpler than the legacy per-URL-segment routing,
+  and socket.io's namespace model is the idiomatic fit).
 - Server selection: connect with `io('/ws/console', { query: { serverId } })`
   — read from `client.handshake.query.serverId` server-side. (An alternative
   would be joining a room after connect via a `join` event; query-param
@@ -40,9 +40,96 @@ are byte-identical to today's raw-`ws` messages):
 - Console: `{kind:'log',text}`, `{kind:'log-end'}`, `{kind:'error',message}`,
   `{kind:'cmd-result',command,output,error?}`.
 - Stats: `{kind:'stats',...NormalizedStats}`, `{kind:'error',message}`.
+- Status: `{kind:'status',status}`, `{kind:'container-replaced'}`.
 
 Client → server, socket.io event name `'cmd'` (console only):
 `{command: string}`.
+
+## `/ws/status` — pushing lifecycle transitions to the frontend
+
+Added because the server-detail page originally had no live-update path at
+all: it fetched status once on mount and once after the viewing user's own
+Start/Stop/Restart click, so a status change from another tab/user, a crash,
+or the startup watchdog's `starting → stalled`/`stalled → running`
+promotion (`ServerLifecycleService.refreshStatuses()`, `SERVERS_NOTES.md`'s
+"startup watchdog" section) never reached an open detail page.
+
+- **Source of truth for the push**: `StatusBusService`
+  (`backend/src/status-bus/`), a plain `EventEmitter`-based in-process bus,
+  not `@nestjs/event-emitter`/`EventEmitter2` — this codebase has no existing
+  dependency on that package and a hand-rolled single-purpose emitter needed
+  no new dependency. There are **two** emitters, and both are required —
+  each owns status writes the other never makes:
+  - `ServerLifecycleService` calls
+    `statusBus.emitStatusChanged({serverId, status})` at every DB write that
+    changes `servers.status` (`startServerImpl`, `stopServerImpl`,
+    `killServer`, `recreateServerImpl`'s create-failure path,
+    `refreshStatuses()`'s poll loop) — deliberately NOT on `createServer`'s
+    initial `status: 'stopped'` insert (nothing is listening for a server
+    that doesn't exist yet) or the soft-delete transaction (the frontend
+    already navigates away on its own delete call, so nothing is left to
+    update).
+  - `DockerWatcherService` routes all four of its own status writes
+    (`start`→`starting`, `health_status: healthy`→`running`, `die`→`stopped`,
+    crash→`crashed`) through a private `setStatus()` helper that emits. It is
+    the real-time source for exactly the transitions nothing else sees — a
+    crash, and the healthcheck's promotion to `running` — and the 60s poll
+    cannot cover for a missed emit there: `refreshStatuses()` only emits when
+    its computed status _differs_ from the stored row, which the watcher has
+    already overwritten, so a dropped emit is never recovered, just lost.
+    This is why `DockerModule` imports `StatusBusModule` despite otherwise
+    being a zero-import leaf (safe: `StatusBusModule` has no imports either).
+- **`container-replaced`**: a second bus event, emitted by
+  `recreateServerImpl` after a successful `createContainer`. Not a status
+  transition (a plain stop/start reuses the container, and a recreate does
+  not itself change `servers.status`), but it invalidates anything holding a
+  handle on the old container — specifically the console gateway's log
+  follower. Kept separate so the console tab can reconnect on a real
+  container swap without reconnecting on every status change.
+- **Why a bus, not direct injection**: `WsModule` already imports
+  `ServersModule` one-way. Injecting a gateway straight into
+  `ServerLifecycleService` would need `WsModule` importable from
+  `ServersModule` too — a fresh circular module dependency needing
+  `forwardRef()` on both sides, on top of the two `SchedulerModule`/`MapModule`
+  cycles `SERVERS_NOTES.md` already documents. `StatusBusModule` is a small
+  leaf both modules import instead — no cycle, no `forwardRef()`.
+- **`StatusGateway`** (`backend/src/ws/status.gateway.ts`) holds no
+  Docker-facing stream of its own — `handleConnection` just registers
+  `statusBus.onStatusChanged()`/`onContainerReplaced()` listeners filtered to
+  the connection's `serverId` and forwards matching events as
+  `{kind:'status',status}` / `{kind:'container-replaced'}`;
+  `handleDisconnect` unregisters them. Same auth/permission/origin checks as
+  the other two gateways via `authenticateGatewayConnection()`. Its
+  per-socket state (and the `state.closed` check after the auth `await`,
+  mirroring `ConsoleGateway`) is load-bearing, not bookkeeping: these
+  listeners live on a process-wide emitter, so a client that disconnects
+  during the auth await — whose `handleDisconnect` therefore runs _before_
+  the listener would be registered — must not end up subscribing, or every
+  cancelled connect leaks a listener for the lifetime of the process.
+- **Frontend**: `useStatusSocket.ts` is opened once by
+  `ServerDetailLayout.vue` — for the whole page's lifetime, not a single tab
+  — so it catches a status change no matter which tab is active. On a
+  message it re-fetches the server over HTTP (updates the header/status chip
+  and anything status-gated like `MetricsTab`'s `v-if`) and bumps
+  `statusVersion` / `containerVersion` refs provided alongside
+  `server`/`refresh` via `useServerDetail()`. The composable exposes its own
+  `version` counter and the layout watches **that**, not `status`: two pushes
+  carrying the same string (restart a server that is already `starting`) are
+  a real change, and a watcher on the value alone silently swallows the
+  second one.
+- **Console re-tail**: the console socket's log follower is bound to one
+  container via `DockerLogsService.followLogs()` at connect time and does not
+  resume on its own, so `ConsoleTab.vue` reconnects — but `reconnect()` wipes
+  the rendered lines and re-tails only the last 300, so it fires **only when
+  the existing stream is really dead**: on a `containerVersion` bump (a
+  recreate removed that container), or on a `statusVersion` bump while
+  `socket.ended` is true (a stop ended the stream, so there is a new run to
+  tail). A status change on a live stream — `starting` → `running` arriving
+  mid-boot from the watchdog — deliberately does nothing, or it would wipe
+  the boot output the user is reading. Unlike
+  `useConsoleSocket`/`useStatsSocket`, `useStatusSocket` does not register
+  its own `onUnmounted(close)` — it gets recreated on `serverId` change, not
+  once per component, so `ServerDetailLayout.vue` owns closing it explicitly.
 
 ## Backpressure
 

@@ -6,6 +6,7 @@ import { EventsService } from '../events/events.service';
 import { DockerConnectionService } from './docker-connection.service';
 import { ContainerService, LABEL } from './container.service';
 import { DockerLogsService } from './docker-logs.service';
+import { StatusBusService } from '../status-bus/status-bus.service';
 
 const MAX_RAPID_CRASHES = 3;
 const CRASH_WINDOW_MS = 10 * 60 * 1000;
@@ -50,6 +51,11 @@ interface FatalDiagnosis {
  * `setAutoRestartHandler()` lets `ServerLifecycleService` (which already
  * depends on `DockerModule`, a one-directional edge) register itself here at
  * boot via `onModuleInit`, with no new circular module dependency at all.
+ *
+ * The one exception to "no imports of its own" is `StatusBusModule`, which
+ * every status write here goes through (see `setStatus()`): it is a
+ * zero-import leaf providing a single `EventEmitter`, so it cannot pull
+ * anything else into `DockerModule`'s graph or form a cycle with it.
  */
 @Injectable()
 export class DockerWatcherService implements OnModuleInit {
@@ -68,7 +74,28 @@ export class DockerWatcherService implements OnModuleInit {
     private readonly logs: DockerLogsService,
     private readonly eventsService: EventsService,
     private readonly dbService: DbService,
+    private readonly statusBus: StatusBusService,
   ) {}
+
+  /**
+   * Every status write in this file goes through here: the watcher is the
+   * real-time status source, and a bare DB update would never reach an open
+   * server-detail page. The 60s poll cannot cover for a missed emit either —
+   * `ServerLifecycleService.refreshStatuses()` only emits when its computed
+   * status differs from the stored row, which this write has already
+   * overwritten. See backend/src/ws/WS_NOTES.md.
+   */
+  private async setStatus(
+    serverId: string,
+    status: string,
+    extraColumns: Partial<typeof servers.$inferInsert> = {},
+  ): Promise<void> {
+    await this.dbService.db
+      .update(servers)
+      .set({ status, ...extraColumns })
+      .where(eq(servers.id, serverId));
+    this.statusBus.emitStatusChanged({ serverId, status });
+  }
 
   /** Registers the guarded-lifecycle restart callback — see class doc comment. */
   setAutoRestartHandler(handler: (serverId: string) => Promise<void>): void {
@@ -177,17 +204,13 @@ export class DockerWatcherService implements OnModuleInit {
     if (!server) return;
 
     if (kind === 'start') {
-      await this.dbService.db
-        .update(servers)
-        .set({ status: 'starting', lastStartedAt: new Date().toISOString() })
-        .where(eq(servers.id, serverId));
+      await this.setStatus(serverId, 'starting', {
+        lastStartedAt: new Date().toISOString(),
+      });
       return;
     }
     if (kind === 'health_status: healthy') {
-      await this.dbService.db
-        .update(servers)
-        .set({ status: 'running' })
-        .where(eq(servers.id, serverId));
+      await this.setStatus(serverId, 'running');
       return;
     }
     if (kind === 'oom') {
@@ -228,10 +251,7 @@ export class DockerWatcherService implements OnModuleInit {
     const killedBySignal = exitCode === 137;
 
     if (cleanExit || (killedBySignal && stopRequested)) {
-      await this.dbService.db
-        .update(servers)
-        .set({ status: 'stopped' })
-        .where(eq(servers.id, serverId));
+      await this.setStatus(serverId, 'stopped');
       if (!stopRequested) {
         this.eventsService.recordEvent({
           serverId,
@@ -244,10 +264,7 @@ export class DockerWatcherService implements OnModuleInit {
 
     // Crash path — even inside a stop/restart window a non-zero, non-signal
     // exit is a crash and must be recorded as one.
-    await this.dbService.db
-      .update(servers)
-      .set({ status: 'crashed' })
-      .where(eq(servers.id, serverId));
+    await this.setStatus(serverId, 'crashed');
     const excerpt: string = await this.logs
       .fetchLogs(serverId, { tail: 300 })
       .catch(() => '');

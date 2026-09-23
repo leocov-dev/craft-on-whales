@@ -10,6 +10,7 @@ import { DockerWatcherService } from '../docker/docker-watcher.service';
 import { EventsService } from '../events/events.service';
 import { McRouterService } from '../mc-router/mc-router.service';
 import { SettingsService } from '../settings/settings.service';
+import { StatusBusService } from '../status-bus/status-bus.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { DockerSpecService } from './docker-spec.service';
 import { PackPinGuardService } from './pack-pin-guard.service';
@@ -122,6 +123,8 @@ describe('ServerLifecycleService.refreshStatuses (startup watchdog)', () => {
           },
         },
         PackPinGuardService,
+        // Real bus: a dependency-free EventEmitter, so there is nothing to stub.
+        StatusBusService,
         { provide: SCHEDULER_CONTRACT, useValue: noop },
       ],
     }).compile();

@@ -21,6 +21,7 @@ import { PackPinGuardService } from './pack-pin-guard.service';
 import { MAP_SERVICE_CONTRACT } from './map-service.contract';
 import { SCHEDULER_CONTRACT } from './scheduler.contract';
 import { SchedulerService } from '../scheduler/scheduler.service';
+import { StatusBusModule } from '../status-bus/status-bus.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SchedulerService } from '../scheduler/scheduler.service';
     AuthModule,
     ApiKeysModule,
     SettingsModule,
+    StatusBusModule,
     forwardRef(() => SchedulerModule),
     forwardRef(() => MapModule),
   ],
