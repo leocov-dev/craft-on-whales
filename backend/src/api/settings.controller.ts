@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { ConfigService } from '../config/config.service';
 import { SettingsService } from '../settings/settings.service';
+import { PanelUpdateService } from '../settings/panel-update.service';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { SchedulerService } from '../scheduler/scheduler.service';
 import { Roles } from '../auth/roles.decorator';
@@ -12,6 +13,7 @@ import type {
   SettingsResponseData,
   ServerDefaultsResponseData,
   BackupRetentionResponseData,
+  PanelUpdateResponseData,
   Localization,
 } from '../../../shared/types/settings';
 
@@ -21,6 +23,7 @@ export class SettingsController {
   constructor(
     private readonly config: ConfigService,
     private readonly settings: SettingsService,
+    private readonly panelUpdate: PanelUpdateService,
     private readonly apiKeys: ApiKeysService,
     private readonly scheduler: SchedulerService,
   ) {}
@@ -118,6 +121,22 @@ export class SettingsController {
     );
     const ceilings = await this.settings.setBackupRetentionCeilings(parsed);
     return { ok: true, ceilings };
+  }
+
+  // Panel self-update check (upstream-parity item 3.23): compares the
+  // running panel version against the newest published GitHub Release of
+  // this repo. Purely a read-only lookup — there is no apply/self-update
+  // path anywhere in this codebase. Admin-only, matching upstream's own
+  // gate on this control (see PanelUpdateService's doc comment /
+  // SETTINGS_NOTES.md for the full design).
+  @Get('panel-update')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async panelUpdateStatus(
+    @Query('refresh') refresh?: string,
+  ): Promise<PanelUpdateResponseData> {
+    const update = await this.panelUpdate.check({ force: refresh === '1' });
+    return { ok: true, update };
   }
 
   @Get('localization')

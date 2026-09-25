@@ -28,3 +28,9 @@ If it doesn't come up healthy, you roll back to the pre-update backup. A stable-
 Not every available build is one you want to take right now. Hitting **Ignore** on an entry (a mod, modpack, or server) dismisses that specific version — it drops off the Updates page, the dashboard count, and any per-server "update available" badge.
 
 Ignoring isn't a permanent mute: it only suppresses the build you ignored. As soon as a _newer_ build is published, it reappears as a normal available update. Everything you've dismissed is listed under **Ignored updates** at the bottom of the Updates page, where you can un-ignore it at any time to bring it back immediately.
+
+## Panel software updates
+
+This page tracks updates to _your Minecraft servers_. Updates to **the panel itself** are a separate, admin-only "Panel updates" card on the [Settings](getting-started.md) page: it shows your running version, the newest stable release published on GitHub, and an update-available link when one exists. Hit **Check now** to check on demand.
+
+This is read-only — it never downloads or installs anything for you. When a new version is out, you upgrade the panel the same way you always have (pulling the new image tag).
