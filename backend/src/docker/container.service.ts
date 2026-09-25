@@ -169,9 +169,25 @@ export class ContainerService {
       ExposedPorts: exposed,
       Tty: false,
       OpenStdin: false,
+      Healthcheck: this.healthcheckSpec(),
       HostConfig: hostConfig,
     });
     return container.id;
+  }
+
+  /**
+   * Explicit container healthcheck for the itzg/minecraft-server image. See
+   * DOCKER_NOTES.md's "Container healthcheck (mc-health)" section for why
+   * `mc-health` (not a panel-written probe) and why a 2h StartPeriod.
+   */
+  private healthcheckSpec(): Dockerode.HealthConfig {
+    return {
+      Test: ['CMD-SHELL', 'mc-health'],
+      Interval: 30 * 1e9,
+      Timeout: 10 * 1e9,
+      Retries: 3,
+      StartPeriod: 2 * 3600 * 1e9,
+    };
   }
 
   /** Resolve the actual Docker name for a server — its custom name if one was set, else msm-<id>. */
