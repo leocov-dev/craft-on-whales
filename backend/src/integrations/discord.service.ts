@@ -24,6 +24,7 @@ const DEFAULT_EVENTS: EventToggles = {
   backups: true,
   updates: true,
   players: true,
+  alerts: true,
 };
 
 const WEBHOOK_RE = /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//;
@@ -36,6 +37,7 @@ const COLORS: Record<NotificationKind, number> = {
   backup: 0x3b82f6, // blue
   update: 0xe99417, // gold
   player: 0x21a7ab, // teal
+  alert: 0xe5484d, // red - something needs a human, same accent as crash
 };
 
 // History event type → [notification kind, toggle category]
@@ -51,6 +53,16 @@ const EVENT_MAP: Record<string, [NotificationKind, keyof EventToggles]> = {
   'update-failed': ['update', 'updates'],
   'player-ban': ['player', 'players'],
   'player-kick': ['player', 'players'],
+  // Alerts: warning-shaped history events that already exist (recorded via
+  // EventsService elsewhere) but weren't forwarded anywhere before this —
+  // each one means a server is silently broken or degraded until a human
+  // looks. See this file's doc comment above for the full inventory.
+  oom: ['alert', 'alerts'],
+  'startup-stalled': ['alert', 'alerts'],
+  'schedule-failed': ['alert', 'alerts'],
+  'quota-exceeded': ['alert', 'alerts'],
+  'auto-restart-failed': ['alert', 'alerts'],
+  'recreate-failed': ['alert', 'alerts'],
 };
 
 const TITLES: Record<string, string> = {
@@ -65,6 +77,12 @@ const TITLES: Record<string, string> = {
   'update-failed': 'Update failed',
   'player-ban': 'Player banned',
   'player-kick': 'Player kicked',
+  oom: 'Out of memory',
+  'startup-stalled': 'Startup stalled',
+  'schedule-failed': 'Scheduled task failed',
+  'quota-exceeded': 'Disk quota exceeded',
+  'auto-restart-failed': 'Auto-restart failed',
+  'recreate-failed': 'Container recreate failed',
 };
 
 /**
@@ -73,6 +91,31 @@ const TITLES: Record<string, string> = {
  * per-event toggles live in plain `config_json`. Delivery is fire-and-forget:
  * a broken webhook must never break panel operations. Ports
  * `src/integrations/discord.ts`.
+ *
+ * Toggle categories (`EventToggles`): lifecycle, crashes, backups, updates,
+ * players, and alerts (upstream parity item 3.25, upstream's 0.10.0 "Alerts"
+ * category). Alerts covers history-event types that already existed in this
+ * panel's `events` table (recorded elsewhere via `EventsService.recordEvent`)
+ * but, before this, weren't forwarded to Discord at all — each one means a
+ * server is silently broken or degraded until a human looks:
+ *   - oom (docker/docker-watcher.service.ts) — container hit its memory limit
+ *   - startup-stalled (servers/server-lifecycle.service.ts) — boot deadline
+ *     passed without the container reaching healthy/running
+ *   - schedule-failed (scheduler/scheduler.service.ts) — a scheduled task
+ *     errored, or its cron failed to arm
+ *   - quota-exceeded (storage/storage-index.service.ts) — strict disk quota
+ *     exceeded by >10%, server force-stopped
+ *   - auto-restart-failed (docker/docker-watcher.service.ts) — a crash's
+ *     auto-restart attempt itself failed
+ *   - recreate-failed (servers/server-lifecycle.service.ts) — container
+ *     recreate failed; the server has no container until fixed
+ * Upstream's own Alerts list also includes `unhealthy`, `stop-failed`,
+ * `offline-after-restart`, and `crash-report`, none of which this panel
+ * currently records as a distinct event type (unhealthy is a live container
+ * *status*, not a recorded event; the others have no equivalent at all) —
+ * wiring those would mean instrumenting new `recordEvent()` call sites, which
+ * is out of scope here (see AGENTS.md's defense-in-depth ask-first rule); the
+ * six above are the ones already recorded and just not yet Discord-wired.
  */
 @Injectable()
 export class DiscordService implements OnModuleDestroy {

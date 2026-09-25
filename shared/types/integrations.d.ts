@@ -4,6 +4,7 @@ export interface EventToggles {
   backups: boolean;
   updates: boolean;
   players: boolean;
+  alerts: boolean;
 }
 
 /** `GET /api/servers/:id/integrations`'s `discord` field. The real webhook

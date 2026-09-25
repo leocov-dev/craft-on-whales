@@ -13,6 +13,18 @@
             :placeholder="discord.webhookMasked ?? 'https://discord.com/api/webhooks/…'"
             hint="Leave blank to keep the current webhook"
           />
+          <div>
+            <div class="text-caption text-grey q-mb-xs">Notify on</div>
+            <div class="row q-col-gutter-x-md">
+              <q-checkbox
+                v-for="cat in eventCategories"
+                :key="cat.key"
+                v-model="discord.events[cat.key]"
+                :label="cat.label"
+                dense
+              />
+            </div>
+          </div>
           <div class="row justify-end q-gutter-sm">
             <q-btn dense flat label="Test" :loading="testingDiscord" @click="testDiscord" />
             <q-btn
@@ -51,7 +63,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
-import { integrationsApi, type DiscordConfig, type StatusPageConfig } from '@/api/integrations';
+import {
+  integrationsApi,
+  type DiscordConfig,
+  type StatusPageConfig,
+  type EventToggles,
+} from '@/api/integrations';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { slugify } from '@/utils/slug';
 
@@ -60,11 +77,27 @@ const { server } = useServerDetail();
 
 const defaultSlug = computed(() => (server.value ? slugify(server.value.name) : ''));
 
+const eventCategories: { key: keyof EventToggles; label: string }[] = [
+  { key: 'lifecycle', label: 'Start/stop' },
+  { key: 'crashes', label: 'Crashes' },
+  { key: 'backups', label: 'Backups' },
+  { key: 'updates', label: 'Updates' },
+  { key: 'players', label: 'Players' },
+  { key: 'alerts', label: 'Alerts' },
+];
+
 const discord = ref<DiscordConfig>({
   enabled: false,
   hasWebhook: false,
   webhookMasked: null,
-  events: { lifecycle: true, crashes: true, backups: true, updates: true, players: true },
+  events: {
+    lifecycle: true,
+    crashes: true,
+    backups: true,
+    updates: true,
+    players: true,
+    alerts: true,
+  },
 });
 // A new webhook URL the user is typing, NOT the current one — the API never
 // sends the real webhook URL back once set (see DiscordConfig's doc comment),
@@ -91,6 +124,7 @@ async function saveDiscord() {
   try {
     const res = await integrationsApi.saveDiscord(server.value.id, {
       enabled: discord.value.enabled,
+      events: discord.value.events,
       ...(discordWebhook.value ? { webhookUrl: discordWebhook.value } : {}),
     });
     discord.value = res.discord;

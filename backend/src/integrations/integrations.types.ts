@@ -9,7 +9,7 @@ export type { EventToggles, DiscordConfig, InviteInfo };
 export type SetDiscordConfigOptions = SetDiscordConfigInput;
 
 export type NotificationKind =
-  'crash' | 'start' | 'stop' | 'backup' | 'update' | 'player';
+  'crash' | 'start' | 'stop' | 'backup' | 'update' | 'player' | 'alert';
 
 export interface EmbedField {
   name: string;
