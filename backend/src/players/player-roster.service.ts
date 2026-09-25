@@ -27,6 +27,7 @@ import { rcon } from '../utils/rcon';
 import { PlayerDataFileService } from '../inventory/player-data-file.service';
 import type {
   PlayerListEntry,
+  PlayerStatus,
   BannedIpEntry,
 } from '../../../shared/types/players';
 
@@ -276,6 +277,31 @@ export class PlayerRosterService {
 
   // ---------------------------------------------------------------------- read model
 
+  /**
+   * Derive a roster entry's display status from fields already assembled
+   * onto it — no new query, no new state. Precedence (upstream parity 3.22,
+   * commit eb0eb8c): online beats everything (a banned admin testing their
+   * own ban, or a whitelisted player, both still read as currently
+   * connected); banned beats whitelisted (a ban blocks connects regardless
+   * of whitelist membership); whitelisted beats joined (an approved player
+   * who hasn't connected yet is still meaningfully different from one who
+   * has connected but was never approved — the latter gets silently turned
+   * away on a whitelist-enforced server); `lastSeen` (set only from
+   * usercache.json, which the game itself only ever populates for a name
+   * that has actually connected) is the "has joined before" signal for the
+   * `Joined` fallback. `Unknown` covers an entry that reached the roster
+   * through none of the above — reachable only via a manually-edited
+   * ops.json entry for a player never whitelisted, banned, or seen
+   * online/in usercache.
+   */
+  private playerStatus(entry: PlayerListEntry): PlayerStatus {
+    if (entry.online) return 'Online';
+    if (entry.banned) return 'Banned';
+    if (entry.whitelisted) return 'Whitelisted';
+    if (entry.lastSeen) return 'Joined';
+    return 'Unknown';
+  }
+
   /** Merge every player the server has ever seen into one list. */
   listPlayers(serverId: string, onlineNames: string[] = []): PlayerListEntry[] {
     const entries: PlayerListEntry[] = [];
@@ -309,6 +335,7 @@ export class PlayerRosterService {
           banExpires: null,
           lastSeen: null,
           lastKnownIp: null,
+          status: 'Unknown',
         };
         entries.push(entry);
       }
@@ -353,6 +380,14 @@ export class PlayerRosterService {
     }
     for (const name of onlineNames) {
       upsert(name, null, { online: true });
+    }
+
+    // Derived display status — computed once all files/online-names have
+    // been merged in, so precedence reads the final state of each field
+    // rather than whichever file happened to upsert the entry first. See
+    // PLAYERS_NOTES.md "Roster status" for the precedence rationale.
+    for (const entry of entries) {
+      entry.status = this.playerStatus(entry);
     }
 
     return entries.sort(

@@ -16,21 +16,15 @@
       <q-list separator>
         <q-item v-for="p in players" :key="p.name">
           <q-item-section avatar>
-            <q-icon
-              :name="p.online ? 'circle' : 'radio_button_unchecked'"
-              :color="p.online ? 'positive' : 'grey'"
-              size="12px"
-            />
+            <q-badge :color="playerStatusColor(p.status)" :label="p.status" />
           </q-item-section>
           <q-item-section>
             <q-item-label>
               {{ p.name }}
               <q-badge v-if="p.op" color="warning" label="op" class="q-ml-xs" />
-              <q-badge v-if="p.banned" color="negative" label="banned" class="q-ml-xs" />
             </q-item-label>
             <q-item-label caption>
-              {{ p.whitelisted ? 'Whitelisted' : 'Not whitelisted' }}
-              <template v-if="p.banReason"> · {{ p.banReason }}</template>
+              <template v-if="p.banReason">{{ p.banReason }}</template>
               <template v-if="p.banExpires"> · expires {{ p.banExpires }}</template>
             </q-item-label>
           </q-item-section>
@@ -128,6 +122,7 @@ import { useQuasar } from 'quasar';
 import { playersApi, type PlayerListEntry, type BannedIpEntry } from '@/api/players';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { useAuthStore } from '@/stores/auth';
+import { playerStatusColor } from '@/utils/player-status';
 import PlayerBanDialog from '@/components/PlayerBanDialog.vue';
 import PlayerNotesDialog from '@/components/PlayerNotesDialog.vue';
 

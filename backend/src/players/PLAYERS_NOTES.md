@@ -108,3 +108,44 @@ menu entry behind `authStore.canWrite` (an existing getter, already used the sam
 
 Deleting a player's whole record cascades to their notes (`PlayerNotesService.deletePlayerNotes`),
 called from `deletePlayer()` above.
+
+## Roster status — upstream parity 3.22
+
+`PlayerListEntry.status` is a **pure derived field**, computed once per `listPlayers()` call in
+the new private `playerStatus()` helper, from fields the roster already assembles onto each entry
+(`online`, `banned`, `whitelisted`, `lastSeen`) — no new query, no new state, no new table.
+Computed in a final pass over `entries` after every file (`usercache`/`whitelist`/`ops`/
+`banned-players`) and the RCON online-names list have all been merged in, so precedence sees the
+final state of each field rather than whichever file happened to `upsert()` the entry first.
+
+**Precedence** (matches upstream's `eb0eb8c`, "Distinguish Joined / Whitelisted / Banned on the
+roster status column"; label strings and order taken from that commit's
+`test/players-status.test.js`, not guessed):
+
+1. `online` → **`Online`** — a currently-connected player reads Online even if also banned (e.g.
+   an op testing their own ban) or whitelisted; this is the only state upstream orders first.
+2. `banned` → **`Banned`** — a ban blocks connects regardless of whitelist membership, so a
+   banned-and-whitelisted player must not read as the (more reassuring) Whitelisted.
+3. `whitelisted` → **`Whitelisted`** — approved, can join. Notably this does _not_ require the
+   player to have ever connected: a pre-approved name added to `whitelist.json` before their first
+   join is still Whitelisted, not Joined.
+4. `lastSeen` set → **`Joined`** — has connected before but is not currently whitelisted.
+   `lastSeen` is populated only from `usercache.json`'s `expiresOn`, which the game itself only
+   ever writes for a name that has actually connected, so it doubles as the "has joined" signal
+   without any extra playerdata-existence check. This is the state upstream's UI additionally
+   flags with a "Not whitelisted — join blocked" hint when whitelist enforcement is on; this
+   backend field only carries the label, the frontend still owns the enforcement-aware hint text
+   (`whitelistEnforced` is already a separate field on the players response).
+5. none of the above → **`Unknown`** — the one state with no upstream equivalent, added because
+   this codebase's `upsert()` can produce an entry upstream's always-usercache-seeded test data
+   never exercised: a `ops.json`-only entry (opped by editing the file directly, or via an old
+   `/op` RCON call for a name that predates this panel's own usercache-based tracking) that was
+   never whitelisted, banned, or ever seen online/in usercache. Genuinely reachable, not dead code
+   — worth a real fallback label rather than mislabeling it Joined the way upstream's own
+   catch-all technically would.
+
+Frontend: `PlayersTab.vue` and `PlayerDetailPage.vue` previously computed their own ad-hoc partial
+status (an online dot, a separate `banned` badge, and a `whitelisted ? 'Whitelisted' : 'Not
+whitelisted'` caption, each independently) — replaced with a single `q-badge` bound to `p.status`,
+colored via the shared `frontend/src/utils/player-status.ts` (`playerStatusColor()`) so the two
+pages can't drift to different colors for the same status.

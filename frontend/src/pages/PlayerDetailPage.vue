@@ -8,12 +8,9 @@
         <q-icon name="person" size="32px" />
         <div>
           <div class="text-h6">{{ player.name }}</div>
-          <q-item-label caption :style="player.online ? { color: 'var(--q-positive)' } : undefined">
-            {{ player.online ? 'Online' : 'Offline' }}
-          </q-item-label>
+          <q-badge :color="playerStatusColor(player.status)" :label="player.status" />
         </div>
         <q-badge v-if="player.op" color="warning" label="op" />
-        <q-badge v-if="player.banned" color="negative" label="banned" />
       </div>
 
       <div class="row q-col-gutter-md">
@@ -94,6 +91,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { playersApi, type PlayerListEntry } from '@/api/players';
 import { useAuthStore } from '@/stores/auth';
+import { playerStatusColor } from '@/utils/player-status';
 import PlayerBanDialog from '@/components/PlayerBanDialog.vue';
 import PlayerNotesDialog from '@/components/PlayerNotesDialog.vue';
 
@@ -126,6 +124,7 @@ async function load() {
     banExpires: null,
     lastSeen: null,
     lastKnownIp: null,
+    status: 'Unknown',
   };
 }
 

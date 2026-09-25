@@ -32,10 +32,12 @@ Opening a server gives you a tabbed workspace:
 - **Overview** — status, live stats, uptime, and the primary start / stop / restart controls.
 - **Console** — the live log stream and command input, plus in-game chat ([details](console-and-chat.md)).
 - **Players** — who's online, plus inventory, analytics, and [chat commands](console-and-chat.md).
-  Whitelist, op, kick, ban (permanent or timed, with an optional linked IP ban), and moderator
-  notes visible to operators/admins. Deleting a player wipes their panel-side record entirely
-  (roster status, saved inventory snapshots, and notes) — irreversible, and refused while they're
-  online.
+  Each player shows a status badge — Online, Banned, Whitelisted, or Joined (has connected before
+  but isn't whitelisted) — so you can tell at a glance who's approved versus who just happened to
+  connect once. Whitelist, op, kick, ban (permanent or timed, with an optional linked IP ban), and
+  moderator notes visible to operators/admins. Deleting a player wipes their panel-side record
+  entirely (roster status, saved inventory snapshots, and notes) — irreversible, and refused while
+  they're online.
 - **World** — [worlds, mods, the live map, and the file manager](worlds-and-files.md).
 - **Backups** — [snapshots and restore](backups.md) for this server.
 - **Insights** — metrics and per-server history.
