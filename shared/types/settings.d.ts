@@ -46,6 +46,29 @@ export interface BackupRetentionResponseData {
   ceilings: BackupRetentionCeilings;
 }
 
+/**
+ * Panel self-update check result: the running panel version compared against
+ * the newest published GitHub Release of this repo. Read-only — there is no
+ * apply/self-update mechanism anywhere in this codebase.
+ */
+export interface PanelUpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  releaseName: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  checkedAt: string | null;
+  updateAvailable: boolean;
+  /** Set when the most recent GitHub lookup failed; other fields still hold the last known-good result, if any. */
+  error: string | null;
+}
+
+/** `GET /api/settings/panel-update`'s response body. */
+export interface PanelUpdateResponseData {
+  ok: true;
+  update: PanelUpdateStatus;
+}
+
 export interface Localization {
   timezone: string;
   country: string;

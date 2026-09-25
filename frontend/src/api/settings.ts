@@ -9,6 +9,8 @@ import type {
   ServerDefaultsResponseData,
   BackupRetentionCeilings,
   BackupRetentionResponseData,
+  PanelUpdateStatus,
+  PanelUpdateResponseData,
   Localization,
   PublicUser,
 } from '../../../shared/types/settings';
@@ -19,6 +21,8 @@ export type {
   ServerDefaultsResponseData,
   BackupRetentionCeilings,
   BackupRetentionResponseData,
+  PanelUpdateStatus,
+  PanelUpdateResponseData,
   Localization,
   PublicUser,
 };
@@ -66,6 +70,11 @@ export const settingsApi = {
   getBackupRetention: () => http.get<BackupRetentionResponseData>('/api/settings/backup-retention'),
   saveBackupRetention: (patch: Partial<BackupRetentionCeilings>) =>
     http.post<BackupRetentionResponseData>('/api/settings/backup-retention', patch),
+
+  getPanelUpdate: (refresh = false) =>
+    http.get<PanelUpdateResponseData>(
+      refresh ? '/api/settings/panel-update?refresh=1' : '/api/settings/panel-update',
+    ),
 
   users: () => http.get<UsersResponse>('/api/users'),
   createUser: (username: string, password: string, role: Role) =>
