@@ -29,6 +29,7 @@ import { SettingsService } from '../settings/settings.service';
 import { McRouterService } from '../mc-router/mc-router.service';
 import { ConfigService } from '../config/config.service';
 import { ServerViewModelService } from './server-view-model.service';
+import { EventsService } from '../events/events.service';
 import type { Server } from '../servers/types';
 import {
   dockerOverridesSchema,
@@ -154,6 +155,31 @@ const LIVE_EMPTY = {
   startedAt: null as string | null,
 };
 
+// Server statuses that mean "something's wrong right now", for the
+// `GET /api/status/summary` operator/monitor endpoint. This panel's
+// ServerStatus enum (shared/types/servers.d.ts) has no 'stalled' value —
+// upstream's equivalent set includes one, but here a stuck start just sits
+// at 'starting' — and while the enum does carry 'over-quota', nothing ever
+// writes it to servers.status; a quota stop instead reports through the
+// 'quota-exceeded' event, same as upstream.
+const PROBLEM_STATUSES = new Set<string>(['crashed', 'unhealthy']);
+
+// Alert-worthy event types for the status summary, kept in sync with
+// discord.service.ts's EVENT_MAP 'alert' category
+// (backend/src/integrations/discord.service.ts) — the authoritative
+// inventory, for this codebase, of history-event types that mean a server
+// is silently broken or degraded until a human looks.
+const ALERT_EVENT_TYPES = [
+  'oom',
+  'startup-stalled',
+  'schedule-failed',
+  'quota-exceeded',
+  'auto-restart-failed',
+  'recreate-failed',
+] as const;
+
+const ALERT_WINDOW_HOURS = 24;
+
 /**
  * Ports the server-CRUD + ports/versions-lookup slice of legacy
  * `src/web/routes/api.ts`. Docker network/preview/docker-spec admin routes
@@ -180,6 +206,7 @@ export class ServersController {
     private readonly mcRouter: McRouterService,
     private readonly config: ConfigService,
     private readonly permissions: PermissionsService,
+    private readonly eventsService: EventsService,
   ) {}
 
   private get db() {
@@ -209,6 +236,57 @@ export class ServersController {
       out[row.id] = { status: row.status, ...LIVE_EMPTY, phase: null };
     }
     return { ok: true, servers: out };
+  }
+
+  /**
+   * One place to answer "is anything wrong right now?" — for the operator
+   * and for an external monitor to poll. Read-only and cheap: cached
+   * `servers.status` plus one events query, both already permission-scoped
+   * per user (see `PermissionsService`), never touches Docker. Ports
+   * upstream's `GET /api/status/summary` (`src/web/routes/api.js`) minus its
+   * disk-free check, which isn't part of this slice.
+   */
+  @Get('status/summary')
+  async statusSummary(@Req() req: Request) {
+    const visibleServers = await this.permissions.filterVisible(
+      req.user,
+      await this.db
+        .select({
+          id: servers.id,
+          name: servers.displayName,
+          status: servers.status,
+        })
+        .from(servers),
+    );
+    const problems = visibleServers
+      .filter((s) => PROBLEM_STATUSES.has(s.status))
+      .map((s) => ({ serverId: s.id, server: s.name, status: s.status }));
+
+    // Alerts use the full visibility set (deleted servers included, same as
+    // filterVisible above) so a crash on a server removed since is still
+    // reported.
+    const visibleIds = await this.permissions.visibleServerIds(req.user);
+    const alertRows = await this.eventsService.recentAlerts(
+      ALERT_EVENT_TYPES,
+      ALERT_WINDOW_HOURS,
+    );
+    const recentAlerts = alertRows
+      .filter((r) => !r.serverId || visibleIds.has(r.serverId))
+      .map((r) => ({
+        type: r.type,
+        summary: r.summary,
+        serverId: r.serverId,
+        server: r.server,
+        at: r.createdAt,
+      }));
+
+    return {
+      ok: true,
+      healthy: problems.length === 0,
+      generatedAt: new Date().toISOString(),
+      problems,
+      recentAlerts,
+    };
   }
 
   @Post('servers')
