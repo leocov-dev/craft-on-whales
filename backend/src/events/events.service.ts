@@ -6,6 +6,8 @@ import {
   and,
   desc,
   eq,
+  gt,
+  inArray,
   like,
   lt,
   or,
@@ -13,7 +15,7 @@ import {
 } from 'drizzle-orm';
 import { ConfigService } from '../config/config.service';
 import { DbService } from '../db/db.service';
-import { events } from '../db/schema';
+import { events, servers } from '../db/schema';
 
 type EventRow = InferSelectModel<typeof events>;
 
@@ -53,6 +55,15 @@ export interface ExportedEvents {
   filename: string;
   contentType: string;
   body: string;
+}
+
+export interface RecentAlertRow {
+  type: string;
+  summary: string;
+  serverId: string | null;
+  /** Joined `servers.display_name`; null for a panel-global event or one whose server was deleted. */
+  server: string | null;
+  createdAt: string;
 }
 
 const EXPORT_LIMIT = 10000;
@@ -278,6 +289,45 @@ export class EventsService {
         : []),
     ];
     return clauses.length ? and(...clauses) : undefined;
+  }
+
+  /**
+   * Events of `types` from the last `hours`, newest first, joined to the
+   * server's display name — powers the cross-server status summary
+   * (`GET /api/status/summary`). Callers must still scope the result to the
+   * caller's visible server ids themselves (permissions is not this
+   * service's concern); panel-global rows (`serverId` null) are always
+   * included here.
+   */
+  async recentAlerts(
+    types: readonly string[],
+    hours: number,
+    limit = 50,
+  ): Promise<RecentAlertRow[]> {
+    if (types.length === 0) return [];
+    // Same cutoff technique as pruneEvents below: a JS-computed ISO-ish
+    // string compared with plain `>`, which orders correctly against both
+    // sqlite's `datetime('now')` and Postgres's `now()::text` created_at
+    // formats without needing dialect-specific SQL date functions.
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+    return this.dbService.db
+      .select({
+        type: events.type,
+        summary: events.summary,
+        serverId: events.serverId,
+        server: servers.displayName,
+        createdAt: events.createdAt,
+      })
+      .from(events)
+      .leftJoin(servers, eq(events.serverId, servers.id))
+      .where(
+        and(inArray(events.type, [...types]), gt(events.createdAt, cutoff)),
+      )
+      .orderBy(desc(events.id))
+      .limit(limit);
   }
 
   /** Delete events (and their captured log excerpts) older than `days`. */
