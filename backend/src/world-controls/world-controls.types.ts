@@ -1,14 +1,53 @@
+// Every vanilla *boolean* gamerule (see GAMERULES in world-controls.constants.ts
+// for sourcing/scope notes). Numeric gamerules (randomTickSpeed, spawnRadius,
+// etc.) are out of scope for this table.
 export type GameruleKey =
+  // World rules
   | 'keepInventory'
   | 'doDaylightCycle'
   | 'doWeatherCycle'
-  | 'mobGriefing'
-  | 'doMobSpawning'
+  | 'doImmediateRespawn'
+  | 'doLimitedCrafting'
+  | 'doTileDrops'
+  | 'doEntityDrops'
   | 'doFireTick'
-  | 'fallDamage'
-  | 'naturalRegeneration'
+  | 'allowFireTicksAwayFromPlayer'
+  | 'doVinesSpread'
+  | 'waterSourceConversion'
+  | 'lavaSourceConversion'
+  | 'tntExplodes'
+  | 'projectilesCanBreakBlocks'
+  | 'blockExplosionDropDecay'
+  | 'mobExplosionDropDecay'
+  | 'tntExplosionDropDecay'
+  | 'enderPearlsVanishOnDeath'
+  | 'globalSoundEvents'
+  | 'spectatorsGenerateChunks'
+  | 'reducedDebugInfo'
+  | 'disableElytraMovementCheck'
+  | 'locatorBar'
+  // Mobs & damage
+  | 'doMobSpawning'
+  | 'mobGriefing'
   | 'doInsomnia'
-  | 'doImmediateRespawn';
+  | 'doMobLoot'
+  | 'doPatrolSpawning'
+  | 'doTraderSpawning'
+  | 'doWardenSpawning'
+  | 'disableRaids'
+  | 'forgiveDeadPlayers'
+  | 'universalAnger'
+  | 'naturalRegeneration'
+  | 'fallDamage'
+  | 'fireDamage'
+  | 'drowningDamage'
+  | 'freezeDamage'
+  // Chat & messages
+  | 'showDeathMessages'
+  | 'announceAdvancements'
+  | 'sendCommandFeedback'
+  | 'commandBlockOutput'
+  | 'logAdminCommands';
 
 export interface QuickActionCmd {
   cmd: string[];

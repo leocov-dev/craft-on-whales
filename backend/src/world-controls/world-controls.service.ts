@@ -147,10 +147,23 @@ export class WorldControlsService {
         /* clock still works without a day count */
       }
     }
-    for (const rule of Object.keys(GAMERULES) as GameruleKey[]) {
-      const value = await this.queryGamerule(serverId, rule);
-      if (value !== null) state[rule] = value;
-    }
+    // Fire all ~40 gamerule queries concurrently instead of one RCON round
+    // trip at a time. `allSettled` (not `all`) so one rule that throws (e.g.
+    // a transient exec/RCON failure) can't blank the rest of the batch — a
+    // rule the server doesn't recognize already resolves to `null` rather
+    // than rejecting (see queryGamerule/looksLikeError), so that case was
+    // never at risk here; this guards the genuine-exception case that a
+    // naive `Promise.all` would turn into an all-or-nothing read.
+    const rules = Object.keys(GAMERULES) as GameruleKey[];
+    const results = await Promise.allSettled(
+      rules.map((rule) => this.queryGamerule(serverId, rule)),
+    );
+    results.forEach((result, i) => {
+      const rule = rules[i]!;
+      if (result.status === 'fulfilled' && result.value !== null) {
+        state[rule] = result.value;
+      }
+    });
     state.pvp = this.readPvp(serverId); // from server.properties — the pending/effective value
     return state;
   }
