@@ -103,6 +103,51 @@ per the "no speculative configuration" convention — there was no concrete
 case motivating a `DOCKER_EXEC_TIMEOUT_MS` env var, only a bug in what the
 existing timeout covered.
 
+## Container healthcheck (`mc-health`)
+
+`ContainerService.createContainer()` now sets an explicit `Healthcheck` on
+managed server containers: `CMD-SHELL mc-health`, 30s interval, 10s timeout,
+3 retries, 2h `StartPeriod`. It is only set on the one `createContainer` call
+site that runs the itzg image as a real Minecraft server — **not** on the two
+throwaway-container call sites in this file (`removeDataDir`, `chownDataDir`:
+`rm`/`chown` utility containers, never itzg, never run `mc-health`), and not
+on `McRouterDockerService.createContainer()` (a different image entirely).
+
+Why `mc-health` and not a panel-written probe: it's bundled in the itzg
+image and is the exact probe that image's own Dockerfile uses — RCON-based,
+so it reflects the real game/RCON port, and auto-pause aware (reports
+healthy while the process is intentionally frozen), so it never wakes a
+paused server or false-flags one as unhealthy.
+
+Why a 2h `StartPeriod`: a large modpack's first boot (server-pack download +
+world generation) can legitimately run 30–60 minutes. While the start period
+is active, a failing probe keeps Docker's health state at `starting`, never
+`unhealthy` — so a slow-but-fine first boot is never misreported.
+
+Consuming `State.Health.Status` needed **no new code**: `inspectStatus()`
+(above) and `refreshStatuses()`/`STARTUP_STALL_MS` in
+`../servers/server-lifecycle.service.ts` already read `info.health` and
+branch on "healthcheck exists vs. not" — that logic was written ahead of
+this healthcheck actually existing (comments there predate this change and
+call this out explicitly), so it was previously dead code exercising only
+the `health == null` log-tail-probe path. Adding the `Healthcheck` config is
+the only change needed to make the other branch (health-based, no log
+fetch) start firing for real. `DockerWatcherService.handleEvent()` similarly
+already promotes a server to `running` on the daemon's own
+`health_status: healthy` event (see "Event kind" above) — also previously
+unreachable, now live.
+
+One pre-existing behavior worth flagging rather than changing: the panel's
+own `STARTUP_STALL_MS` (10 min, in `SERVERS_NOTES.md`) is unrelated to and
+much shorter than the healthcheck's 2h `StartPeriod`, and applies identically
+whether or not a container has a healthcheck — a modpack still stuck
+`starting` past 10 minutes gets flagged `stalled` in the panel UI regardless
+of Docker's own health state. That's an intentional, pre-existing UX ceiling
+("still alive, needs attention", not "dead" — Stop/Restart/Kill stay
+available) and out of scope for this change; widening it (or making it
+health-aware) is a separate decision, not something this healthcheck addition
+should quietly alter.
+
 ## Docker events stream: buffer cap and reconnect backoff
 
 Two independent hardenings on `DockerWatcherService`, both defending
