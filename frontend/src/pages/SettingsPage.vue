@@ -224,6 +224,71 @@
           </div>
         </q-card>
       </div>
+
+      <div v-if="auth.isAdmin" class="col-12 col-lg-6">
+        <q-card flat bordered class="q-pa-md">
+          <div class="text-subtitle1 q-mb-md">Panel updates</div>
+          <div class="row q-col-gutter-md text-body2">
+            <div class="col-6">
+              <q-item-label caption>Current version</q-item-label>
+              <div class="font-mono">{{ panelUpdate?.currentVersion ?? '…' }}</div>
+            </div>
+            <div class="col-6">
+              <q-item-label caption>Latest stable release</q-item-label>
+              <div class="font-mono">
+                <a
+                  v-if="panelUpdate?.releaseUrl"
+                  :href="panelUpdate.releaseUrl"
+                  target="_blank"
+                  rel="noopener"
+                  >{{ panelUpdate.latestVersion }}</a
+                >
+                <span v-else>{{ panelUpdate?.latestVersion ?? '—' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <q-banner
+            v-if="panelUpdate?.updateAvailable"
+            dense
+            rounded
+            class="bg-positive text-white q-mt-md"
+          >
+            <template #avatar>
+              <q-icon name="system_update" />
+            </template>
+            An update is available.
+            <a
+              v-if="panelUpdate.releaseUrl"
+              :href="panelUpdate.releaseUrl"
+              target="_blank"
+              rel="noopener"
+              class="text-white"
+            >
+              View the release
+            </a>
+          </q-banner>
+          <q-item-label v-else-if="panelUpdate && !panelUpdate.error" caption class="q-mt-md">
+            You're running the latest stable release.
+          </q-item-label>
+
+          <q-banner v-if="panelUpdate?.error" dense rounded class="bg-warning text-dark q-mt-md">
+            Couldn't check GitHub for the latest release: {{ panelUpdate.error }}
+          </q-banner>
+
+          <q-item-label v-if="panelUpdate?.checkedAt" caption class="q-mt-sm">
+            Last checked {{ formatCheckedAt(panelUpdate.checkedAt) }}.
+          </q-item-label>
+
+          <div class="row q-gutter-sm q-mt-sm">
+            <q-btn label="Check now" :loading="checkingPanelUpdate" @click="checkPanelUpdate" />
+          </div>
+          <q-item-label caption class="q-mt-sm">
+            Read-only — this only compares versions and links to the release. It never downloads or
+            applies anything.
+          </q-item-label>
+        </q-card>
+      </div>
     </div>
   </q-page>
 </template>
@@ -236,6 +301,7 @@ import {
   type SettingsResponseData,
   type ResourceDefaults,
   type BackupRetentionCeilings,
+  type PanelUpdateStatus,
 } from '@/api/settings';
 import { useAuthStore } from '@/stores/auth';
 import PageHeader from '@/components/PageHeader.vue';
@@ -250,6 +316,8 @@ const savingDefaults = ref(false);
 const restoringDefaults = ref(false);
 const retentionForm = ref<BackupRetentionCeilings | null>(null);
 const savingRetention = ref(false);
+const panelUpdate = ref<PanelUpdateStatus | null>(null);
+const checkingPanelUpdate = ref(false);
 const cfKey = ref('');
 const cfMasked = ref<string | null>(null);
 const publicHost = ref('');
@@ -286,6 +354,45 @@ async function load() {
   defaultsForm.value = { ...settingsRes.defaults };
   defaultsBase.value = { ...settingsRes.defaultsBase };
   retentionForm.value = { ...retentionRes.ceilings };
+
+  if (auth.isAdmin) {
+    try {
+      const res = await settingsApi.getPanelUpdate();
+      panelUpdate.value = res.update;
+    } catch {
+      // Admin-only route; ignore a transient failure here — "Check now" surfaces its own error.
+    }
+  }
+}
+
+function formatCheckedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
+async function checkPanelUpdate() {
+  checkingPanelUpdate.value = true;
+  try {
+    const res = await settingsApi.getPanelUpdate(true);
+    panelUpdate.value = res.update;
+    if (res.update.error) {
+      $q.notify({ type: 'warning', message: `Update check failed: ${res.update.error}` });
+    } else if (res.update.updateAvailable) {
+      $q.notify({ type: 'info', message: `Update available: ${res.update.latestVersion}` });
+    } else {
+      $q.notify({ type: 'positive', message: "You're running the latest stable release." });
+    }
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Update check failed.',
+    });
+  } finally {
+    checkingPanelUpdate.value = false;
+  }
 }
 
 async function saveBackupRetention() {
