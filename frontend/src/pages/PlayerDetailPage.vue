@@ -33,6 +33,7 @@
               />
               <div v-if="player.banned" class="text-caption text-negative">
                 Banned{{ player.banReason ? `: ${player.banReason}` : '' }}
+                <template v-if="player.banExpires"> · expires {{ player.banExpires }}</template>
               </div>
               <div class="row q-gutter-sm">
                 <q-btn v-if="player.online" dense outline label="Kick" @click="kickPlayer" />
@@ -42,9 +43,18 @@
                   outline
                   color="negative"
                   label="Ban"
-                  @click="banPlayer"
+                  @click="banDialogOpen = true"
                 />
                 <q-btn v-else dense outline label="Pardon" @click="pardonPlayer" />
+                <q-btn dense outline label="Notes" @click="notesDialogOpen = true" />
+                <q-btn
+                  v-if="auth.canWrite && !player.online"
+                  dense
+                  outline
+                  color="negative"
+                  label="Delete Player…"
+                  @click="deletePlayer"
+                />
               </div>
             </div>
           </q-card>
@@ -67,21 +77,36 @@
         </div>
       </div>
     </template>
+
+    <PlayerBanDialog
+      v-model="banDialogOpen"
+      :server-id="serverId"
+      :player-name="playerName"
+      @banned="load"
+    />
+    <PlayerNotesDialog v-model="notesDialogOpen" :server-id="serverId" :player-name="playerName" />
   </q-page>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { playersApi, type PlayerListEntry } from '@/api/players';
+import { useAuthStore } from '@/stores/auth';
+import PlayerBanDialog from '@/components/PlayerBanDialog.vue';
+import PlayerNotesDialog from '@/components/PlayerNotesDialog.vue';
 
 const route = useRoute();
+const router = useRouter();
 const $q = useQuasar();
+const auth = useAuthStore();
 
 const serverId = String(route.params.id);
 const playerName = String(route.params.name);
 const player = ref<PlayerListEntry | null>(null);
+const banDialogOpen = ref(false);
+const notesDialogOpen = ref(false);
 
 async function load() {
   const res = await playersApi.list(serverId);
@@ -98,7 +123,9 @@ async function load() {
     banReason: null,
     banDate: null,
     banSource: null,
+    banExpires: null,
     lastSeen: null,
+    lastKnownIp: null,
   };
 }
 
@@ -118,18 +145,31 @@ function kickPlayer() {
       $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Kick failed.' });
     });
 }
-function banPlayer() {
-  $q.dialog({
-    title: `Ban ${playerName}?`,
-    prompt: { model: '', type: 'text', label: 'Reason (optional)' },
-    cancel: true,
-    ok: { color: 'negative', label: 'Ban' },
-  }).onOk((reason: string) => {
-    void playersApi.ban(serverId, playerName, reason || undefined).then(load);
-  });
-}
 function pardonPlayer() {
   void playersApi.pardon(serverId, playerName).then(load);
+}
+
+function deletePlayer() {
+  $q.dialog({
+    title: `Delete ${playerName}?`,
+    message:
+      'This permanently removes them from the whitelist, operators and bans, and deletes their saved inventory snapshots and moderator notes. This cannot be undone.',
+    cancel: true,
+    ok: { color: 'negative', label: 'Delete' },
+  }).onOk(() => {
+    void playersApi
+      .deletePlayer(serverId, playerName)
+      .then(() => {
+        $q.notify({ type: 'positive', message: `${playerName} deleted.` });
+        void router.push(`/servers/${serverId}/players`);
+      })
+      .catch((err: unknown) => {
+        $q.notify({
+          type: 'negative',
+          message: err instanceof Error ? err.message : 'Delete failed.',
+        });
+      });
+  });
 }
 
 onMounted(load);

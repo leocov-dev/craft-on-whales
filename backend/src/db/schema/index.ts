@@ -25,6 +25,7 @@ export const crashReports = active.crashReports;
 export const playerEvents = active.playerEvents;
 export const playerSessions = active.playerSessions;
 export const playerStatSnapshots = active.playerStatSnapshots;
+export const playerNotes = active.playerNotes;
 
 export const libraryFiles = active.libraryFiles;
 
