@@ -162,6 +162,97 @@ describe('PlayerRosterService', () => {
     });
   });
 
+  describe('roster status (upstream parity 3.22)', () => {
+    // Online > Banned > Whitelisted > Joined > Unknown — see PLAYERS_NOTES.md
+    // "Roster status" for the full rationale.
+
+    it('an online player reads Online even when also banned', () => {
+      writeRoleFile('usercache.json', [
+        { name: 'Alice', uuid: ALICE_UUID, expiresOn: '2027-01-01' },
+      ]);
+      writeRoleFile('whitelist.json', []);
+      writeRoleFile('banned-players.json', [
+        {
+          name: 'Alice',
+          uuid: ALICE_UUID,
+          created: '2025-01-01 00:00:00 +0000',
+          source: 'x',
+          expires: 'forever',
+          reason: 'test',
+        },
+      ]);
+
+      const alice = service
+        .listPlayers(SERVER_ID, ['Alice'])
+        .find((p) => p.name === 'Alice');
+      expect(alice?.online).toBe(true);
+      expect(alice?.banned).toBe(true);
+      expect(alice?.status).toBe('Online');
+    });
+
+    it('a banned-and-whitelisted offline player reads Banned, not Whitelisted', () => {
+      writeRoleFile('usercache.json', [
+        { name: 'Alice', uuid: ALICE_UUID, expiresOn: '2027-01-01' },
+      ]);
+      writeRoleFile('whitelist.json', [{ name: 'Alice', uuid: ALICE_UUID }]);
+      writeRoleFile('banned-players.json', [
+        {
+          name: 'Alice',
+          uuid: ALICE_UUID,
+          created: '2025-01-01 00:00:00 +0000',
+          source: 'x',
+          expires: 'forever',
+          reason: 'test',
+        },
+      ]);
+
+      const alice = service
+        .listPlayers(SERVER_ID)
+        .find((p) => p.name === 'Alice');
+      expect(alice?.whitelisted).toBe(true);
+      expect(alice?.banned).toBe(true);
+      expect(alice?.status).toBe('Banned');
+    });
+
+    it('a whitelisted player who has never joined reads Whitelisted, not Joined', () => {
+      writeRoleFile('usercache.json', []);
+      writeRoleFile('whitelist.json', [{ name: 'Dana', uuid: 'dana-uuid' }]);
+      writeRoleFile('banned-players.json', []);
+
+      const dana = service
+        .listPlayers(SERVER_ID)
+        .find((p) => p.name === 'Dana');
+      expect(dana?.lastSeen).toBeNull();
+      expect(dana?.status).toBe('Whitelisted');
+    });
+
+    it('a player who has joined before but is not whitelisted reads Joined', () => {
+      writeRoleFile('usercache.json', [
+        { name: 'Alice', uuid: ALICE_UUID, expiresOn: '2027-01-01' },
+      ]);
+      writeRoleFile('whitelist.json', []);
+      writeRoleFile('banned-players.json', []);
+
+      const alice = service
+        .listPlayers(SERVER_ID)
+        .find((p) => p.name === 'Alice');
+      expect(alice?.whitelisted).toBe(false);
+      expect(alice?.banned).toBe(false);
+      expect(alice?.status).toBe('Joined');
+    });
+
+    it('an ops-only entry with no join/whitelist/ban history reads Unknown', () => {
+      writeRoleFile('usercache.json', []);
+      writeRoleFile('whitelist.json', []);
+      writeRoleFile('ops.json', [{ name: 'Eve', uuid: 'eve-uuid', level: 4 }]);
+      writeRoleFile('banned-players.json', []);
+
+      const eve = service.listPlayers(SERVER_ID).find((p) => p.name === 'Eve');
+      expect(eve?.op).toBe(true);
+      expect(eve?.status).toBe('Unknown');
+    });
+  });
+
   describe('IP-ban linkage', () => {
     it('banIp tags the entry with the linked player and listBannedIps surfaces it', async () => {
       const res = await service.banIp(SERVER_ID, '203.0.113.5', 'griefing', {

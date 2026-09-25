@@ -1,9 +1,14 @@
 // Wraps /api/servers/:id/players (src/web/routes/players.ts).
 
 import { http } from './http';
-import type { PlayerListEntry, BannedIpEntry, PlayerNote } from '../../../shared/types/players';
+import type {
+  PlayerListEntry,
+  PlayerStatus,
+  BannedIpEntry,
+  PlayerNote,
+} from '../../../shared/types/players';
 
-export type { PlayerListEntry, BannedIpEntry, PlayerNote };
+export type { PlayerListEntry, PlayerStatus, BannedIpEntry, PlayerNote };
 
 interface PlayersResponse {
   ok: true;

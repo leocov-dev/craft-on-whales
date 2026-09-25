@@ -1,3 +1,17 @@
+/**
+ * Roster status label — derived from fields already on the entry, in
+ * precedence order: an online player reads `Online` even if also banned or
+ * whitelisted; otherwise a banned player reads `Banned` even if also
+ * whitelisted (a ban blocks connects regardless of whitelist); otherwise
+ * whitelisted reads `Whitelisted` (approved, can join, whether or not they
+ * ever have); otherwise a player who has joined before (has a `lastSeen`)
+ * reads `Joined`; `Unknown` is the fallback for an entry that reached the
+ * roster through none of the above (e.g. a manually-added `ops.json` entry
+ * for a player who was never whitelisted, banned, or seen online/in
+ * usercache) — see PLAYERS_NOTES.md.
+ */
+export type PlayerStatus = 'Online' | 'Banned' | 'Whitelisted' | 'Joined' | 'Unknown';
+
 /** Merged player-list entry — everything ever seen about one player. Returned by `GET /api/servers/:id/players`. */
 export interface PlayerListEntry {
   name: string;
@@ -17,6 +31,8 @@ export interface PlayerListEntry {
   lastSeen: string | null;
   /** Last IP seen joining, from the console log's "logged in with entity id" line — null if never captured. */
   lastKnownIp: string | null;
+  /** Derived display status — see `PlayerStatus`. */
+  status: PlayerStatus;
 }
 
 export interface BannedIpEntry {
