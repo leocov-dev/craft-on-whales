@@ -1,16 +1,64 @@
 import type { GameruleKey, QuickAction } from './world-controls.types';
 
+// Full vanilla *boolean* gamerule set (numeric ones like randomTickSpeed,
+// spawnRadius, maxCommandChainLength, snowAccumulationHeight, etc. are out of
+// scope here — this table only backs boolean on/off reads). camelCase key ->
+// MC 26.x's snake_case rename (see world-controls.service.ts's queryGamerule/
+// setGamerule, which already try both spellings for every entry — adding a
+// rule here needs no other code change).
+//
+// Sourced from the vanilla gamerule list as of a recent MC version, cross-checked
+// against upstream's own full-coverage pass (different stack, same product —
+// see UPSTREAM_PARITY.md item 3.24) plus the wiki's current gamerule table.
+// `locatorBar` was added on top of upstream's list — it's a boolean gamerule
+// upstream's pass didn't have yet.
 export const GAMERULES: Record<GameruleKey, string> = {
+  // World rules
   keepInventory: 'keep_inventory',
   doDaylightCycle: 'do_daylight_cycle',
   doWeatherCycle: 'do_weather_cycle',
-  mobGriefing: 'mob_griefing',
-  doMobSpawning: 'do_mob_spawning',
-  doFireTick: 'do_fire_tick',
-  fallDamage: 'fall_damage',
-  naturalRegeneration: 'natural_regeneration',
-  doInsomnia: 'do_insomnia',
   doImmediateRespawn: 'do_immediate_respawn',
+  doLimitedCrafting: 'do_limited_crafting',
+  doTileDrops: 'do_tile_drops',
+  doEntityDrops: 'do_entity_drops',
+  doFireTick: 'do_fire_tick',
+  allowFireTicksAwayFromPlayer: 'allow_fire_ticks_away_from_player',
+  doVinesSpread: 'do_vines_spread',
+  waterSourceConversion: 'water_source_conversion',
+  lavaSourceConversion: 'lava_source_conversion',
+  tntExplodes: 'tnt_explodes',
+  projectilesCanBreakBlocks: 'projectiles_can_break_blocks',
+  blockExplosionDropDecay: 'block_explosion_drop_decay',
+  mobExplosionDropDecay: 'mob_explosion_drop_decay',
+  tntExplosionDropDecay: 'tnt_explosion_drop_decay',
+  enderPearlsVanishOnDeath: 'ender_pearls_vanish_on_death',
+  globalSoundEvents: 'global_sound_events',
+  spectatorsGenerateChunks: 'spectators_generate_chunks',
+  reducedDebugInfo: 'reduced_debug_info',
+  disableElytraMovementCheck: 'disable_elytra_movement_check',
+  locatorBar: 'locator_bar',
+  // Mobs & damage
+  doMobSpawning: 'do_mob_spawning',
+  mobGriefing: 'mob_griefing',
+  doInsomnia: 'do_insomnia',
+  doMobLoot: 'do_mob_loot',
+  doPatrolSpawning: 'do_patrol_spawning',
+  doTraderSpawning: 'do_trader_spawning',
+  doWardenSpawning: 'do_warden_spawning',
+  disableRaids: 'disable_raids',
+  forgiveDeadPlayers: 'forgive_dead_players',
+  universalAnger: 'universal_anger',
+  naturalRegeneration: 'natural_regeneration',
+  fallDamage: 'fall_damage',
+  fireDamage: 'fire_damage',
+  drowningDamage: 'drowning_damage',
+  freezeDamage: 'freeze_damage',
+  // Chat & messages
+  showDeathMessages: 'show_death_messages',
+  announceAdvancements: 'announce_advancements',
+  sendCommandFeedback: 'send_command_feedback',
+  commandBlockOutput: 'command_block_output',
+  logAdminCommands: 'log_admin_commands',
 };
 
 export const QUICK_ACTIONS: Record<string, QuickAction> = {
