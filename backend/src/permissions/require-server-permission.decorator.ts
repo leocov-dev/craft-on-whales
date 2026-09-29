@@ -21,8 +21,21 @@ export type ServerIdResolver = (
   deps: { db: DbService },
 ) => Promise<string | null | undefined> | string | null | undefined;
 
+/**
+ * Resolves the capability a route requires when it isn't known statically
+ * (e.g. a schedule route whose capability depends on the schedule's
+ * `taskType` — see `SchedulesController`). Same shape/rationale as
+ * `ServerIdResolver`: runs as a plain function attached via `SetMetadata` at
+ * class-definition time, so it can't close over `this`, and receives `db`
+ * for the rare case it needs its own lookup.
+ */
+export type CapabilityResolver = (
+  req: Request,
+  deps: { db: DbService },
+) => Promise<Capability> | Capability;
+
 export interface RequireServerPermissionMeta {
-  capability: Capability;
+  capability: Capability | CapabilityResolver;
   resolve?: ServerIdResolver;
 }
 
@@ -32,11 +45,15 @@ export interface RequireServerPermissionMeta {
  * By default the server id is read from `req.params.id`; pass `resolve` for
  * routes keyed by something else (see `backupServerId` for the pattern).
  *
+ * `capability` is normally a static name, but may instead be a
+ * `CapabilityResolver` for the rare route whose required capability depends
+ * on the request (e.g. a schedule's `taskType` — see `SchedulesController`).
+ *
  * Every server-scoped route must carry this — `route-audit.spec.ts` walks
  * the live route table and fails the build if one doesn't. See
  * `PERMISSIONS_NOTES.md`.
  */
 export const RequireServerPermission = (
-  capability: Capability,
+  capability: Capability | CapabilityResolver,
   resolve?: ServerIdResolver,
 ) => SetMetadata(SERVER_PERMISSION_KEY, { capability, resolve });

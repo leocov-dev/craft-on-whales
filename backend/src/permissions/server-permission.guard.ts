@@ -49,6 +49,10 @@ export class ServerPermissionGuard implements CanActivate {
       : typeof rawId === 'string'
         ? rawId
         : undefined;
+    const capability =
+      typeof meta.capability === 'function'
+        ? await meta.capability(req, { db: this.dbService })
+        : meta.capability;
 
     if (!serverId) {
       // Nothing to resolve a server from (e.g. a backup id that doesn't
@@ -58,9 +62,9 @@ export class ServerPermissionGuard implements CanActivate {
       // anyone else sees "not found" rather than a tell.
       if (req.user?.role === 'admin') return true;
       const roleCaps = req.user ? roleDefault(req.user.role) : [];
-      if (!roleCaps.includes(meta.capability)) {
+      if (!roleCaps.includes(capability)) {
         throw new ForbiddenException(
-          `You don't have the ${CAPABILITY_INFO[meta.capability].label.toLowerCase()} permission on this server.`,
+          `You don't have the ${CAPABILITY_INFO[capability].label.toLowerCase()} permission on this server.`,
         );
       }
       throw new NotFoundException('Server not found');
@@ -80,9 +84,9 @@ export class ServerPermissionGuard implements CanActivate {
     if (!effective.includes('view')) {
       throw new NotFoundException('Server not found');
     }
-    if (!effective.includes(meta.capability)) {
+    if (!effective.includes(capability)) {
       throw new ForbiddenException(
-        `You don't have the ${CAPABILITY_INFO[meta.capability].label.toLowerCase()} permission on this server.`,
+        `You don't have the ${CAPABILITY_INFO[capability].label.toLowerCase()} permission on this server.`,
       );
     }
     return true;

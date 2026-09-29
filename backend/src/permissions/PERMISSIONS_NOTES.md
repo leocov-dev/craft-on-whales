@@ -94,6 +94,12 @@ guard's existence check above also doesn't filter on `deletedAt`.
   resolvers run as plain functions attached via `SetMetadata` at class-definition time, before any
   controller instance (and its constructor-injected services) exists; `db` is `ServerPermissionGuard`'s
   own `DbService`, handed through so a resolver can do a one-table lookup without its own DI wiring.
+- **`capability`** may likewise be a `CapabilityResolver` instead of a static name, for the rare
+  route whose required capability isn't known until the request is inspected (added for item
+  3.16a's schedule fix — see the "Known scope boundaries" entry above). Same signature/rationale as
+  `resolve`: `(req, { db })`, resolved by the guard before the view/capability checks below run.
+  Prefer a static capability whenever the route's meaning doesn't actually vary per-request; this
+  is meant for the schedules case, not a general substitute for choosing one capability per route.
 
 ## Known scope boundaries (not gold-plated)
 
@@ -108,12 +114,17 @@ edge case upstream's own multi-round review (`f3e0b63`, `0dc57cf`, `1484328`) ev
   `[capability, resolve]` pairs) — a real cross-cutting change, not a one-line addition, so it's
   flagged here rather than built speculatively. If this needs closing, it should go through
   AGENTS.md's defense-in-depth ask-first process.
-- **Schedules use one capability (`power`) for every task type**, unlike upstream's finer-grained
-  mapping (`power` for start/stop/restart, `console` for RCON, `backups` for backup schedules).
-  Matching that would mean resolving the capability dynamically from the request body's `taskType`
-  field — again a new resolver shape the decorator doesn't support today (it names one static
-  capability per route). Scheduling anything is power-user territory regardless of task type, so a
-  single `power` gate was judged an acceptable simplification rather than new decorator surface.
+- ~~Schedules use one capability (`power`) for every task type~~ — **fixed (item 3.16a)**:
+  `@RequireServerPermission` now accepts a `CapabilityResolver` (same shape/rationale as
+  `ServerIdResolver` — see "The guard + decorator" below) alongside a static capability name.
+  `SchedulesController#create`/`#toggle`/`#remove` use it to resolve the capability from the
+  schedule's `taskType` (`scheduler.service.ts`'s `TASK_TYPES[taskType].capability`, via the
+  exported `taskCapability()` helper): `restart`/`stop`/`start` → `power`, `backup` → `backups`,
+  `rcon` → `console` (running an arbitrary command is console access — matches every other
+  RCON-gated route, e.g. `chat/`, `world-controls/`). Non-server-scoped (panel-wide) task types
+  have no mapped capability and fall back to `power`, which reproduces the old hardcoded behavior
+  exactly for panel-wide schedules (only a role whose default includes `power` — i.e. `admin`/
+  `operator` — can create one; unaffected by this change).
 - **Blueprint list/import/delete and world-library rename/delete/PATCH-by-id** are not
   server-permission-gated — a blueprint or library-world _entity_ isn't 1:1 with a specific live
   server the way a backup or schedule row is (a blueprint can outlive the server it was exported
