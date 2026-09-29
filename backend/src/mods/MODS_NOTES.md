@@ -33,8 +33,10 @@ follow suit. The sources don't share a shape worth abstracting over:
   header, Spiget answers an empty search with a 404, CurseForge needs a key.
 
 A common interface would have to be the union of all of this or a lowest common denominator. The
-per-source dispatch in `ModsService` / `ModBrowserService` is where they meet. If 4.29 finds the
-dispatch branches really do share a shape, extract it then, from the concrete code.
+per-source dispatch in `ModsService` / `ModBrowserService` is where they meet. 4.29 wired the
+install side as one private `resolve<Source>()` per source in `ModsService`, each returning the same
+`{ downloadUrl, meta: DownloadMeta }`. That return type is the only shape they share; the lookups
+before it don't, so there's still no interface.
 
 The fetch helpers (`hangarFetch`, `spigetFetch`, `ghFetch`) look almost the same as `mrFetch`. They
 were left duplicated on purpose, matching the existing convention (see `ApiCacheService`'s header:
@@ -104,8 +106,8 @@ skips verification.
   (`"1.21"` fits a 1.21.4 server, but `"1.2"` never matches 1.21.x). Channel names map to
   `versionType`: `Snapshot` or `Alpha` becomes `alpha`, `Beta` becomes `beta`, anything else is
   `release`. Many projects (ViaVersion, for example) publish snapshots more often than releases,
-  so `getVersions()[0]` is often a snapshot. 4.29 should prefer the newest `release` when nothing
-  is pinned. `getVersions` keeps externally-hosted builds so callers can offer them as manual
+  so `getVersions()[0]` is often a snapshot, and add-by-link prefers the newest `release`. The
+  catch-all means odd channel names (`DevBuilds`, `dev`, `Legacy`) also count as `release`. `getVersions` keeps externally-hosted builds so callers can offer them as manual
   downloads. Upstream dropped them when they had no MC tags.
 - **Spiget** versions are sorted by `-id`, not `-releaseDate`. Live, `-releaseDate` put LuckPerms
   5.5.0 ahead of the newer 5.5.71. Ids only go up. Downloads go through
@@ -120,33 +122,73 @@ skips verification.
   `pickGithubAsset` picks the preferred name (exact match, then substring), otherwise the first jar
   that isn't a `-sources`/`-javadoc`/`-dev`/`-api`/`-slim` sidecar.
 
-### Deferred to 4.29 (universal add-by-link)
+## Universal add-by-link (upstream parity 4.29)
 
-4.28 built and registered the three clients (`ModsModule` providers and exports) and tested them.
-**Nothing calls them yet.** 4.29 picks up here:
+`ModsService.installFromUrl` accepts every source. `classifyModSource` routes by real hostname with
+no network call:
 
-1. **`ModPlatform`** (`mods.types.ts`) is still `'modrinth' | 'curseforge'`. Add `'hangar'`,
-   `'spiget'`, and `'github'`, and follow the type errors (the `server_content`/library `platform`
-   columns, manifest entries, update checks).
-2. **`ModsService.classifyModSource`**: route `hangar.papermc.io` → hangar, `spigotmc.org` →
-   spiget, and `github.com` URLs plus bare `owner/repo` → github. Use `parseHangarRef`,
-   `parseSpigetRef`, and `parseGithubRef`, which need no network. `owner/repo` can't collide with a
-   Modrinth slug because Modrinth slugs have no `/`. Check it before the Modrinth-slug fallback.
-3. **`ModsService.installFromUrl`**, one branch per source:
-   - Hangar: `resolveUrl`, then `getVersion(slug, versionName)` if pinned, otherwise
-     `getVersions(slug, { mcVersion })` and the newest `release`. Return 409 when `downloadUrl` is
-     null (external). `expectedHash: hangarExpectedHash(v)`.
-   - Spiget: `resolveUrl`. Return 409 with the page URL when the resource is `external` or
-     `premium`. Pick `versionId` or `getVersions()[0]`, download from `downloadUrl(id, versionId)`,
-     and leave `expectedHash` unset. Spiget gives no filename, so build one from the name and
-     version.
-   - GitHub: `resolveUrl`, `getReleases`, `pickGithubRelease(releases, tag)`,
-     `pickGithubAsset(release.assets, asset)`. Use `expectedHash: githubAssetExpectedHash(a)`.
-4. **`ModBrowserService` / `ModBrowserOrchestratorService`**: add Hangar and Spiget to plugin
-   search and version listing. Neither publishes machine-readable dependencies, so their
-   dependency closure is empty.
-5. **Update checker** (`updates/`): newer-version checks for installed Hangar, Spiget, and GitHub
-   content.
-6. **Frontend**: Hangar and SpigotMC search chips on the Mods tab for plugin servers, the add-by-link
-   copy listing every accepted form, and the manual-download fallback for external or premium
-   Spiget resources and external Hangar versions.
+| Input                                                    | Routed to  |
+| -------------------------------------------------------- | ---------- |
+| `modrinth.com/...`, bare slug                            | modrinth   |
+| `curseforge.com/...`                                     | curseforge |
+| `hangar.papermc.io/<owner>/<slug>[/versions/<v>]`        | hangar     |
+| `spigotmc.org/resources/<name.>id[?version=<v>]`         | spiget     |
+| `github.com/o/r[/releases[/tag/<t>]]`, `.jar` asset link | github     |
+| bare `owner/repo`                                        | github     |
+| any other URL, non-`.jar` GitHub asset links             | direct     |
+
+- A URL pasted without `https://` works when it starts with a dotted host and a path
+  (`github.com/o/r`). A slash can't appear in a Modrinth slug, so anything else with a `/` is
+  either `owner/repo` or invalid.
+- Non-jar GitHub release assets (a datapack `.zip`) stay `direct`. The GitHub client only lists
+  `.jar` assets, and routing those links through it would break installs that worked before 4.29.
+- Bare Spiget ids and bare Hangar slugs aren't routed: `28140` or `ViaVersion` would collide with
+  Modrinth slugs. Paste the page URL.
+
+Per source, on install:
+
+- **Hangar**: a pinned version via `getVersion`. Otherwise `getVersions(slug, { mcVersion, limit: 50
+})`, then the newest `release`, falling back to the newest of any channel. `limit: 50` because
+  ViaVersion's newest release was 16th in the list, behind 15 snapshots. sha256 is verified.
+- **Spiget**: `premium` and `external` resources return **409**, with the page URL or the resource's
+  `file.externalUrl` (now on `SpigetResource.externalUrl`), before any download. A pinned
+  `?version=` goes through a new `getVersion` (`/resources/{id}/versions/{vid}`), so pins older than
+  the list window still work. Filename is `<name>-<version>.jar`, since Spiget gives none (the
+  proxy does send `Content-Disposition`, but `LibraryService` doesn't read it). There's no hash, so
+  `LibraryService` logs "unverified".
+- **GitHub**: `pickGithubRelease` / `pickGithubAsset`. A download link names its asset exactly, so
+  a missing asset is a 404, not a fallback to another jar. A pinned tag only matches within the 30
+  most recent releases. The sha256 comes from `digest`.
+- **Hangar and Spiget refuse non-plugin servers** (400, before any network call). They only host
+  Paper/Spigot plugins, and unlike Modrinth there's no loader filter to fail on, so a Fabric server
+  would otherwise get a Paper jar in `mods/`. GitHub isn't guarded, since it hosts both.
+
+### Why Hangar's external builds are a 409 too
+
+Checked live against the top ~100 Hangar projects: 34 had an externally-hosted newest build.
+`externalUrl` is arbitrary. Sometimes it's a direct jar (ProtocolLib's GitHub asset, MythicMobs'
+CDN). Often it's a page: a GitHub release tag (EssentialsX, Towny), a Modrinth version page, a
+Jenkins job, Patreon (CoreProtect), a SpigotMC page, or dev.bukkit.org. There's no hash, and no
+way to tell a file from a page without fetching it. So it's a 409 that names the URL, the same as
+Spiget. Many of those URLs (GitHub, Modrinth, SpigotMC) can be pasted straight back into
+add-by-link, which works today.
+
+### Types
+
+`ModPlatform` now has all five registries. `BrowsablePlatform` (`modrinth | curseforge`) is what
+`ModBrowserService` and `refToUrl` take. Both are only reached through zod enums restricted to
+those two, and widening their types would have let Hangar/Spiget silently fall into their
+Modrinth `else` branches. `refToUrl` didn't gain the new platforms: its only callers
+(`mods.controller.ts` update(), the orchestrator's from-mods flow) never see them.
+
+### Still deferred
+
+1. **Mod browser** (`ModBrowserService` / `ModBrowserOrchestratorService`, server-creation
+   wizard): Hangar/Spiget search and version listing. Neither publishes machine-readable
+   dependencies, so their dependency closure would be empty. Widen `BrowsablePlatform` then.
+2. **Update checker** (`updates/`) and `mods.controller.ts` update(): newer-version checks and
+   one-click updates for `hangar`/`spiget`/`github` library rows (they 409 "Cannot auto-update"
+   today). `refToUrl` gains the new platforms at that point.
+3. **Frontend**: Hangar/SpigotMC search chips, and the manual download fallback (open page +
+   upload jar) for the 409s. That's upstream-parity 4.32. For now the add-by-link toast shows the
+   409 message, URL included, and stays up until dismissed.

@@ -13,7 +13,13 @@ export const spigetResourceSchema = z.object({
   testedVersions: z.array(z.string()).optional(),
   external: z.boolean().optional(),
   premium: z.boolean().optional(),
-  file: z.object({ type: z.string().nullable().optional() }).optional(),
+  file: z
+    .object({
+      type: z.string().nullable().optional(),
+      // Set when `type` is "external": where the author actually hosts it.
+      externalUrl: z.string().nullable().optional(),
+    })
+    .optional(),
 });
 
 export const spigetResourceListSchema = z.array(spigetResourceSchema);
@@ -28,3 +34,4 @@ export const spigetVersionSchema = z.object({
 export const spigetVersionListSchema = z.array(spigetVersionSchema);
 
 export type RawSpigetResource = z.infer<typeof spigetResourceSchema>;
+export type RawSpigetVersion = z.infer<typeof spigetVersionSchema>;

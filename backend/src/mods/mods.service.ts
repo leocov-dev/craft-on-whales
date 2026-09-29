@@ -14,12 +14,21 @@ import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
-import { LibraryService } from '../library/library.service';
+import { LibraryService, type DownloadMeta } from '../library/library.service';
 import { ModrinthApiService } from './modrinth-api.service';
 import {
   CurseforgeApiService,
   curseforgeExpectedHash,
 } from './curseforge-api.service';
+import { HangarApiService, hangarExpectedHash } from './hangar-api.service';
+import { SpigetApiService } from './spiget-api.service';
+import {
+  GithubReleasesApiService,
+  githubAssetExpectedHash,
+  parseGithubRef,
+  pickGithubAsset,
+  pickGithubRelease,
+} from './github-releases-api.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ModManifestService } from './mod-manifest.service';
@@ -31,7 +40,11 @@ import type {
   PendingDownload,
   ContentKind as SharedContentKind,
 } from '../../../shared/types/mods';
-import type { ModPlatform } from './mods.types';
+import type {
+  BrowsablePlatform,
+  HangarVersion,
+  ModPlatform,
+} from './mods.types';
 
 export type { ContentItem, PendingDownload };
 
@@ -56,11 +69,23 @@ const PLUGIN_TYPES = new Set([
 
 type ContentKind = SharedContentKind;
 
-type ModSourceKind = 'modrinth' | 'curseforge' | 'direct' | 'invalid';
+type ModSourceKind = ModPlatform | 'direct' | 'invalid';
 
 interface ClassifiedModSource {
   kind: ModSourceKind;
   ref: string;
+}
+
+/** What the server being installed into constrains a registry lookup to. */
+interface InstallTarget {
+  mcVersion?: string;
+  loader?: string;
+}
+
+/** A source resolved to one concrete file, ready for LibraryService.downloadToLibrary. */
+interface ResolvedDownload {
+  downloadUrl: string;
+  meta: DownloadMeta;
 }
 
 @Injectable()
@@ -75,6 +100,9 @@ export class ModsService {
     private readonly library: LibraryService,
     private readonly modrinth: ModrinthApiService,
     private readonly curseforge: CurseforgeApiService,
+    private readonly hangar: HangarApiService,
+    private readonly spiget: SpigetApiService,
+    private readonly github: GithubReleasesApiService,
     private readonly query: ServerQueryService,
     private readonly lifecycle: ServerLifecycleService,
     private readonly manifest: ModManifestService,
@@ -275,13 +303,24 @@ export class ModsService {
 
   /**
    * Classify an install reference. Pure routing decision, no network.
-   *  - modrinth:  modrinth.com page URLs and bare project slugs
+   *  - modrinth:   modrinth.com page URLs and bare project slugs
    *  - curseforge: curseforge.com page URLs
-   *  - direct:    any other URL, INCLUDING cdn.modrinth.com file links —
-   *               those are downloads, not project pages
+   *  - hangar:     hangar.papermc.io project/version page URLs
+   *  - spiget:     spigotmc.org resource page URLs
+   *  - github:     github.com repo/release URLs, `.jar` release-asset links,
+   *                and bare `owner/repo`
+   *  - direct:     any other URL, INCLUDING cdn.modrinth.com file links —
+   *                those are downloads, not project pages — and non-jar
+   *                GitHub release assets (e.g. a datapack .zip)
+   * A URL pasted without its `https://` is accepted when it starts with a
+   * dotted host followed by a path.
    */
   classifyModSource(input: string | null | undefined): ClassifiedModSource {
-    const ref = String(input || '').trim();
+    const trimmed = String(input || '').trim();
+    const ref =
+      !/^https?:\/\//i.test(trimmed) && /^[\w-]+(\.[\w-]+)+\//.test(trimmed)
+        ? `https://${trimmed}`
+        : trimmed;
     if (/^https?:\/\//i.test(ref)) {
       let url: URL;
       try {
@@ -292,8 +331,22 @@ export class ModsService {
       const host = url.hostname.toLowerCase().replace(/^www\./, '');
       if (host === 'modrinth.com') return { kind: 'modrinth', ref };
       if (host === 'curseforge.com') return { kind: 'curseforge', ref };
+      if (host === 'hangar.papermc.io') return { kind: 'hangar', ref };
+      if (host === 'spigotmc.org') return { kind: 'spiget', ref };
+      if (host === 'github.com') {
+        const gh = parseGithubRef(ref);
+        // The GitHub client only deals in .jar assets; any other release
+        // asset (a datapack/resource-pack .zip) stays a plain download.
+        if (gh && (!gh.asset || /\.jar$/i.test(gh.asset)))
+          return { kind: 'github', ref };
+      }
       return { kind: 'direct', ref };
     }
+    // Modrinth slugs never contain "/", so `owner/repo` is unambiguously GitHub.
+    if (ref.includes('/'))
+      return parseGithubRef(ref)
+        ? { kind: 'github', ref }
+        : { kind: 'invalid', ref };
     // Modrinth slug charset (their documented rule): [\w!@$()`.+,"\-'] ×3–64.
     // \w keeps underscores valid — sodium_extra style slugs used to 500.
     if (/^[\w!@$()`.+,"\-']{3,64}$/.test(ref)) return { kind: 'modrinth', ref };
@@ -301,13 +354,13 @@ export class ModsService {
   }
 
   /**
-   * Inverse of classifyModSource: build a project (or project+version) page
-   * URL for a platform + ref, the shape installFromUrl accepts. Shared so
+   * Inverse of classifyModSource for the browsable platforms: build a project
+   * (or project+version) page URL, the shape installFromUrl accepts. Shared so
    * mods.controller.ts's update() and mod-browser-orchestrator.service.ts's
    * fromMods() don't each hand-roll the same URL construction.
    */
   refToUrl(
-    platform: ModPlatform,
+    platform: BrowsablePlatform,
     ref: string,
     versionId?: string | null,
   ): string {
@@ -322,9 +375,9 @@ export class ModsService {
   }
 
   /**
-   * Install content from any source reference: direct URL, Modrinth URL/slug,
-   * or CurseForge URL. Downloads into the library, links into the server dir,
-   * and records an overlay row. onProgress passes through to the download.
+   * Install content from any source reference (see classifyModSource).
+   * Downloads into the library, links into the server dir, and records an
+   * overlay row. onProgress passes through to the download.
    */
   async installFromUrl(
     serverId: string,
@@ -352,81 +405,28 @@ export class ModsService {
       server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
         ? undefined
         : server.mc_version;
-    const loader = this.loaderOf(server);
+    const loader = this.loaderOf(server) || undefined;
 
     const source = this.classifyModSource(input);
     if (source.kind === 'invalid') {
       throw new BadRequestException(
-        'Enter a Modrinth/CurseForge URL, a direct download URL, or a Modrinth project slug',
+        'Enter a Modrinth, CurseForge, Hangar, SpigotMC or GitHub link, a GitHub owner/repo, a Modrinth project slug, or a direct download URL',
+      );
+    }
+    if (
+      (source.kind === 'hangar' || source.kind === 'spiget') &&
+      !PLUGIN_TYPES.has(server.type)
+    ) {
+      throw new BadRequestException(
+        `${source.kind === 'hangar' ? 'Hangar' : 'SpigotMC'} only hosts Paper/Spigot plugins, and this ${server.type} server doesn't load plugins`,
       );
     }
 
-    let downloadUrl = source.ref;
-    const meta: Record<string, unknown> = {
-      category: targetKind,
-      platform: 'url',
-    };
-
-    if (source.kind === 'modrinth') {
-      const resolved = await this.modrinth.resolveUrl(source.ref);
-      const versions = resolved.versionId
-        ? [await this.modrinth.getVersion(resolved.versionId)]
-        : await this.modrinth.getVersions(resolved.projectId, {
-            loader: loader || undefined,
-            mcVersion,
-          });
-      if (!versions.length)
-        throw new NotFoundException(
-          `No ${resolved.title} build matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
-        );
-      const version = versions[0]!;
-      const file = this.modrinth.primaryFile(version);
-      downloadUrl = file.url;
-      Object.assign(meta, {
-        platform: 'modrinth',
-        projectId: resolved.projectId,
-        fileId: version.id,
-        name: resolved.title,
-        filename: file.filename,
-        version: version.version_number,
-        iconUrl: resolved.iconUrl,
-        mcVersions: version.game_versions,
-        loaders: version.loaders,
-        // Modrinth version files always carry hashes.sha512 in practice.
-        expectedHash: { algorithm: 'sha512', hex: file.hashes.sha512 },
-      });
-    } else if (source.kind === 'curseforge') {
-      const resolved = await this.curseforge.resolveUrl(source.ref);
-      const file = resolved.fileId
-        ? await this.curseforge.getFile(resolved.modId, resolved.fileId)
-        : (
-            await this.curseforge.getFiles(resolved.modId, {
-              mcVersion,
-              loader: loader || undefined,
-            })
-          )[0];
-      if (!file)
-        throw new NotFoundException(
-          `No ${resolved.name} file matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
-        );
-      if (!file.downloadUrl)
-        throw new ConflictException(
-          `${resolved.name} disallows automated downloads — download it in a browser and upload the jar instead`,
-        );
-      downloadUrl = file.downloadUrl;
-      Object.assign(meta, {
-        platform: 'curseforge',
-        projectId: String(resolved.modId),
-        fileId: String(file.fileId),
-        name: resolved.name,
-        filename: file.fileName,
-        version: file.name,
-        iconUrl: resolved.iconUrl,
-        mcVersions: file.gameVersions,
-        expectedHash: curseforgeExpectedHash(file),
-      });
-    }
-    // source.kind === 'direct' → plain download of the URL as-is.
+    const { downloadUrl, meta } = await this.resolveSource(source, {
+      mcVersion,
+      loader,
+    });
+    meta.category = targetKind;
 
     const lib = await this.library.downloadToLibrary(downloadUrl, meta, {
       onProgress,
@@ -472,6 +472,239 @@ export class ModsService {
         ),
       );
     return { library: lib, filename };
+  }
+
+  /** Turn a classified source into the file to download plus its library metadata. */
+  private resolveSource(
+    source: ClassifiedModSource,
+    target: InstallTarget,
+  ): Promise<ResolvedDownload> {
+    switch (source.kind) {
+      case 'modrinth':
+        return this.resolveModrinth(source.ref, target);
+      case 'curseforge':
+        return this.resolveCurseforge(source.ref, target);
+      case 'hangar':
+        return this.resolveHangar(source.ref, target);
+      case 'spiget':
+        return this.resolveSpiget(source.ref);
+      case 'github':
+        return this.resolveGithub(source.ref);
+      case 'direct':
+        return Promise.resolve({
+          downloadUrl: source.ref,
+          meta: { platform: 'url' },
+        });
+      case 'invalid':
+        throw new BadRequestException('Unrecognized content source');
+    }
+  }
+
+  private async resolveModrinth(
+    ref: string,
+    { mcVersion, loader }: InstallTarget,
+  ): Promise<ResolvedDownload> {
+    const resolved = await this.modrinth.resolveUrl(ref);
+    const versions = resolved.versionId
+      ? [await this.modrinth.getVersion(resolved.versionId)]
+      : await this.modrinth.getVersions(resolved.projectId, {
+          loader,
+          mcVersion,
+        });
+    if (!versions.length)
+      throw new NotFoundException(
+        `No ${resolved.title} build matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
+      );
+    const version = versions[0]!;
+    const file = this.modrinth.primaryFile(version);
+    return {
+      downloadUrl: file.url,
+      meta: {
+        platform: 'modrinth',
+        projectId: resolved.projectId,
+        fileId: version.id,
+        name: resolved.title,
+        filename: file.filename,
+        version: version.version_number,
+        iconUrl: resolved.iconUrl,
+        mcVersions: version.game_versions,
+        loaders: version.loaders,
+        // Modrinth version files always carry hashes.sha512 in practice.
+        expectedHash: { algorithm: 'sha512', hex: file.hashes.sha512 },
+      },
+    };
+  }
+
+  private async resolveCurseforge(
+    ref: string,
+    { mcVersion, loader }: InstallTarget,
+  ): Promise<ResolvedDownload> {
+    const resolved = await this.curseforge.resolveUrl(ref);
+    const file = resolved.fileId
+      ? await this.curseforge.getFile(resolved.modId, resolved.fileId)
+      : (
+          await this.curseforge.getFiles(resolved.modId, { mcVersion, loader })
+        )[0];
+    if (!file)
+      throw new NotFoundException(
+        `No ${resolved.name} file matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
+      );
+    if (!file.downloadUrl)
+      throw new ConflictException(
+        `${resolved.name} disallows automated downloads — download it in a browser and upload the jar instead`,
+      );
+    return {
+      downloadUrl: file.downloadUrl,
+      meta: {
+        platform: 'curseforge',
+        projectId: String(resolved.modId),
+        fileId: String(file.fileId),
+        name: resolved.name,
+        filename: file.fileName,
+        version: file.name,
+        iconUrl: resolved.iconUrl,
+        mcVersions: file.gameVersions,
+        expectedHash: curseforgeExpectedHash(file),
+      },
+    };
+  }
+
+  /**
+   * Hangar: a pinned version as-is, otherwise the newest MC-compatible build
+   * on the Release channel — many projects (ViaVersion) publish Snapshot
+   * builds far more often, so "newest" alone would usually be a snapshot.
+   * Falls back to the newest build of any channel when there's no release.
+   */
+  private async resolveHangar(
+    ref: string,
+    { mcVersion }: InstallTarget,
+  ): Promise<ResolvedDownload> {
+    const resolved = await this.hangar.resolveUrl(ref);
+    let version: HangarVersion | undefined;
+    if (resolved.versionName) {
+      version = await this.hangar.getVersion(
+        resolved.slug,
+        resolved.versionName,
+      );
+    } else {
+      const versions = await this.hangar.getVersions(resolved.slug, {
+        mcVersion,
+        limit: 50,
+      });
+      version =
+        versions.find((v) => v.versionType === 'release') ?? versions[0];
+    }
+    if (!version || (!version.downloadUrl && !version.externalUrl))
+      throw new NotFoundException(
+        version
+          ? `${resolved.name} ${version.name} has no Paper build on Hangar`
+          : `No ${resolved.name} Paper build matches Minecraft ${mcVersion || '(any version)'}`,
+      );
+    // Externally-hosted builds link to an arbitrary page or file (GitHub
+    // release pages, CI servers, Patreon, …) with no hash to check — not
+    // something to fetch blind.
+    if (!version.downloadUrl)
+      throw new ConflictException(
+        `${resolved.name} ${version.name} isn't hosted on Hangar, so it can't be downloaded automatically — get it from ${version.externalUrl} and upload the jar instead`,
+      );
+    return {
+      downloadUrl: version.downloadUrl,
+      meta: {
+        platform: 'hangar',
+        projectId: resolved.slug,
+        fileId: version.name,
+        name: resolved.name,
+        filename: version.filename ?? undefined,
+        version: version.name,
+        iconUrl: resolved.iconUrl,
+        mcVersions: version.gameVersions,
+        expectedHash: hangarExpectedHash(version),
+      },
+    };
+  }
+
+  /**
+   * SpigotMC via Spiget: a pinned `?version=` or the newest build, fetched
+   * through Spiget's download proxy. Premium and externally-hosted resources
+   * can't be proxied. Spiget publishes no hashes and no per-version MC tags.
+   */
+  private async resolveSpiget(ref: string): Promise<ResolvedDownload> {
+    const resolved = await this.spiget.resolveUrl(ref);
+    if (resolved.premium)
+      throw new ConflictException(
+        `${resolved.name} is a premium SpigotMC resource, so it can't be downloaded automatically — buy and download it at ${resolved.pageUrl}, then upload the jar instead`,
+      );
+    if (resolved.external)
+      throw new ConflictException(
+        `${resolved.name} is hosted outside SpigotMC, so it can't be downloaded automatically — get it from ${resolved.externalUrl || resolved.pageUrl} and upload the jar instead`,
+      );
+    const version = resolved.versionId
+      ? await this.spiget.getVersion(resolved.resourceId, resolved.versionId)
+      : (await this.spiget.getVersions(resolved.resourceId))[0];
+    if (!version)
+      throw new NotFoundException(
+        `${resolved.name} has no downloadable version on SpigotMC`,
+      );
+    // Spiget gives no filename; build a stable one from name + version.
+    const slugify = (s: string) =>
+      s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
+    return {
+      downloadUrl: this.spiget.downloadUrl(
+        resolved.resourceId,
+        version.versionId,
+      ),
+      meta: {
+        platform: 'spiget',
+        projectId: String(resolved.resourceId),
+        fileId: version.versionId,
+        name: resolved.name,
+        filename: `${slugify(resolved.name) || `spigot-${resolved.resourceId}`}-${slugify(version.name)}.jar`,
+        version: version.name,
+        iconUrl: resolved.iconUrl,
+        // Resource-level "tested versions" — Spiget has nothing per version.
+        mcVersions: resolved.testedVersions,
+      },
+    };
+  }
+
+  /**
+   * GitHub Releases: the pinned tag (and asset) if the link named one,
+   * otherwise the newest stable release with a jar. GitHub has no loader or
+   * MC metadata, so nothing is filtered by server.
+   */
+  private async resolveGithub(ref: string): Promise<ResolvedDownload> {
+    const resolved = await this.github.resolveUrl(ref);
+    const releases = await this.github.getReleases(resolved.repo);
+    const release = pickGithubRelease(releases, resolved.tag);
+    if (!release)
+      throw new NotFoundException(
+        resolved.tag
+          ? `No release tagged ${resolved.tag} among ${resolved.repo}'s recent releases`
+          : `${resolved.repo} has no release with a .jar asset`,
+      );
+    // A download link names its asset exactly — don't swap in a different jar.
+    const asset = resolved.asset
+      ? release.assets.find((a) => a.name === resolved.asset)
+      : pickGithubAsset(release.assets);
+    if (!asset)
+      throw new NotFoundException(
+        resolved.asset
+          ? `Release ${release.tag} of ${resolved.repo} has no .jar asset named ${resolved.asset}`
+          : `Release ${release.tag} of ${resolved.repo} has no .jar asset`,
+      );
+    return {
+      downloadUrl: asset.downloadUrl,
+      meta: {
+        platform: 'github',
+        projectId: resolved.repo,
+        fileId: release.tag,
+        name: resolved.name,
+        filename: asset.name,
+        version: release.tag,
+        iconUrl: resolved.iconUrl,
+        expectedHash: githubAssetExpectedHash(asset),
+      },
+    };
   }
 
   /** Toggle content. Overlay: rename instantly. Pack: exclusion env + recreate flag. */

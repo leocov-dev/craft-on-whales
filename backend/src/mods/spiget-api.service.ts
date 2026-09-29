@@ -17,8 +17,10 @@ import type {
 import {
   spigetResourceSchema,
   spigetResourceListSchema,
+  spigetVersionSchema,
   spigetVersionListSchema,
   type RawSpigetResource,
+  type RawSpigetVersion,
 } from './spiget-api.schemas';
 
 const BASE = 'https://api.spiget.org/v2';
@@ -164,13 +166,20 @@ export class SpigetApiService {
         ttlMs: 10 * 60 * 1000,
       },
     );
-    return data.map((v) => ({
-      versionId: String(v.id),
-      name: v.name || String(v.id),
-      datePublished: v.releaseDate
-        ? new Date(v.releaseDate * 1000).toISOString()
-        : null,
-    }));
+    return data.map((v) => this.normalizeVersion(v));
+  }
+
+  /** One version by id — for a pinned `?version=` that may be older than getVersions' window. */
+  async getVersion(
+    resourceId: number,
+    versionId: string,
+  ): Promise<SpigetVersion> {
+    const v = await this.spigetFetch(
+      `/resources/${this.assertId(resourceId)}/versions/${this.assertId(Number(versionId))}`,
+      spigetVersionSchema,
+      { ttlMs: 60 * 60 * 1000 },
+    );
+    return this.normalizeVersion(v);
   }
 
   /** The Cloudflare-dodging CDN download URL for one version (omit `versionId` for the latest). */
@@ -197,6 +206,16 @@ export class SpigetApiService {
     return id;
   }
 
+  private normalizeVersion(v: RawSpigetVersion): SpigetVersion {
+    return {
+      versionId: String(v.id),
+      name: v.name || String(v.id),
+      datePublished: v.releaseDate
+        ? new Date(v.releaseDate * 1000).toISOString()
+        : null,
+    };
+  }
+
   private normalizeResource(r: RawSpigetResource): SpigetResource {
     return {
       resourceId: r.id,
@@ -208,6 +227,7 @@ export class SpigetApiService {
       testedVersions: r.testedVersions ?? [],
       external: Boolean(r.external || r.file?.type === 'external'),
       premium: Boolean(r.premium),
+      externalUrl: r.file?.externalUrl || null,
       pageUrl: `https://www.spigotmc.org/resources/${r.id}/`,
     };
   }

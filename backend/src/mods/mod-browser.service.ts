@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ModrinthApiService } from './modrinth-api.service';
 import { CurseforgeApiService } from './curseforge-api.service';
 import type {
-  ModPlatform,
+  BrowsablePlatform,
   ModrinthVersion,
   CurseforgeFile,
 } from './mods.types';
@@ -26,7 +26,7 @@ function normMc(mc: string | null | undefined): string | undefined {
 
 /** A single unified search result row, same shape for either platform. */
 export interface ModSearchHit {
-  platform: ModPlatform;
+  platform: BrowsablePlatform;
   ref: string;
   projectId: string;
   name: string;
@@ -37,7 +37,7 @@ export interface ModSearchHit {
 
 export interface ModBrowserSearchParams {
   query: string | null | undefined;
-  platform?: ModPlatform;
+  platform?: BrowsablePlatform;
   loader?: string;
   mc?: string;
   limit?: number;
@@ -64,7 +64,7 @@ export interface ModVersion {
 }
 
 export interface ModBrowserVersionsParams {
-  platform: ModPlatform;
+  platform: BrowsablePlatform;
   ref: string;
   loader?: string;
   mc?: string;
@@ -73,14 +73,14 @@ export interface ModBrowserVersionsParams {
 
 /** One selection entry the wizard passes in to resolveDependencies(). */
 export interface DepSelectionEntry {
-  platform: ModPlatform;
+  platform: BrowsablePlatform;
   ref: string;
   versionId?: string | null;
 }
 
 /** One resolved dependency, editable in the wizard before install. */
 export interface ResolvedDep {
-  platform: ModPlatform;
+  platform: BrowsablePlatform;
   ref: string;
   projectId: string;
   name: string;
@@ -90,7 +90,7 @@ export interface ResolvedDep {
 }
 
 interface QueueNode {
-  platform: ModPlatform;
+  platform: BrowsablePlatform;
   projectId: string;
 }
 
@@ -149,7 +149,10 @@ export class ModBrowserService {
   }
 
   /** {ref, projectId, name, iconUrl} for a mod given a slug or platform id. */
-  async metaFor(platform: ModPlatform, refOrId: string): Promise<ModMeta> {
+  async metaFor(
+    platform: BrowsablePlatform,
+    refOrId: string,
+  ): Promise<ModMeta> {
     if (platform === 'curseforge') {
       const mod = /^\d+$/.test(String(refOrId))
         ? await this.curseforge.getMod(Number(refOrId))
@@ -222,13 +225,13 @@ export class ModBrowserService {
     return list.slice(0, limit).map((v) => this.normModrinthVersion(v));
   }
 
-  private depKey(platform: ModPlatform, projectId: string): string {
+  private depKey(platform: BrowsablePlatform, projectId: string): string {
     return `${platform}:${projectId}`;
   }
 
   /** Required-dependency project ids of ONE build (same platform as its parent). */
   private async requiredDepsOfVersion(
-    platform: ModPlatform,
+    platform: BrowsablePlatform,
     projectId: string,
     versionId: string,
   ): Promise<string[]> {

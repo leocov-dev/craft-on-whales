@@ -42,7 +42,7 @@
         dense
         filled
         class="col"
-        placeholder="Modrinth/CurseForge URL or slug…"
+        placeholder="Modrinth, CurseForge, Hangar, SpigotMC or GitHub link, owner/repo, or slug…"
         @keyup.enter="addMod"
       />
       <q-btn color="primary" label="Add" :loading="adding" @click="addMod" />
@@ -119,6 +119,7 @@ import { useQuasar } from 'quasar';
 import { modsApi, type ContentItem, type PendingDownload } from '@/api/mods';
 import { packsApi, type PackModInfo } from '@/api/packs';
 import { tasksApi } from '@/api/tasks';
+import { ApiError } from '@/api/http';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 
@@ -162,7 +163,15 @@ async function addMod() {
     $q.notify({ type: 'positive', message: 'Added.' });
     await load();
   } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Could not add.' });
+    // A 409 means "can't be fetched automatically" (premium/off-site/
+    // download-disallowed) and names where to get the jar — keep that
+    // message up until dismissed so the link can be copied.
+    const manual = err instanceof ApiError && err.status === 409;
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Could not add.',
+      ...(manual ? { timeout: 0, actions: [{ label: 'Dismiss', color: 'white' }] } : {}),
+    });
   } finally {
     adding.value = false;
   }

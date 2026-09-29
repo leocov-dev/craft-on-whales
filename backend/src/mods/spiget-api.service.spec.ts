@@ -99,6 +99,7 @@ describe('SpigetApiService', () => {
       testedVersions: ['1.20', '1.21'],
       external: false,
       premium: false,
+      externalUrl: null,
       pageUrl: 'https://www.spigotmc.org/resources/28140/',
       versionId: '648014',
     });
@@ -106,9 +107,16 @@ describe('SpigetApiService', () => {
 
   it('flags external and premium resources', async () => {
     fetchMock.mockResolvedValueOnce(
-      Response.json(resource({ external: true, file: { type: 'external' } })),
+      Response.json(
+        resource({
+          external: true,
+          file: { type: 'external', externalUrl: 'https://example.org/dl' },
+        }),
+      ),
     );
-    expect((await service.getResource(1)).external).toBe(true);
+    const ext = await service.getResource(1);
+    expect(ext.external).toBe(true);
+    expect(ext.externalUrl).toBe('https://example.org/dl');
     fetchMock.mockResolvedValueOnce(Response.json(resource({ premium: true })));
     expect((await service.getResource(2)).premium).toBe(true);
   });
