@@ -58,6 +58,7 @@
         accept=".zip,.mrpack"
         label="Import a .mrpack or a zip of jars…"
         :disable="importing"
+        @rejected="onImportFileRejected"
       >
         <template #prepend><q-icon name="upload_file" /></template>
       </q-file>
@@ -215,6 +216,11 @@ const importProgress = ref<number | null>(null);
 const importReport = ref<ContentImportReport | null>(null);
 const reportOpen = ref(false);
 const importsOpen = ref(false);
+
+/** QFile silently drops files failing `accept`; tell the user why nothing was picked. */
+function onImportFileRejected() {
+  $q.notify({ type: 'negative', message: 'Import file must be a .zip or .mrpack.' });
+}
 
 const importNames = computed(
   () =>

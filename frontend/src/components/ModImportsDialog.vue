@@ -50,6 +50,7 @@
 import { ref } from 'vue';
 import { useQuasar } from 'quasar';
 import { modsApi, type ContentImportSummary } from '@/api/mods';
+import { parseDbTimestamp } from '@/utils/db-timestamp';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -66,13 +67,11 @@ const $q = useQuasar();
 const removing = ref<string | null>(null);
 
 /**
- * `created_at` is SQLite's `datetime('now')`: UTC as `YYYY-MM-DD HH:MM:SS`, no zone. `new Date()`
- * would read that as local time, so mark it UTC unless it already carries a zone.
+ * `created_at` is SQLite's zoneless-UTC `datetime('now')` or Postgres's `timestamptz::text`
+ * (whose offset can be just `+00`); `parseDbTimestamp` handles both.
  */
 function formatCreatedAt(value: string): string {
-  const iso = value.includes('T') ? value : value.replace(' ', 'T');
-  const zoned = /(Z|[+-]\d\d:?\d\d)$/i.test(iso) ? iso : `${iso}Z`;
-  return new Date(zoned).toLocaleString();
+  return parseDbTimestamp(value).toLocaleString();
 }
 
 function importLabel(imp: ContentImportSummary): string {

@@ -12,6 +12,7 @@
     "dev": "quasar dev",
     "build": "quasar build",
     "typecheck": "vue-tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "postinstall": "quasar prepare --silent"
   },
   "dependencies": {
