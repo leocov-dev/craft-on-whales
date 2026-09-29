@@ -12,20 +12,28 @@ import type {
   ModrinthProject,
   ModrinthVersion,
   ModrinthFile,
+  ModrinthVersionWithProject,
 } from './mods.types';
 import {
   searchResponseSchema,
   projectSchema,
   versionSchema,
   versionListSchema,
+  versionFilesResponseSchema,
+  projectListSchema,
 } from './modrinth-api.schemas';
 
 const BASE = 'https://api.modrinth.com/v2';
 const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
+// Hashes / ids per bulk request. Modrinth documents no hard cap; this keeps a
+// big pack's request bodies and query strings a sane size.
+const BULK_CHUNK = 200;
 
 interface MrFetchOptions {
   ttlMs?: number;
   search?: Record<string, string>;
+  method?: 'GET' | 'POST';
+  body?: unknown;
 }
 
 export interface ModrinthSearchParams {
@@ -45,16 +53,28 @@ export class ModrinthApiService {
   private async mrFetch<T>(
     pathname: string,
     schema: ZodType<T>,
-    { ttlMs = 10 * 60 * 1000, search }: MrFetchOptions = {},
+    {
+      ttlMs = 10 * 60 * 1000,
+      search,
+      method = 'GET',
+      body,
+    }: MrFetchOptions = {},
   ): Promise<T> {
     const url = new URL(BASE + pathname);
     if (search)
       for (const [k, v] of Object.entries(search)) url.searchParams.set(k, v);
+    // Only GETs are cached, as in cfFetch: the cache key has no body in it.
     const cacheKey = `modrinth:${url.pathname}${url.search}`;
-    const cached = await this.cache.get(cacheKey);
+    const cached = method === 'GET' ? await this.cache.get(cacheKey) : null;
     if (cached && cached.ageMs < ttlMs) return schema.parse(cached.value);
     const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Accept: 'application/json' },
+      method,
+      headers: {
+        'User-Agent': UA,
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(15000),
     });
     if (res.status === 429) {
@@ -77,7 +97,8 @@ export class ModrinthApiService {
         `Modrinth returned an unexpected response shape for ${pathname}`,
       );
     }
-    void this.cache.set(cacheKey, json).catch(() => undefined);
+    if (method === 'GET')
+      void this.cache.set(cacheKey, json).catch(() => undefined);
     return data;
   }
 
@@ -192,6 +213,46 @@ export class ModrinthApiService {
       projectType: project.project_type,
       versionId,
     };
+  }
+
+  /**
+   * Reverse lookup by file hash (POST /version_files), batched. Maps each
+   * hash Modrinth knows (lowercased) to the version that file belongs to.
+   * Unknown hashes are absent, not an error.
+   */
+  async getVersionsByHashes(
+    hashes: string[],
+    algorithm: 'sha1' | 'sha512' = 'sha1',
+  ): Promise<Map<string, ModrinthVersionWithProject>> {
+    const unique = [...new Set(hashes.map((h) => h.toLowerCase()))];
+    const out = new Map<string, ModrinthVersionWithProject>();
+    for (let i = 0; i < unique.length; i += BULK_CHUNK) {
+      const data = await this.mrFetch(
+        '/version_files',
+        versionFilesResponseSchema,
+        {
+          method: 'POST',
+          body: { hashes: unique.slice(i, i + BULK_CHUNK), algorithm },
+        },
+      );
+      for (const [hash, version] of Object.entries(data))
+        out.set(hash.toLowerCase(), version);
+    }
+    return out;
+  }
+
+  /** Several projects at once (GET /projects?ids=[...]), keyed by project id. */
+  async getProjects(ids: string[]): Promise<Map<string, ModrinthProject>> {
+    const unique = [...new Set(ids)];
+    const out = new Map<string, ModrinthProject>();
+    for (let i = 0; i < unique.length; i += BULK_CHUNK) {
+      const data = await this.mrFetch('/projects', projectListSchema, {
+        search: { ids: JSON.stringify(unique.slice(i, i + BULK_CHUNK)) },
+        ttlMs: 30 * 60 * 1000,
+      });
+      for (const p of data) out.set(p.id, p);
+    }
+    return out;
   }
 
   /** Pick the file to download from a version object (primary first). */

@@ -13,6 +13,7 @@ import type {
   CurseforgeMod,
   CurseforgeFile,
   CurseforgeResolved,
+  CurseforgeFingerprintMatch,
   ExpectedHash,
 } from './mods.types';
 import {
@@ -21,6 +22,8 @@ import {
   fileListResponseSchema,
   fileResponseSchema,
   descriptionResponseSchema,
+  modListResponseSchema,
+  fingerprintMatchesResponseSchema,
   type RawCfMod,
   type RawCfFile,
 } from './curseforge-api.schemas';
@@ -46,6 +49,8 @@ const GAME_MINECRAFT = 432;
 const CLASS_MODS = 6;
 const CLASS_MODPACKS = 4471;
 const CLASS_PLUGINS = 5;
+// Fingerprints / mod ids per bulk POST, to keep a big pack's bodies bounded.
+const BULK_CHUNK = 200;
 
 interface CfFetchOptions {
   search?: Record<string, string | number>;
@@ -208,6 +213,49 @@ export class CurseforgeApiService {
       { ttlMs: 60 * 60 * 1000 },
     );
     return this.normalizeFile(data.data);
+  }
+
+  /** Several projects at once (POST /v1/mods), keyed by mod id. */
+  async getMods(modIds: number[]): Promise<Map<number, CurseforgeMod>> {
+    const unique = [...new Set(modIds)];
+    const out = new Map<number, CurseforgeMod>();
+    for (let i = 0; i < unique.length; i += BULK_CHUNK) {
+      const data = await this.cfFetch('/mods', modListResponseSchema, {
+        method: 'POST',
+        body: { modIds: unique.slice(i, i + BULK_CHUNK) },
+      });
+      for (const m of data.data) out.set(m.id, this.normalizeMod(m));
+    }
+    return out;
+  }
+
+  /**
+   * Reverse lookup by file fingerprint (POST /v1/fingerprints/432), batched.
+   * Fingerprints come from `curseforgeFingerprint()`. Returns exact matches
+   * only; fingerprints CurseForge doesn't know are simply absent.
+   */
+  async getFingerprintMatches(
+    fingerprints: number[],
+  ): Promise<CurseforgeFingerprintMatch[]> {
+    const unique = [...new Set(fingerprints)];
+    const matches: CurseforgeFingerprintMatch[] = [];
+    for (let i = 0; i < unique.length; i += BULK_CHUNK) {
+      const data = await this.cfFetch(
+        `/fingerprints/${GAME_MINECRAFT}`,
+        fingerprintMatchesResponseSchema,
+        {
+          method: 'POST',
+          body: { fingerprints: unique.slice(i, i + BULK_CHUNK) },
+        },
+      );
+      for (const m of data.data.exactMatches ?? [])
+        matches.push({
+          modId: m.id,
+          fingerprint: m.file.fileFingerprint,
+          file: this.normalizeFile(m.file),
+        });
+    }
+    return matches;
   }
 
   /**

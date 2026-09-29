@@ -57,3 +57,13 @@ export const versionSchema = z.object({
 });
 
 export const versionListSchema = z.array(versionSchema);
+
+// POST /version_files answers { [hash]: version } for the hashes Modrinth
+// knows. project_id is on every version object; it's only required here
+// because a hash lookup is the one caller that doesn't already know it.
+export const versionFilesResponseSchema = z.record(
+  z.string(),
+  versionSchema.extend({ project_id: z.string() }),
+);
+
+export const projectListSchema = z.array(projectSchema);
