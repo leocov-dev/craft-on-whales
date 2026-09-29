@@ -352,7 +352,8 @@ undoing to the user. Here the import records what it wrote so it can be undone:
 
   The server, file extension and packwiz check are validated up front (400/404/409). The import
   then runs as a task: the response is `{ ok: true, taskId }`. Poll `GET /api/tasks/:taskId`.
-  `task.stepLabel` carries progress ("Downloading files (3/40)", "Installing 5/40: Sodium"). A
+  The task's `step` (`stepLabel` inside `TasksService`) carries progress ("Downloading files
+  (3/40)", "Installing 5/40: Sodium"). A
   finished task's `result` is a `ContentImportReport`:
 
   ```ts
@@ -384,3 +385,26 @@ overrideCount` (live counts).
 
 Task polling goes through `TasksController`, which only admins and operators can use. That's the
 same as every other task-driven action.
+
+### Mods-tab UI (upstream parity 4.30, phase 3)
+
+Files: `frontend/src/pages/server/ModsTab.vue`, `components/ModImportReportDialog.vue`,
+`components/ModImportsDialog.vue`, `api/mods.ts` (`importPack`, `listImports`, `deleteImport`).
+
+- **Upload** is a `q-file` plus an "Apply overrides" toggle on a row under add-by-link, hidden on
+  packwiz servers like add-by-link. It posts through `http.postForm`, which reuses `http.ts`'s
+  error handling for multipart bodies instead of another hand-rolled `fetch`.
+- **Progress** comes from `tasksApi.waitFor`'s `onProgress` callback, which sees every poll.
+  The tab shows `task.step` and `task.percent` (indeterminate when null).
+- **Report** opens in a dialog when the task finishes. Skip reasons and identification sources map
+  to fixed labels (`SKIP_LABELS`, `SOURCE_LABELS`). A new `ContentImportSkipReason` or
+  `JarIdentitySource` value is a type error there until it gets a label.
+- **Grouping.** `load()` fetches `GET .../mods/imports` with the list. Rows with an `importId`
+  are grouped under a "From <pack>" header, newest import first, after the individually added
+  rows. Each imported row also carries a badge with the pack name. With no imports the list looks
+  the same as before.
+- **Revert** is the "Imports" dialog. Its confirmation spells out what removal does (see
+  "Reversible overrides" above). A non-empty `kept` shows a persistent warning naming the files.
+- **`createdAt` has no zone.** `content_imports.created_at` is SQLite `datetime('now')`, UTC as
+  `YYYY-MM-DD HH:MM:SS`. `new Date()` reads that as local time, so the dialog appends `Z` when
+  the value has no zone.

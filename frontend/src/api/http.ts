@@ -20,14 +20,16 @@ interface ApiEnvelope {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // FormData goes as-is so fetch sets the multipart boundary itself.
+  const form = body instanceof FormData;
   const res = await fetch(path, {
     method,
     credentials: 'include',
     headers: {
       Accept: 'application/json',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined && !form ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: body !== undefined ? JSON.stringify(body) : null,
+    body: form ? body : body !== undefined ? JSON.stringify(body) : null,
   });
 
   const text = await res.text();
@@ -51,4 +53,6 @@ export const http = {
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   delete: <T>(path: string) => request<T>('DELETE', path),
+  /** Multipart POST (file uploads). */
+  postForm: <T>(path: string, form: FormData) => request<T>('POST', path, form),
 };
