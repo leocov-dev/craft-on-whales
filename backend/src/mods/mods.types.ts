@@ -2,7 +2,16 @@
 // modrinthApi.ts, curseforgeApi.ts, gtnhApi.ts), ported from legacy
 // src/services/types.ts's Modrinth/CurseForge section.
 
-export type ModPlatform = 'modrinth' | 'curseforge';
+/** Every registry installFromUrl can resolve a project on (stored as library_files.platform). */
+export type ModPlatform =
+  'modrinth' | 'curseforge' | 'hangar' | 'spiget' | 'github';
+
+/**
+ * The platforms the mod browser (search, version lists, dependency closure)
+ * and one-click updates handle so far. Hangar/Spiget/GitHub are add-by-link
+ * only for now — see MODS_NOTES.md.
+ */
+export type BrowsablePlatform = Extract<ModPlatform, 'modrinth' | 'curseforge'>;
 
 /**
  * A registry-published checksum for a not-yet-downloaded file, carried
@@ -160,6 +169,8 @@ export interface SpigetResource {
   external: boolean;
   /** Paid resource — never downloadable without the buyer's SpigotMC session. */
   premium: boolean;
+  /** Where an `external` resource is actually hosted (may be a page, not a file). */
+  externalUrl: string | null;
   pageUrl: string;
 }
 
