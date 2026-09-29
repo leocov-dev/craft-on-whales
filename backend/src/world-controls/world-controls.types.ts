@@ -1,53 +1,14 @@
-// Every vanilla *boolean* gamerule (see GAMERULES in world-controls.constants.ts
-// for sourcing/scope notes). Numeric gamerules (randomTickSpeed, spawnRadius,
-// etc.) are out of scope for this table.
-export type GameruleKey =
-  // World rules
-  | 'keepInventory'
-  | 'doDaylightCycle'
-  | 'doWeatherCycle'
-  | 'doImmediateRespawn'
-  | 'doLimitedCrafting'
-  | 'doTileDrops'
-  | 'doEntityDrops'
-  | 'doFireTick'
-  | 'allowFireTicksAwayFromPlayer'
-  | 'doVinesSpread'
-  | 'waterSourceConversion'
-  | 'lavaSourceConversion'
-  | 'tntExplodes'
-  | 'projectilesCanBreakBlocks'
-  | 'blockExplosionDropDecay'
-  | 'mobExplosionDropDecay'
-  | 'tntExplosionDropDecay'
-  | 'enderPearlsVanishOnDeath'
-  | 'globalSoundEvents'
-  | 'spectatorsGenerateChunks'
-  | 'reducedDebugInfo'
-  | 'disableElytraMovementCheck'
-  | 'locatorBar'
-  // Mobs & damage
-  | 'doMobSpawning'
-  | 'mobGriefing'
-  | 'doInsomnia'
-  | 'doMobLoot'
-  | 'doPatrolSpawning'
-  | 'doTraderSpawning'
-  | 'doWardenSpawning'
-  | 'disableRaids'
-  | 'forgiveDeadPlayers'
-  | 'universalAnger'
-  | 'naturalRegeneration'
-  | 'fallDamage'
-  | 'fireDamage'
-  | 'drowningDamage'
-  | 'freezeDamage'
-  // Chat & messages
-  | 'showDeathMessages'
-  | 'announceAdvancements'
-  | 'sendCommandFeedback'
-  | 'commandBlockOutput'
-  | 'logAdminCommands';
+// `GameruleKey`, `WorldState`, and `RunQuickResult` are cross-boundary shapes
+// (the frontend's gamerule toggle table needs the exact same 43-key union) —
+// defined once in shared/types/world-controls.d.ts and re-exported here
+// rather than duplicated. See that file for the full grouped key list and
+// sourcing notes.
+import type {
+  GameruleKey,
+  WorldState,
+  RunQuickResult,
+} from '../../../shared/types/world-controls';
+export type { GameruleKey, WorldState, RunQuickResult };
 
 export interface QuickActionCmd {
   cmd: string[];
@@ -74,18 +35,4 @@ export interface TimeInfo {
   ticks: number;
   label: string;
   clock: string;
-}
-
-export interface WorldState {
-  timeTicks?: number;
-  timeLabel?: string;
-  clock?: string;
-  day?: number | null;
-  pvp: boolean;
-  [rule: string]: boolean | number | string | null | undefined;
-}
-
-export interface RunQuickResult {
-  label: string;
-  output: string;
 }
