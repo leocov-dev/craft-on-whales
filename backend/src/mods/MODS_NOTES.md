@@ -199,8 +199,8 @@ Upstream reference: `anefzaoui/minecraft-server-manager` `407c328` (`src/service
 `src/utils/murmur2.js`, `test/modIdentify.test.js`). Read for behavior only.
 
 `JarIdentifierService` works out what a jar is, so a jar from a zip / `.mrpack` import (or a plain
-upload) can become a tracked library row instead of an anonymous file. Nothing calls it yet; the
-import pipeline is later phases of 4.30.
+upload) can become a tracked library row instead of an anonymous file. `ContentImportService` (next
+section) is its caller.
 
 Layers, best first. Each one only sees the jars the previous ones missed:
 
@@ -241,3 +241,146 @@ Things worth knowing:
   5 (Bukkit Plugins). Manifest: `plugin.yml` / `paper-plugin.yml` are plugins.
 - **`version` on CurseForge matches** is the file's display name (CurseForge has no separate
   version-number field), so expect things like `jei-1.20.1-forge-15.2.0.27.jar`.
+
+## Zip / .mrpack import (upstream parity 4.30, phase 2)
+
+Upstream reference: `407c328` and `c51123b` (`src/services/contentZip.js`, `test/contentZip*.test.js`).
+Read for behavior only. Files:
+
+- `pack-archive.ts`: pure parsing. `parseMrpackIndex`, `describeStagedPack` (what an extracted
+  archive is), `contentJarName`.
+- `pack-overrides.service.ts`: `PackOverridesService`, which applies and reverts override trees.
+- `content-import.service.ts`: `ContentImportService`, the pipeline, plus `jarMisfit`.
+- Routes in `mods.controller.ts`. Response types in `shared/types/mods.d.ts` (`ContentImport*`).
+
+### Accepted archives
+
+The upload is extracted with `extractZipSafely` into `data/tmp/import-<id>/` (8 GiB cap, the same as
+blueprint import) and removed when the import ends. Nothing reaches the server directory until the
+archive has fully extracted.
+
+- **`.mrpack`**: `modrinth.index.json` at the root. It must have `game: "minecraft"` and a `files`
+  array of at most 1000 entries. A broken index is a 400; it doesn't fall through to "jar zip".
+  - Entries with no path, no download or no sha1/sha512 are dropped and counted in a warning.
+  - `env.server: "unsupported"` is skipped as `client-only`.
+  - Only `mods/<name>.jar` and `plugins/<name>.jar` install. Anything else (resource packs, shader
+    packs, nested paths) is skipped as `not-a-mod`. Only the basename is used as a filename.
+  - Each file is fetched with `LibraryService.downloadToLibrary`, verified against the index's
+    sha512 (sha1 if that's all it has). The listed URLs are tried in order. Four downloads run
+    at a time.
+  - Override trees: `overrides/`, then `server-overrides/`, so the server copy of a path wins.
+    `client-overrides/` is never applied.
+- **Jar zip**: anything else with at least one jar or an `overrides/` tree. Every `*.jar` outside
+  `overrides/` counts, at any depth (at most 500). `__MACOSX/` and dot-paths are ignored. An
+  `overrides/` tree is applied like a `.mrpack`'s.
+- In either shape, a jar directly in an override tree's `mods/` or `plugins/` is installed as
+  tracked content rather than copied as an anonymous override file. Real `.mrpack`s often bundle
+  non-Modrinth mods that way.
+- **Not supported: CurseForge `manifest.json` exports.** Upstream handles them. Doing so needs a
+  bulk `getFiles` on `CurseforgeApiService` (it has none), a key, and a blocked-download flow. A
+  CurseForge export zip contains no jars, so today it's rejected as unrecognized unless it has
+  `overrides/`, in which case only the overrides apply.
+
+### Install
+
+The jars from both sources are identified in **one** `JarIdentifierService.identifyMany` call.
+That means every jar is in memory at once, bounded by the 1000/500 caps. Then each jar either
+installs or is skipped:
+
+- **Skip rules.** `already-installed`: the filename is already in the content dir, on disk or as a
+  row. Imports never overwrite an existing jar, because a revert would then delete the user's own
+  file. `duplicate`: the same filename came earlier in the archive (bundled jars come first).
+  `wrong-kind` / `wrong-loader`: see `jarMisfit`. Only positive evidence skips a jar. An unknown
+  jar, or one with no loader data, installs. Quilt accepts Fabric jars. Minecraft version is never
+  checked per jar; a `.mrpack` whose `dependencies` disagree with the server gets a warning.
+- **Library.** Bundled jars go through `LibraryService.importFile` and downloads are already in the
+  library. When identification found a registry match, `LibraryService.fillMissingProvenance`
+  gives the row its platform, project and version ids (only if it had no `projectId`). That makes
+  the jar update-checkable like an add-by-link install.
+- **Row.** `ModsService.addLibraryContent` does the quota check, links the file and upserts the
+  row. It's the tail `installFromUrl` now shares. Imported jars are ordinary `managedBy: 'overlay'`
+  rows with `import_id` set. They are not `'pack'`: that value means content itzg's pack installer
+  owns, which the panel can't delete and toggles through exclusion env vars. Imported jars
+  toggle, update, delete and get re-applied like any overlay jar. `update()` passes the row's
+  `importId` through `installFromUrl`, so an updated jar stays part of its import.
+- Jar failures (download, checksum, install) are collected in `failed` and the import carries on,
+  like upstream.
+
+### Reversible overrides
+
+Upstream copies files it would overwrite to a timestamped `.import-backups/` directory and leaves
+undoing to the user. Here the import records what it wrote so it can be undone:
+
+- **`content_imports`**: one row per import (server, format, name, version, actor). A
+  `server_content.import_id` column points back at it. It has no FK, like `library_id`.
+- **`content_import_overrides`**: one row per file written, with `rel_path`, the `sha256` of the
+  content written, and `had_original`.
+- **Apply.** Paths are relative to the server dir and resolved with
+  `PathGuardService.safeJoin(serverDir, rel)`. That also refuses a path that would leave through a
+  symlinked directory already in the server dir. For each file, in order: back up an existing
+  file to `<server>/.import-backups/<importId>/<rel>`, insert the tracking row, then write. The row
+  goes in before the write, so a crash in between leaves a row whose hash doesn't match, which
+  revert treats as "changed since" and leaves alone. Any error reverts the whole apply. The jars
+  stay installed and the report gets a warning.
+  - A path under `.import-backups/` is skipped as `reserved`.
+  - A path where a directory or symlink sits is skipped as `not-a-file`.
+  - The total size is checked against the disk quota first.
+- **Revert** (`DELETE .../mods/imports/:importId`). All the import's remaining rows are removed
+  through `ModsService.removeContent`, then each tracked file is handled:
+  - It still hashes to what the import wrote: restore the backup if `had_original`, otherwise
+    delete it and prune now-empty parent directories.
+  - Anything else (edited, deleted, or the backup is gone): `kept`, left untouched.
+
+  Then the backup directory and tracking rows go, and the `content_imports` row with them.
+
+- **Stacking.** A second import that overwrites the first's file backs up the first's content as
+  its original. Removing them newest-first restores everything exactly. Removing the older one
+  first keeps the newer content (the hash differs) and drops the older backup. Removing the newer
+  one then restores the older import's content, not the pre-import original.
+- **Why removing one jar doesn't revert the import.** Deleting a single imported jar with the
+  normal delete route only removes that jar. Overrides belong to the pack, not to one jar. Also,
+  `update()` is remove-then-install, and a "last jar removed" cascade would silently revert config
+  files in the middle of an update. Undo is the explicit import removal.
+- Only one import or removal runs per server at a time (409 otherwise). This is an in-process
+  `Set`, like the other per-server guards.
+
+### API (for the Mods-tab UI)
+
+- **`POST /api/servers/:id/mods/import`**: `content` permission. Multipart fields:
+  - `file`: `.zip` or `.mrpack`, at most 1 GiB. A `.mrpack` is small; a jar zip carries whole jars.
+  - `applyOverrides`: `"true"` (default) or `"false"`.
+
+  The server, file extension and packwiz check are validated up front (400/404/409). The import
+  then runs as a task: the response is `{ ok: true, taskId }`. Poll `GET /api/tasks/:taskId`.
+  `task.stepLabel` carries progress ("Downloading files (3/40)", "Installing 5/40: Sodium"). A
+  finished task's `result` is a `ContentImportReport`:
+
+  ```ts
+  {
+    import: ContentImportSummary | null, // null: nothing installed or written, no row kept
+    pack: { format: 'mrpack' | 'jars', name, version, mcVersion, loader, loaderVersion },
+    installed: { contentId, filename, path, name, version, kind, origin: 'bundled' | 'download',
+                 source: 'modrinth' | 'curseforge' | 'metadata' | 'unknown',
+                 platform, projectId, iconUrl }[],
+    skipped: { name, path, reason: 'client-only' | 'not-a-mod' | 'wrong-kind' | 'wrong-loader'
+                                  | 'already-installed' | 'duplicate', detail? }[],
+    failed: { name, path, error }[],
+    overrides: { applied: boolean,
+                 written: { path, action: 'created' | 'replaced' }[],
+                 skipped: { path, reason: 'not-a-file' | 'reserved' | 'disabled' }[] },
+    warnings: string[], // MC/loader mismatch, unusable index entries, overrides apply failure
+  }
+  ```
+
+  `source` is the identification confidence: `modrinth`/`curseforge` are exact hash matches,
+  `metadata` comes from the jar's own manifest, and `unknown` is the filename only.
+
+- **`GET /api/servers/:id/mods/imports`**: `view`. Returns `{ ok, imports: ContentImportSummary[] }`,
+  newest first. Each summary has `id, format, name, version, actor, createdAt, contentCount,
+overrideCount` (live counts).
+- **`DELETE /api/servers/:id/mods/imports/:importId`**: `content`. Returns
+  `{ ok, removedContent: string[], overrides: { restored, deleted, kept } }`.
+- `GET /api/servers/:id/mods` rows now carry `importId`, so the UI can group a pack's jars.
+
+Task polling goes through `TasksController`, which only admins and operators can use. That's the
+same as every other task-driven action.

@@ -24,6 +24,8 @@ import { DbService } from '../db/db.service';
 import { serverContent, libraryFiles, updateChecks } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ModsService } from './mods.service';
+import { ContentImportService } from './content-import.service';
+import { TasksService } from '../tasks/tasks.service';
 import { currentUser } from '../auth/current-user';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
@@ -31,6 +33,17 @@ import { RequireServerPermission } from '../permissions/require-server-permissio
 const uploadSchema = z.object({
   excludeFilename: z.string().trim().min(1).max(300).optional(),
 });
+
+// Multipart fields arrive as strings.
+const importSchema = z.object({
+  applyOverrides: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+});
+
+// A jar zip bundles whole mods (a .mrpack is small: its jars are downloaded).
+const IMPORT_MAX_BYTES = 1024 ** 3;
 
 /**
  * Installed-mod CRUD for one server. Ports the `/servers/:id/mods*` and
@@ -43,6 +56,8 @@ export class ModsController {
     private readonly mods: ModsService,
     private readonly serverQuery: ServerQueryService,
     private readonly dbService: DbService,
+    private readonly imports: ContentImportService,
+    private readonly tasks: TasksService,
   ) {}
 
   private get db() {
@@ -181,6 +196,7 @@ export class ModsController {
       actor,
       kind: row.kind as
         'mod' | 'plugin' | 'datapack' | 'resourcepack' | undefined,
+      importId: row.importId,
     });
     if (!wasEnabled)
       await this.mods.setEnabled(server.id, result.filename, false, { actor });
@@ -254,6 +270,79 @@ export class ModsController {
     });
     this.mods.clearPendingLine(id, filename);
     return { ok: true, excluded: token, mods: this.mods.pendingDownloads(id) };
+  }
+
+  /**
+   * Import a zip of jars or a Modrinth .mrpack (multipart `file`, optional
+   * `applyOverrides` = "false" to leave override files out). Runs as a task;
+   * poll `GET /api/tasks/:taskId`, whose `result` is a ContentImportReport.
+   */
+  @RequireServerPermission('content')
+  @Post('mods/import')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: os.tmpdir(),
+      limits: { fileSize: IMPORT_MAX_BYTES, files: 1 },
+    }),
+  )
+  async importArchive(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const actor = currentUser(req).username;
+    let applyOverrides: boolean;
+    try {
+      if (!/\.(zip|mrpack)$/i.test(file.originalname))
+        throw new BadRequestException('Upload a .zip or .mrpack file');
+      ({ applyOverrides } = parseBody(importSchema, body ?? {}));
+      await this.imports.assertImportable(id);
+    } catch (err) {
+      await fs.rm(file.path, { force: true }).catch(() => {});
+      throw err;
+    }
+    const taskId = this.tasks.run(
+      `Importing ${file.originalname}`,
+      { serverId: id, actor },
+      async (t) => {
+        try {
+          return await this.imports.importArchive(
+            id,
+            file.path,
+            file.originalname,
+            { actor, applyOverrides, onStep: (label) => t.step(label) },
+          );
+        } finally {
+          await fs.rm(file.path, { force: true }).catch(() => {});
+        }
+      },
+    );
+    return { ok: true, taskId };
+  }
+
+  @RequireServerPermission('view')
+  @Get('mods/imports')
+  async listImports(@Param('id') id: string) {
+    await this.serverQuery.mustGet(id);
+    return { ok: true, imports: await this.imports.list(id) };
+  }
+
+  /** Remove an import's jars and revert its override files. */
+  @RequireServerPermission('content')
+  @Delete('mods/imports/:importId')
+  async removeImport(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Param('importId') importId: string,
+  ) {
+    return {
+      ok: true,
+      ...(await this.imports.remove(id, importId, {
+        actor: currentUser(req).username,
+      })),
+    };
   }
 
   @RequireServerPermission('content')
