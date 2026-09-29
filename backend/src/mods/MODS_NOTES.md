@@ -192,3 +192,52 @@ Modrinth `else` branches. `refToUrl` didn't gain the new platforms: its only cal
 3. **Frontend**: Hangar/SpigotMC search chips, and the manual download fallback (open page +
    upload jar) for the 409s. That's upstream-parity 4.32. For now the add-by-link toast shows the
    409 message, URL included, and stays up until dismissed.
+
+## Jar identification (upstream parity 4.30, phase 1)
+
+Upstream reference: `anefzaoui/minecraft-server-manager` `407c328` (`src/services/modIdentify.js`,
+`src/utils/murmur2.js`, `test/modIdentify.test.js`). Read for behavior only.
+
+`JarIdentifierService` works out what a jar is, so a jar from a zip / `.mrpack` import (or a plain
+upload) can become a tracked library row instead of an anonymous file. Nothing calls it yet; the
+import pipeline is later phases of 4.30.
+
+Layers, best first. Each one only sees the jars the previous ones missed:
+
+1. **Modrinth by sha1**: `ModrinthApiService.getVersionsByHashes` (`POST /v2/version_files`), then
+   `getProjects` (`GET /v2/projects?ids=`) for title, slug and icon.
+2. **CurseForge by fingerprint**: `curseforgeFingerprint()` locally, then
+   `CurseforgeApiService.getFingerprintMatches` (`POST /v1/fingerprints/432`, exact matches only),
+   then `getMods` (`POST /v1/mods`).
+3. **The jar's own manifest**: `readJarMetadata()` in `jar-metadata-reader.ts`.
+4. Otherwise `source: 'unknown'`, named after the file.
+
+Things worth knowing:
+
+- **Batched.** `identifyMany` sends one request per layer (chunks of 200), not one per jar. Pass
+  a whole pack at once. `identify` is a one-jar convenience.
+- **Never throws for registry trouble.** A registry that's down, rate-limited or rejects the key is
+  logged as a warning and skipped; the next layer still runs. A missing CurseForge key
+  (`PreconditionFailedException` from `cfFetch`) is expected on many panels and is only a debug log,
+  so without a key the chain is Modrinth, then manifest. The result doesn't say whether a layer was
+  skipped.
+- **Bulk lookups aren't cached.** `mrFetch` / `cfFetch` only cache GETs. `getProjects` is a GET
+  and is cached like any other.
+- **The fingerprint.** 32-bit MurmurHash2, seed 1, over the bytes with 0x09/0x0a/0x0d/0x20
+  removed (and the stripped length as the hash's length). The spec pins it with SMHasher's
+  verification value and fixtures from `meza/curseforge-fingerprint-go`, a port of CurseForge's own
+  C++ code; two real CurseForge jars were checked locally too. Hashing the raw bytes never
+  matches.
+- **Manifest priority.** `fabric.mod.json`, `quilt.mod.json`, `META-INF/neoforge.mods.toml`,
+  `META-INF/mods.toml`, `mcmod.info`, `paper-plugin.yml`, `plugin.yml`. The first one that parses
+  supplies the fields; `loaders` lists every manifest present (a multi-loader jar reports all its
+  loaders). Only root-level entries are read, so bundled jar-in-jar dependencies
+  (`META-INF/jars/...`) don't masquerade as the jar. `${...}` build placeholders count as missing;
+  a mods.toml version placeholder falls back to `Implementation-Version` in `MANIFEST.MF`.
+  `plugin.yml` is read with the YAML failsafe schema so `version: 1.10` stays `"1.10"`.
+- **Reuses `items/item-zip-parser.ts`'s `pickZipEntries`** (yauzl) rather than adding a zip reader.
+  Nothing is extracted to disk, so `safe-zip-extractor.ts`'s path rules don't apply here.
+- **`kind`.** Modrinth: `plugin` when every loader is a server-plugin platform. CurseForge: class
+  5 (Bukkit Plugins). Manifest: `plugin.yml` / `paper-plugin.yml` are plugins.
+- **`version` on CurseForge matches** is the file's display name (CurseForge has no separate
+  version-number field), so expect things like `jei-1.20.1-forge-15.2.0.27.jar`.

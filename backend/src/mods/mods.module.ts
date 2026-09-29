@@ -11,6 +11,7 @@ import { PackwizApiService } from './packwiz-api.service';
 import { HangarApiService } from './hangar-api.service';
 import { SpigetApiService } from './spiget-api.service';
 import { GithubReleasesApiService } from './github-releases-api.service';
+import { JarIdentifierService } from './jar-identifier.service';
 import { LoaderVersionsService } from './loader-versions.service';
 import { ModBrowserService } from './mod-browser.service';
 import { ModManifestService } from './mod-manifest.service';
@@ -40,6 +41,7 @@ import { ModBrowserController } from './mod-browser.controller';
     HangarApiService,
     SpigetApiService,
     GithubReleasesApiService,
+    JarIdentifierService,
     LoaderVersionsService,
     ModBrowserService,
     ModManifestService,
@@ -56,6 +58,7 @@ import { ModBrowserController } from './mod-browser.controller';
     HangarApiService,
     SpigetApiService,
     GithubReleasesApiService,
+    JarIdentifierService,
     LoaderVersionsService,
     ModBrowserService,
     ModManifestService,

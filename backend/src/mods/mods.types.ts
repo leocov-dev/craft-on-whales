@@ -117,6 +117,11 @@ export interface ModrinthVersion {
   dependencies?: ModrinthDependency[];
 }
 
+/** A Modrinth version from a hash lookup, which also names its project. */
+export interface ModrinthVersionWithProject extends ModrinthVersion {
+  project_id: string;
+}
+
 /** Resolved-URL/slug result shared by CurseforgeApiService.resolveUrl. */
 export interface CurseforgeResolved extends CurseforgeMod {
   fileId: number | null;
@@ -295,4 +300,75 @@ export interface PackwizModInfo {
   filename: string;
   side: 'both' | 'client' | 'server';
   updatePlatform: 'curseforge' | 'modrinth' | null;
+}
+
+/** One exact match from CurseForge's fingerprint lookup (POST /v1/fingerprints/{gameId}). */
+export interface CurseforgeFingerprintMatch {
+  modId: number;
+  /** The fingerprint CurseForge stored for this file (see curseforge-fingerprint.ts). */
+  fingerprint: number;
+  file: CurseforgeFile;
+}
+
+/** Mod loaders / plugin platforms a jar's own manifest can declare. */
+export type JarManifestLoader =
+  'fabric' | 'quilt' | 'forge' | 'neoforge' | 'paper' | 'bukkit';
+
+/**
+ * What a jar says about itself in its own manifest (fabric.mod.json,
+ * mods.toml, mcmod.info, plugin.yml, ...). Best effort: every field but
+ * `manifest`/`kind`/`loaders` can be null when the manifest leaves it out or
+ * only has a build-time placeholder like `${version}`.
+ */
+export interface JarMetadata {
+  /** The manifest entry the fields came from, e.g. `fabric.mod.json`. */
+  manifest: string;
+  kind: 'mod' | 'plugin';
+  /** The loader of `manifest` first, then any other loader the jar also has a manifest for. */
+  loaders: JarManifestLoader[];
+  modId: string | null;
+  name: string | null;
+  version: string | null;
+  /** Minecraft requirement as written (often a range). Informational only. */
+  mcConstraint: string | null;
+}
+
+/** A jar to identify. `filename` is used for display and the `unknown` fallback only. */
+export interface JarInput {
+  filename: string;
+  data: Buffer;
+}
+
+/** Which layer of JarIdentifierService's chain identified a jar. */
+export type JarIdentitySource =
+  'modrinth' | 'curseforge' | 'metadata' | 'unknown';
+
+/**
+ * A jar after JarIdentifierService's chain. `platform`, `projectId`,
+ * `versionId` and `slug` are set only for registry matches. CurseForge ids are
+ * stringified so both registries share one shape, as in library_files.
+ */
+export interface IdentifiedJar {
+  filename: string;
+  size: number;
+  sha1: string;
+  sha256: string;
+  /** CurseForge fingerprint (murmur2 over the whitespace-stripped bytes). */
+  fingerprint: number;
+  source: JarIdentitySource;
+  platform: BrowsablePlatform | null;
+  projectId: string | null;
+  versionId: string | null;
+  slug: string | null;
+  /** Always set: registry title, else manifest name, else the filename minus `.jar`. */
+  name: string;
+  version: string | null;
+  iconUrl: string | null;
+  loaders: string[];
+  /** Exact Minecraft versions the registry lists for the file (registry matches only). */
+  mcVersions: string[];
+  /** Minecraft requirement from the jar's own manifest (`metadata` matches only). */
+  mcConstraint: string | null;
+  /** null when nothing identified the jar. */
+  kind: 'mod' | 'plugin' | null;
 }

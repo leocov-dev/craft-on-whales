@@ -60,6 +60,25 @@ export const fileResponseSchema = z.object({
   data: fileSchema,
 });
 
+// POST /mods ({ modIds }) answers with the same list shape as a search.
+export const modListResponseSchema = modSearchResponseSchema;
+
+// POST /fingerprints/{gameId}. Only exact (whole-file) matches are read;
+// the partial-match and unmatched lists are ignored.
+export const fingerprintMatchesResponseSchema = z.object({
+  data: z.object({
+    exactMatches: z
+      .array(
+        z.object({
+          id: z.number(),
+          file: fileSchema.extend({ fileFingerprint: z.number() }),
+        }),
+      )
+      .nullable()
+      .optional(),
+  }),
+});
+
 export const descriptionResponseSchema = z.object({
   data: z.unknown(),
 });

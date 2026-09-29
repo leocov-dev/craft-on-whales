@@ -34,10 +34,11 @@ before calling `downloadToLibrary`:
   **not** use CurseForge's `fileFingerprint` (a murmur2 hash of a
   whitespace-normalized byte stream, not the raw file) — sha1/md5 from
   `hashes[]` is already directly verifiable with Node's `crypto` module, so
-  there is no reason to take on a murmur2 implementation (none already
-  existed in this repo — checked `backend/src/analytics/` and repo-wide,
-  contrary to a prior assumption) for a weaker, purpose-built comparison
-  hash instead of a general-purpose cryptographic one.
+  there is no reason to verify downloads with a weaker, purpose-built
+  comparison hash instead of a general-purpose cryptographic one. (A murmur2
+  implementation now exists, `mods/curseforge-fingerprint.ts`, but only to
+  _identify_ jars a user uploads; see `mods/MODS_NOTES.md`. It is not a
+  verification hash.)
 - **packwiz** — `pack.toml`/`index.toml`/per-mod `*.toml` files do carry a
   `hash`/`hash-format` per file (see `mods.types.ts`'s `PackwizModToml`), but
   this backend never downloads the mod _file_ bytes for a packwiz-managed
