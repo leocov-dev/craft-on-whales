@@ -8,6 +8,9 @@ import { ModrinthApiService } from './modrinth-api.service';
 import { CurseforgeApiService } from './curseforge-api.service';
 import { GtnhApiService } from './gtnh-api.service';
 import { PackwizApiService } from './packwiz-api.service';
+import { HangarApiService } from './hangar-api.service';
+import { SpigetApiService } from './spiget-api.service';
+import { GithubReleasesApiService } from './github-releases-api.service';
 import { LoaderVersionsService } from './loader-versions.service';
 import { ModBrowserService } from './mod-browser.service';
 import { ModManifestService } from './mod-manifest.service';
@@ -34,6 +37,9 @@ import { ModBrowserController } from './mod-browser.controller';
     CurseforgeApiService,
     GtnhApiService,
     PackwizApiService,
+    HangarApiService,
+    SpigetApiService,
+    GithubReleasesApiService,
     LoaderVersionsService,
     ModBrowserService,
     ModManifestService,
@@ -47,6 +53,9 @@ import { ModBrowserController } from './mod-browser.controller';
     CurseforgeApiService,
     GtnhApiService,
     PackwizApiService,
+    HangarApiService,
+    SpigetApiService,
+    GithubReleasesApiService,
     LoaderVersionsService,
     ModBrowserService,
     ModManifestService,

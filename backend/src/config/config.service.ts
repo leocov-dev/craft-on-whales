@@ -59,6 +59,12 @@ export class ConfigService {
    */
   readonly secretKey: Buffer | null;
   readonly cfApiKeySeed: string;
+  /**
+   * Optional `GITHUB_TOKEN`, sent only to api.github.com by
+   * `GithubReleasesApiService` to lift the unauthenticated 60 req/hr quota.
+   * Env-only by design — see `backend/src/mods/MODS_NOTES.md`.
+   */
+  readonly githubToken: string | null;
   readonly trustProxy: TrustProxy;
   readonly cookieSecure: CookieSecure;
   readonly cookieSameSite: CookieSameSite;
@@ -97,6 +103,7 @@ export class ConfigService {
     // Docker network IP, which nothing outside the host can connect to.
     this.runningInDocker = fs.existsSync('/.dockerenv');
     this.cfApiKeySeed = process.env.CF_API_KEY || '';
+    this.githubToken = process.env.GITHUB_TOKEN?.trim() || null;
     this.trustProxy = this.resolveTrustProxy();
     this.cookieSecure = this.resolveCookieSecure();
     this.cookieSameSite = this.resolveCookieSameSite();
