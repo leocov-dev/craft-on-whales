@@ -113,7 +113,116 @@ export interface CurseforgeResolved extends CurseforgeMod {
   fileId: number | null;
 }
 
-/** Parsed `pack.toml` (https://packwiz.infra.link/reference/pack-format/pack-toml/) — fields this codebase reads. */
+/** A Hangar (hangar.papermc.io) project, normalized from the raw API response. */
+export interface HangarProject {
+  slug: string;
+  owner: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+  downloads: number;
+}
+
+/**
+ * One Hangar version's PAPER-platform build. `downloadUrl` is null when the
+ * version only links out to an external site (`external: true`, `externalUrl`
+ * set) — Hangar publishes `sha256` only for files it hosts itself.
+ */
+export interface HangarVersion {
+  /** Hangar version names are unique per project and address its version endpoints. */
+  name: string;
+  datePublished: string | null;
+  versionType: 'release' | 'beta' | 'alpha';
+  channel: string | null;
+  gameVersions: string[];
+  downloadUrl: string | null;
+  externalUrl: string | null;
+  external: boolean;
+  filename: string | null;
+  sizeBytes: number | null;
+  sha256: string | null;
+}
+
+/** Resolved-URL/slug result for HangarApiService.resolveUrl. */
+export interface HangarResolved extends HangarProject {
+  versionName: string | null;
+}
+
+/** A SpigotMC resource (via the Spiget API), normalized from the raw response. */
+export interface SpigetResource {
+  resourceId: number;
+  name: string;
+  tag: string;
+  downloads: number;
+  iconUrl: string | null;
+  testedVersions: string[];
+  /** Hosted off-site — Spiget can't proxy the file, so it's a manual download. */
+  external: boolean;
+  /** Paid resource — never downloadable without the buyer's SpigotMC session. */
+  premium: boolean;
+  pageUrl: string;
+}
+
+/** One SpigotMC resource version. Spiget carries no per-version MC tags or hashes. */
+export interface SpigetVersion {
+  versionId: string;
+  name: string;
+  datePublished: string | null;
+}
+
+/** A SpigotMC resource id (and optional pinned version) parsed from pasted input. */
+export interface SpigetResourceRef {
+  resourceId: number;
+  versionId: string | null;
+}
+
+/** Resolved-URL/id result for SpigetApiService.resolveUrl. */
+export interface SpigetResolved extends SpigetResource {
+  versionId: string | null;
+}
+
+/** A GitHub repository, normalized from GET /repos/{owner}/{repo}. */
+export interface GithubRepo {
+  /** Canonical `owner/repo` (GitHub's own `full_name` casing). */
+  repo: string;
+  name: string;
+  description: string;
+  iconUrl: string | null;
+}
+
+/** A `.jar` asset attached to a GitHub release. */
+export interface GithubReleaseAsset {
+  name: string;
+  size: number;
+  downloadUrl: string;
+  /** From the asset's `digest` field (`sha256:<hex>`); null on assets that predate it. */
+  sha256: string | null;
+}
+
+/** A published (non-draft) GitHub release and its jar assets. */
+export interface GithubRelease {
+  tag: string;
+  name: string;
+  prerelease: boolean;
+  publishedAt: string | null;
+  htmlUrl: string;
+  assets: GithubReleaseAsset[];
+}
+
+/** An `owner/repo` (plus optional release tag / asset name) parsed from pasted input. */
+export interface GithubRepoRef {
+  repo: string;
+  tag: string | null;
+  asset: string | null;
+}
+
+/** Resolved-URL/ref result for GithubReleasesApiService.resolveUrl. */
+export interface GithubResolved extends GithubRepo {
+  tag: string | null;
+  asset: string | null;
+}
+
+/** Parsed `pack.toml`(https://packwiz.infra.link/reference/pack-format/pack-toml/) — fields this codebase reads. */
 export interface PackwizPackToml {
   name: string;
   author?: string;
