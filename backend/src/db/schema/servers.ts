@@ -9,6 +9,7 @@ import {
   text,
   integer,
   real,
+  index,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 
@@ -125,8 +126,57 @@ export const serverContent = sqliteTable(
     installedAt: text('installed_at')
       .notNull()
       .default(sql`(datetime('now'))`),
+    // Set when the row came from a zip / .mrpack import (content_imports.id);
+    // removing that import removes the row. No FK, like library_id.
+    importId: text('import_id'),
   },
   (t) => [
     uniqueIndex('server_content_server_filename').on(t.serverId, t.filename),
+  ],
+);
+
+// One row per zip / .mrpack imported on the Mods tab (see
+// mods/MODS_NOTES.md, "Zip / .mrpack import"). Groups the server_content rows
+// it installed and the override files it wrote, so the whole import can be
+// removed and its overrides reverted as a unit.
+export const contentImports = sqliteTable(
+  'content_imports',
+  {
+    id: text('id').primaryKey(),
+    serverId: text('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    format: text('format').notNull(), // 'mrpack' | 'jars'
+    name: text('name').notNull(),
+    version: text('version'),
+    actor: text('actor').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (t) => [index('idx_content_imports_server').on(t.serverId)],
+);
+
+// Every file an import's overrides/ tree wrote into the server directory.
+// `sha256` is the content written; revert only touches a file that still
+// hashes to it, so edits made after the import survive. `hadOriginal` means
+// the file existed before and a copy sits at
+// <server>/.import-backups/<import_id>/<rel_path>; otherwise revert deletes it.
+export const contentImportOverrides = sqliteTable(
+  'content_import_overrides',
+  {
+    id: text('id').primaryKey(),
+    importId: text('import_id')
+      .notNull()
+      .references(() => contentImports.id, { onDelete: 'cascade' }),
+    relPath: text('rel_path').notNull(),
+    sha256: text('sha256').notNull(),
+    hadOriginal: integer('had_original', { mode: 'boolean' }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('content_import_overrides_import_path').on(
+      t.importId,
+      t.relPath,
+    ),
   ],
 );

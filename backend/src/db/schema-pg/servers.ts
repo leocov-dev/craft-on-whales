@@ -9,6 +9,7 @@ import {
   bigint,
   real,
   boolean,
+  index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -106,8 +107,46 @@ export const serverContent = pgTable(
     installedAt: text('installed_at')
       .notNull()
       .default(sql`now()::text`),
+    importId: text('import_id'), // content_imports.id — see schema/servers.ts
   },
   (t) => [
     uniqueIndex('server_content_server_filename').on(t.serverId, t.filename),
+  ],
+);
+
+export const contentImports = pgTable(
+  'content_imports',
+  {
+    id: text('id').primaryKey(),
+    serverId: text('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    format: text('format').notNull(), // 'mrpack' | 'jars'
+    name: text('name').notNull(),
+    version: text('version'),
+    actor: text('actor').notNull(),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`now()::text`),
+  },
+  (t) => [index('idx_content_imports_server').on(t.serverId)],
+);
+
+export const contentImportOverrides = pgTable(
+  'content_import_overrides',
+  {
+    id: text('id').primaryKey(),
+    importId: text('import_id')
+      .notNull()
+      .references(() => contentImports.id, { onDelete: 'cascade' }),
+    relPath: text('rel_path').notNull(),
+    sha256: text('sha256').notNull(),
+    hadOriginal: boolean('had_original').notNull(),
+  },
+  (t) => [
+    uniqueIndex('content_import_overrides_import_path').on(
+      t.importId,
+      t.relPath,
+    ),
   ],
 );

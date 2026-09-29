@@ -18,6 +18,8 @@ import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { ModsService } from './mods.service';
 import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
+import { ContentImportService } from './content-import.service';
+import { PackOverridesService } from './pack-overrides.service';
 import { ModsController } from './mods.controller';
 import { ModBrowserController } from './mod-browser.controller';
 
@@ -48,6 +50,8 @@ import { ModBrowserController } from './mod-browser.controller';
     PendingModDownloadsService,
     ModsService,
     ModBrowserOrchestratorService,
+    PackOverridesService,
+    ContentImportService,
   ],
   exports: [
     ApiCacheService,

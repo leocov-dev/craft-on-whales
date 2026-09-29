@@ -14,6 +14,8 @@ const active: typeof sqliteSchema =
 export const servers = active.servers;
 export const serverPacks = active.serverPacks;
 export const serverContent = active.serverContent;
+export const contentImports = active.contentImports;
+export const contentImportOverrides = active.contentImportOverrides;
 
 export const users = active.users;
 export const sessions = active.sessions;

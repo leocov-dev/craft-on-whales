@@ -14,7 +14,11 @@ import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
-import { LibraryService, type DownloadMeta } from '../library/library.service';
+import {
+  LibraryService,
+  type DownloadMeta,
+  type LibraryFileRow,
+} from '../library/library.service';
 import { ModrinthApiService } from './modrinth-api.service';
 import {
   CurseforgeApiService,
@@ -130,6 +134,62 @@ export class ModsService {
     if (kind === 'datapack') return 'world/datapacks';
     if (kind === 'resourcepack') return 'resourcepacks';
     return PLUGIN_TYPES.has(server.type) ? 'plugins' : 'mods';
+  }
+
+  /** Whether jars on this server are plugins (Paper family) or mods. */
+  jarKindFor(server: Pick<Server, 'type'>): 'mod' | 'plugin' {
+    return PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod';
+  }
+
+  /** packwiz owns its server's mods outright; nothing can be added beside it. */
+  assertAcceptsManualContent(server: Pick<Server, 'type'>): void {
+    if (server.type === 'PACKWIZ') {
+      throw new BadRequestException(
+        'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
+      );
+    }
+  }
+
+  /**
+   * Link a library file into the server's content dir and record it as an
+   * overlay row: the shared tail of every panel install path. Checks the
+   * disk quota first. `importId` ties the row to a zip / .mrpack import.
+   */
+  async addLibraryContent(
+    server: Server,
+    lib: Pick<
+      LibraryFileRow,
+      'id' | 'name' | 'version' | 'iconUrl' | 'sizeBytes'
+    >,
+    kind: ContentKind,
+    { importId = null }: { importId?: string | null } = {},
+  ): Promise<{ id: string; filename: string }> {
+    await this.indexer.assertUnderQuota(server, lib.sizeBytes);
+    const { filename } = await this.library.installToServer(
+      lib.id,
+      server.id,
+      this.contentDir(server, kind),
+    );
+    const id = `sc_${nanoid(8)}`;
+    await this.db
+      .insert(serverContent)
+      .values({
+        id,
+        serverId: server.id,
+        libraryId: lib.id,
+        kind,
+        managedBy: 'overlay',
+        name: lib.name,
+        filename,
+        version: lib.version,
+        iconUrl: lib.iconUrl,
+        importId,
+      })
+      .onConflictDoUpdate({
+        target: [serverContent.serverId, serverContent.filename],
+        set: { libraryId: lib.id, version: lib.version, importId },
+      });
+    return { id, filename };
   }
 
   // Modpack servers don't set CF_MOD_LOADER/MODRINTH_LOADER — the pack itself
@@ -277,6 +337,7 @@ export class ModsService {
             ? `/${lib.iconRelPath}`
             : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
         updateAvailable: await this.updateFor(row),
+        importId: row ? row.importId : null,
       });
     }
     // Overlay rows whose files vanished (user deleted manually) — surface them.
@@ -295,6 +356,7 @@ export class ModsService {
           missing: true,
           sharedWith: null,
           iconUrl: row.iconUrl,
+          importId: row.importId,
         });
       }
     }
@@ -386,21 +448,19 @@ export class ModsService {
       actor = 'system',
       kind,
       onProgress,
+      importId = null,
     }: {
       actor?: string;
       kind?: ContentKind;
       onProgress?: (...args: unknown[]) => void;
+      /** Keep the row attached to its zip / .mrpack import (an update of an imported jar). */
+      importId?: string | null;
     } = {},
   ) {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    if (server.type === 'PACKWIZ') {
-      throw new BadRequestException(
-        'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
-      );
-    }
-    const targetKind: ContentKind =
-      kind || (PLUGIN_TYPES.has(server.type) ? 'plugin' : 'mod');
+    this.assertAcceptsManualContent(server);
+    const targetKind: ContentKind = kind || this.jarKindFor(server);
     const mcVersion =
       server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
         ? undefined
@@ -432,31 +492,9 @@ export class ModsService {
       onProgress,
       actor,
     });
-    await this.indexer.assertUnderQuota(server, lib.sizeBytes);
-    const { filename } = await this.library.installToServer(
-      lib.id,
-      serverId,
-      this.contentDir(server, targetKind),
-    );
-
-    const id = `sc_${nanoid(8)}`;
-    await this.db
-      .insert(serverContent)
-      .values({
-        id,
-        serverId,
-        libraryId: lib.id,
-        kind: targetKind,
-        managedBy: 'overlay',
-        name: lib.name,
-        filename,
-        version: lib.version,
-        iconUrl: lib.iconUrl,
-      })
-      .onConflictDoUpdate({
-        target: [serverContent.serverId, serverContent.filename],
-        set: { libraryId: lib.id, version: lib.version },
-      });
+    const { filename } = await this.addLibraryContent(server, lib, targetKind, {
+      importId,
+    });
     this.events.recordEvent({
       serverId,
       actor,
@@ -979,11 +1017,7 @@ export class ModsService {
   ): Promise<{ filename: string; excluded: string | null }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    if (server.type === 'PACKWIZ') {
-      throw new BadRequestException(
-        'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
-      );
-    }
+    this.assertAcceptsManualContent(server);
     const filename = origName || 'mod.jar';
     if (!/\.(jar|zip)$/i.test(filename))
       throw new BadRequestException('Only .jar or .zip files can be uploaded');

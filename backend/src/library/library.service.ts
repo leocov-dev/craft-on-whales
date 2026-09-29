@@ -342,6 +342,49 @@ export class LibraryService {
     return row!;
   }
 
+  /**
+   * Give a library row the registry provenance it lacks: a jar that arrived
+   * as a bare upload or URL download and was later identified (zip / .mrpack
+   * import, JarIdentifierService). Rows that already carry a projectId are
+   * left alone, so an identification never overwrites a registry install's
+   * own metadata. Returns the row as it now stands.
+   */
+  async fillMissingProvenance(
+    libraryId: string,
+    meta: Pick<
+      DownloadMeta,
+      | 'platform'
+      | 'projectId'
+      | 'fileId'
+      | 'name'
+      | 'version'
+      | 'mcVersions'
+      | 'loaders'
+      | 'iconUrl'
+    >,
+  ): Promise<LibraryFileRow> {
+    const row = await this.getLibraryFile(libraryId);
+    if (!row) throw new ConflictException('Library file not found');
+    if (row.projectId || !meta.projectId) return row;
+    const set = {
+      platform: meta.platform || row.platform,
+      projectId: meta.projectId,
+      fileId: meta.fileId || null,
+      name: meta.name || row.name,
+      version: meta.version || row.version,
+      mcVersionsJson: JSON.stringify(meta.mcVersions || []),
+      loadersJson: JSON.stringify(meta.loaders || []),
+      iconUrl: meta.iconUrl || row.iconUrl,
+    };
+    await this.db
+      .update(libraryFiles)
+      .set(set)
+      .where(eq(libraryFiles.id, libraryId));
+    if (set.iconUrl && !row.iconRelPath)
+      this.cacheIcon(libraryId, set.iconUrl).catch(() => {});
+    return { ...row, ...set };
+  }
+
   /** Cache a mod's platform icon locally so the UI never hotlinks. */
   async cacheIcon(libraryId: string, iconUrl: string): Promise<void> {
     try {
