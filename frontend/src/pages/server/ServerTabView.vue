@@ -26,6 +26,7 @@ const TAB_COMPONENTS: Record<string, ReturnType<typeof defineAsyncComponent>> = 
   map: defineAsyncComponent(() => import('./MapTab.vue')),
   files: defineAsyncComponent(() => import('./FilesTab.vue')),
   worlds: defineAsyncComponent(() => import('./WorldsTab.vue')),
+  'world-controls': defineAsyncComponent(() => import('./WorldControlsTab.vue')),
   commands: defineAsyncComponent(() => import('./CommandsTab.vue')),
   chat: defineAsyncComponent(() => import('./ChatTab.vue')),
   players: defineAsyncComponent(() => import('./PlayersTab.vue')),
