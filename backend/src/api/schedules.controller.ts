@@ -13,7 +13,11 @@ import { Cron } from 'croner';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
-import { SchedulerService, TASK_TYPES } from '../scheduler/scheduler.service';
+import {
+  SchedulerService,
+  TASK_TYPES,
+  taskCapability,
+} from '../scheduler/scheduler.service';
 import { SettingsService } from '../settings/settings.service';
 import type {
   ScheduleViewModel,
@@ -24,12 +28,28 @@ import type { DbService } from '../db/db.service';
 import { schedules } from '../db/schema';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
-import { PermissionsService } from '../permissions/permissions.service';
+import {
+  PermissionsService,
+  type Capability,
+} from '../permissions/permissions.service';
 
 /** `serverId` from the create body — `null`/absent means a panel-wide schedule. */
 function serverIdFromBody(req: { body?: unknown }): string | null {
   const body = req.body as { serverId?: unknown } | undefined;
   return typeof body?.serverId === 'string' ? body.serverId : null;
+}
+
+/** The capability the create body's `taskType` requires (item 3.16a) — a
+ *  server-scoped type maps to the capability it actually needs (see
+ *  `TASK_TYPES` in `scheduler.service.ts`); an unrecognized/panel-wide
+ *  `taskType` falls back to `power`, matching the pre-3.16a behavior for
+ *  panel-wide schedules. `taskType` itself is still validated as a known key
+ *  by `SchedulerService.createSchedule()` after this guard passes. */
+function taskCapabilityFromBody(req: { body?: unknown }): Capability {
+  const body = req.body as { taskType?: unknown } | undefined;
+  return taskCapability(
+    typeof body?.taskType === 'string' ? body.taskType : '',
+  );
 }
 
 /** The server a schedule targets, for the `:id/toggle` and `:id` routes. */
@@ -45,6 +65,27 @@ async function scheduleServerId(
     .where(eq(schedules.id, id))
     .limit(1);
   return row?.serverId ?? null;
+}
+
+/** The capability an *existing* schedule's `taskType` requires, for the
+ *  `:id/toggle` and `:id` routes (item 3.16a) — same mapping/fallback as
+ *  `taskCapabilityFromBody`, looked up from the schedule row instead of the
+ *  request body. A missing/deleted schedule falls back to `power` too; the
+ *  handler's own not-found logic (or `ServerPermissionGuard`'s "nothing to
+ *  resolve" branch, if `scheduleServerId` also came back empty) is what
+ *  actually reports that. */
+async function scheduleCapability(
+  req: Request,
+  { db }: { db: DbService },
+): Promise<Capability> {
+  const id = req.params?.id;
+  if (typeof id !== 'string') return 'power';
+  const [row] = await db.db
+    .select({ taskType: schedules.taskType })
+    .from(schedules)
+    .where(eq(schedules.id, id))
+    .limit(1);
+  return taskCapability(row?.taskType ?? '');
 }
 
 /** Ports the "Schedules" section of legacy `src/web/routes/api.ts`. */
@@ -105,7 +146,7 @@ export class SchedulesController {
 
   @Post()
   @UseGuards(ServerPermissionGuard)
-  @RequireServerPermission('power', serverIdFromBody)
+  @RequireServerPermission(taskCapabilityFromBody, serverIdFromBody)
   async create(
     @Req() req: Request,
     @Body() body: unknown,
@@ -135,7 +176,7 @@ export class SchedulesController {
 
   @Post(':id/toggle')
   @UseGuards(ServerPermissionGuard)
-  @RequireServerPermission('power', scheduleServerId)
+  @RequireServerPermission(scheduleCapability, scheduleServerId)
   async toggle(
     @Req() req: Request,
     @Param('id') id: string,
@@ -150,7 +191,7 @@ export class SchedulesController {
 
   @Delete(':id')
   @UseGuards(ServerPermissionGuard)
-  @RequireServerPermission('power', scheduleServerId)
+  @RequireServerPermission(scheduleCapability, scheduleServerId)
   async remove(@Req() req: Request, @Param('id') id: string) {
     await this.scheduler.deleteSchedule(id, {
       actor: currentUser(req).username,

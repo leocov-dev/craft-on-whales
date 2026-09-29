@@ -26,6 +26,7 @@ import type {
   CreateScheduleInput,
   ScheduleViewModel,
 } from '../../../shared/types/schedules';
+import type { Capability } from '../permissions/permissions.service';
 
 export type { CreateScheduleInput };
 /** @deprecated use {@link ScheduleViewModel} — kept as an alias so existing call sites don't need touching. */
@@ -33,19 +34,43 @@ export type ScheduleView = ScheduleViewModel;
 
 type ScheduleRow = typeof schedules.$inferSelect;
 
-type TaskType = keyof typeof TASK_TYPES;
+export type TaskType = keyof typeof TASK_TYPES;
 
+/**
+ * `capability` is the permission a server-scoped task type actually needs
+ * (see item 3.16a): `restart`/`stop`/`start` are lifecycle control
+ * (`power`), `backup` is `backups`, and `rcon` is `console` — running an
+ * arbitrary command is console access, matching how RCON is gated
+ * everywhere else it's exposed (`chat/`, `world-controls/`). Non-scoped
+ * (panel-wide) task types have no `capability` on purpose: they're
+ * operator/admin-only maintenance jobs, unrelated to any single server's
+ * per-server grants — `SchedulesController` falls back to `power` for them,
+ * preserving the pre-3.16a behavior for panel-wide schedules exactly (see
+ * SCHEDULER_NOTES.md).
+ */
 export const TASK_TYPES = {
-  restart: { label: 'Restart server', serverScoped: true },
-  backup: { label: 'Backup', serverScoped: true },
-  stop: { label: 'Stop server', serverScoped: true },
-  start: { label: 'Start server', serverScoped: true },
-  rcon: { label: 'Run command', serverScoped: true },
+  restart: { label: 'Restart server', serverScoped: true, capability: 'power' },
+  backup: { label: 'Backup', serverScoped: true, capability: 'backups' },
+  stop: { label: 'Stop server', serverScoped: true, capability: 'power' },
+  start: { label: 'Start server', serverScoped: true, capability: 'power' },
+  rcon: { label: 'Run command', serverScoped: true, capability: 'console' },
   'update-check': { label: 'Update check', serverScoped: false },
   'packwiz-check': { label: 'Packwiz pack check', serverScoped: false },
   'storage-scan': { label: 'Storage re-scan', serverScoped: false },
   'tmp-clean': { label: 'Purge tmp', serverScoped: false },
-} as const;
+} as const satisfies Record<
+  string,
+  { label: string; serverScoped: boolean; capability?: Capability }
+>;
+
+/** The capability a task type requires, falling back to `power` for
+ *  panel-wide task types and unrecognized keys (see `TASK_TYPES` above). */
+export function taskCapability(taskType: string): Capability {
+  return (
+    (TASK_TYPES as Record<string, { capability?: Capability }>)[taskType]
+      ?.capability ?? 'power'
+  );
+}
 
 /**
  * Cron scheduler (croner): per-server tasks (restart/backup/rcon/stop/start)
