@@ -48,6 +48,47 @@
       <q-btn color="primary" label="Add" :loading="adding" @click="addMod" />
     </div>
 
+    <div v-if="!isPackwiz" class="row items-center q-gutter-x-sm q-mb-md">
+      <q-file
+        v-model="importFile"
+        dense
+        filled
+        clearable
+        class="col"
+        accept=".zip,.mrpack"
+        label="Import a .mrpack or a zip of jars…"
+        :disable="importing"
+        @rejected="onImportFileRejected"
+      >
+        <template #prepend><q-icon name="upload_file" /></template>
+      </q-file>
+      <q-toggle v-model="applyOverrides" :disable="importing" label="Apply overrides">
+        <q-tooltip>
+          Copy the archive's overrides/ config files into the server. Replaced files are backed up
+          so removing the import can restore them.
+        </q-tooltip>
+      </q-toggle>
+      <q-btn
+        color="primary"
+        label="Import"
+        :loading="importing"
+        :disable="!importFile"
+        @click="importPack"
+      />
+      <q-btn flat icon="history" label="Imports" @click="importsOpen = true">
+        <q-badge v-if="imports.length" color="primary" floating>{{ imports.length }}</q-badge>
+      </q-btn>
+    </div>
+
+    <div v-if="importing" class="q-mb-md">
+      <q-linear-progress
+        :value="(importProgress ?? 0) / 100"
+        :indeterminate="importProgress === null"
+        color="primary"
+      />
+      <q-item-label caption class="q-mt-xs">{{ importStep }}</q-item-label>
+    </div>
+
     <template v-if="isPackwiz">
       <q-item-label v-if="packwizMods.length === 0" caption>
         No mods found in this pack.
@@ -84,44 +125,75 @@
 
       <q-card v-else flat bordered>
         <q-list separator>
-          <q-item v-for="m in mods" :key="m.file">
-            <q-item-section avatar>
-              <q-avatar v-if="m.iconUrl" square size="32px"
-                ><img :src="m.iconUrl" :alt="m.name"
-              /></q-avatar>
-              <q-icon v-else name="extension" />
-            </q-item-section>
-            <q-item-section>
-              <q-item-label>{{ m.name }}</q-item-label>
-              <q-item-label caption
-                >{{ m.kind }} · {{ m.version ?? '—' }} · {{ formatBytes(m.size) }}</q-item-label
-              >
-            </q-item-section>
-            <q-item-section v-if="m.updateAvailable" side>
-              <q-badge color="warning" :label="`update: ${m.updateAvailable}`" />
-            </q-item-section>
-            <q-item-section side>
-              <q-toggle :model-value="m.enabled" @update:model-value="toggle(m)" />
-            </q-item-section>
-            <q-item-section side>
-              <q-btn flat dense round icon="delete" color="negative" @click="removeMod(m)" />
-            </q-item-section>
-          </q-item>
+          <template v-for="g in modGroups" :key="g.importId ?? '_'">
+            <q-item-label v-if="g.label" header class="row items-center q-gutter-x-sm">
+              <q-icon name="inventory_2" />
+              <span>{{ g.label }}</span>
+            </q-item-label>
+            <q-item v-for="m in g.mods" :key="m.file">
+              <q-item-section avatar>
+                <q-avatar v-if="m.iconUrl" square size="32px"
+                  ><img :src="m.iconUrl" :alt="m.name"
+                /></q-avatar>
+                <q-icon v-else name="extension" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label
+                  >{{ m.name }}
+                  <q-badge
+                    v-if="m.importId"
+                    outline
+                    color="primary"
+                    class="q-ml-xs"
+                    :label="importNames.get(m.importId) ?? 'imported'"
+                /></q-item-label>
+                <q-item-label caption
+                  >{{ m.kind }} · {{ m.version ?? '—' }} · {{ formatBytes(m.size) }}</q-item-label
+                >
+              </q-item-section>
+              <q-item-section v-if="m.updateAvailable" side>
+                <q-badge color="warning" :label="`update: ${m.updateAvailable}`" />
+              </q-item-section>
+              <q-item-section side>
+                <q-toggle :model-value="m.enabled" @update:model-value="toggle(m)" />
+              </q-item-section>
+              <q-item-section side>
+                <q-btn flat dense round icon="delete" color="negative" @click="removeMod(m)" />
+              </q-item-section>
+            </q-item>
+          </template>
         </q-list>
       </q-card>
     </template>
+
+    <ModImportReportDialog v-model="reportOpen" :report="importReport" />
+    <ModImportsDialog
+      v-if="server"
+      v-model="importsOpen"
+      :server-id="server.id"
+      :imports="imports"
+      @removed="load"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
-import { modsApi, type ContentItem, type PendingDownload } from '@/api/mods';
+import {
+  modsApi,
+  type ContentItem,
+  type PendingDownload,
+  type ContentImportSummary,
+  type ContentImportReport,
+} from '@/api/mods';
 import { packsApi, type PackModInfo } from '@/api/packs';
 import { tasksApi } from '@/api/tasks';
 import { ApiError } from '@/api/http';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
+import ModImportReportDialog from '@/components/ModImportReportDialog.vue';
+import ModImportsDialog from '@/components/ModImportsDialog.vue';
 
 const $q = useQuasar();
 const { server, refresh } = useServerDetail();
@@ -135,6 +207,57 @@ const addUrl = ref('');
 const adding = ref(false);
 const syncing = ref(false);
 
+const imports = ref<ContentImportSummary[]>([]);
+const importFile = ref<File | null>(null);
+const applyOverrides = ref(true);
+const importing = ref(false);
+const importStep = ref('');
+const importProgress = ref<number | null>(null);
+const importReport = ref<ContentImportReport | null>(null);
+const reportOpen = ref(false);
+const importsOpen = ref(false);
+
+/** QFile silently drops files failing `accept`; tell the user why nothing was picked. */
+function onImportFileRejected() {
+  $q.notify({ type: 'negative', message: 'Import file must be a .zip or .mrpack.' });
+}
+
+const importNames = computed(
+  () =>
+    new Map(
+      imports.value.map((i) => [i.id, i.version ? `${i.name} ${i.version}` : i.name] as const),
+    ),
+);
+
+/**
+ * Individually-added content first (no header), then one group per import, newest import
+ * first. With no imported rows this is a single headerless group, i.e. the plain list.
+ */
+const modGroups = computed(() => {
+  const loose = mods.value.filter((m) => !m.importId);
+  const byImport = new Map<string, ContentItem[]>();
+  for (const m of mods.value) {
+    if (!m.importId) continue;
+    const list = byImport.get(m.importId) ?? [];
+    list.push(m);
+    byImport.set(m.importId, list);
+  }
+  const order = imports.value.map((i) => i.id);
+  const ids = [...byImport.keys()].sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    return (ia === -1 ? Infinity : ia) - (ib === -1 ? Infinity : ib);
+  });
+  return [
+    ...(loose.length ? [{ importId: null, label: null, mods: loose }] : []),
+    ...ids.map((id) => ({
+      importId: id,
+      label: `From ${importNames.value.get(id) ?? 'an imported pack'}`,
+      mods: byImport.get(id)!,
+    })),
+  ];
+});
+
 function packwizModCaption(m: PackModInfo): string {
   return m.side ? (m.side === 'both' ? 'client + server' : m.side) : '—';
 }
@@ -146,12 +269,45 @@ async function load() {
     packwizMods.value = res?.pack.mods ?? [];
     return;
   }
-  const [modsRes, pendingRes] = await Promise.all([
+  const [modsRes, pendingRes, importsRes] = await Promise.all([
     modsApi.list(server.value.id),
     modsApi.pendingDownloads(server.value.id),
+    modsApi.listImports(server.value.id),
   ]);
   mods.value = modsRes.mods;
   pending.value = pendingRes.mods;
+  imports.value = importsRes.imports;
+}
+
+async function importPack() {
+  if (!server.value || !importFile.value) return;
+  importing.value = true;
+  importStep.value = 'Uploading…';
+  importProgress.value = null;
+  try {
+    const { taskId } = await modsApi.importPack(
+      server.value.id,
+      importFile.value,
+      applyOverrides.value,
+    );
+    const task = await tasksApi.waitFor<ContentImportReport>(taskId, {
+      onProgress: (t) => {
+        importStep.value = t.step;
+        importProgress.value = t.percent;
+      },
+    });
+    importFile.value = null;
+    importReport.value = task.result;
+    reportOpen.value = true;
+    await load();
+  } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: err instanceof Error ? err.message : 'Import failed.',
+    });
+  } finally {
+    importing.value = false;
+  }
 }
 
 async function addMod() {
