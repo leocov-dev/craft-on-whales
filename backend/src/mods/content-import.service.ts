@@ -41,6 +41,8 @@ import type {
   ContentImportSummary,
 } from '../../../shared/types/mods';
 
+/** Upload cap. A jar zip bundles whole mods (a .mrpack is small: its jars are downloaded). */
+export const IMPORT_MAX_BYTES = 1024 ** 3;
 /** Same ceiling blueprint import uses for an extracted archive. */
 const MAX_EXTRACT_BYTES = 8 * 1024 ** 3;
 /** Parallel .mrpack downloads. */
@@ -65,6 +67,14 @@ export interface ImportOptions {
   applyOverrides?: boolean;
   /** Progress label for the task that runs the import. */
   onStep?: (label: string) => void;
+}
+
+/** An archive extracted into `data/tmp/`, from `ContentImportService.stage()`. */
+export interface StagedArchive {
+  staging: string;
+  pack: StagedPack;
+  /** Bundled jars already identified, by archive path (see `identifyBundled`). */
+  identified?: Map<string, IdentifiedJar>;
 }
 
 /** Run `fn` over `items`, at most `limit` at a time. */
@@ -139,9 +149,7 @@ export class ContentImportService {
 
   /** The server, if it can take an import at all. Cheap: for the controller to call before queuing a task. */
   async assertImportable(serverId: string): Promise<Server> {
-    const server = await this.query.getServer(serverId);
-    if (!server) throw new NotFoundException('Server not found');
-    this.mods.assertAcceptsManualContent(server);
+    const server = await this.assertServer(serverId);
     if (this.busy.has(serverId))
       throw new ConflictException(
         'Another import is already running on this server',
@@ -171,36 +179,107 @@ export class ContentImportService {
     serverId: string,
     archivePath: string,
     originalName: string,
-    {
-      actor = 'system',
-      applyOverrides = true,
-      onStep = () => {},
-    }: ImportOptions = {},
+    opts: ImportOptions = {},
   ): Promise<ContentImportReport> {
-    const server = await this.assertImportable(serverId);
+    await this.assertImportable(serverId);
     return this.exclusive(serverId, async () => {
-      const staging = this.pathGuard.dataPath('tmp', `import-${nanoid(10)}`);
+      const staged = await this.stage(archivePath, opts.onStep);
       try {
-        onStep('Unpacking archive');
-        await extractZipSafely(this.pathGuard, archivePath, staging, {
-          maxTotalBytes: MAX_EXTRACT_BYTES,
-        });
-        const pack = await describeStagedPack(staging);
-        return await this.run(server, pack, staging, originalName, {
-          actor,
-          applyOverrides,
-          onStep,
-        });
+        return await this.install(serverId, staged, originalName, opts);
       } finally {
-        await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+        await this.discard(staged);
       }
     });
   }
 
+  /**
+   * Extract an archive into a scratch dir under `data/tmp/` and work out what
+   * it is. Throws 400 for anything that isn't an importable archive, having
+   * removed the scratch dir. The caller owns the result and must `discard()` it.
+   */
+  async stage(
+    archivePath: string,
+    onStep: (label: string) => void = () => {},
+  ): Promise<StagedArchive> {
+    const staging = this.pathGuard.dataPath('tmp', `import-${nanoid(10)}`);
+    try {
+      onStep('Unpacking archive');
+      await extractZipSafely(this.pathGuard, archivePath, staging, {
+        maxTotalBytes: MAX_EXTRACT_BYTES,
+      });
+      return { staging, pack: await describeStagedPack(staging) };
+    } catch (err) {
+      await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+  }
+
+  async discard(staged: StagedArchive): Promise<void> {
+    await fsp
+      .rm(staged.staging, { recursive: true, force: true })
+      .catch(() => {});
+  }
+
+  /**
+   * Identify the archive's bundled jars, and remember the results on
+   * `staged` so a later install doesn't look them up again. For callers
+   * that need to know what's inside before there's a server to install into.
+   */
+  async identifyBundled(staged: StagedArchive): Promise<IdentifiedJar[]> {
+    const jars = staged.pack.jars;
+    const identities = await this.identifier.identifyMany(
+      await Promise.all(
+        jars.map(async (j) => ({
+          filename: j.filename,
+          data: await fsp.readFile(j.abs),
+        })),
+      ),
+    );
+    staged.identified = new Map(jars.map((j, i) => [j.path, identities[i]!]));
+    return identities;
+  }
+
+  /** Install an already-staged archive into a server. The caller still owns `staged`. */
+  async importStaged(
+    serverId: string,
+    staged: StagedArchive,
+    originalName: string,
+    opts: ImportOptions = {},
+  ): Promise<ContentImportReport> {
+    await this.assertImportable(serverId);
+    return this.exclusive(serverId, () =>
+      this.install(serverId, staged, originalName, opts),
+    );
+  }
+
+  private async install(
+    serverId: string,
+    staged: StagedArchive,
+    originalName: string,
+    {
+      actor = 'system',
+      applyOverrides = true,
+      onStep = () => {},
+    }: ImportOptions,
+  ): Promise<ContentImportReport> {
+    const server = await this.assertServer(serverId);
+    return this.run(server, staged, originalName, {
+      actor,
+      applyOverrides,
+      onStep,
+    });
+  }
+
+  private async assertServer(serverId: string): Promise<Server> {
+    const server = await this.query.getServer(serverId);
+    if (!server) throw new NotFoundException('Server not found');
+    this.mods.assertAcceptsManualContent(server);
+    return server;
+  }
+
   private async run(
     server: Server,
-    pack: StagedPack,
-    staging: string,
+    { pack, staging, identified }: StagedArchive,
     originalName: string,
     { actor, applyOverrides, onStep }: Required<ImportOptions>,
   ): Promise<ContentImportReport> {
@@ -281,11 +360,14 @@ export class ContentImportService {
     }
     const ready = candidates.filter((c) => c.origin === 'bundled' || c.lib);
 
-    // 3. Identify every jar in one batch.
-    onStep(`Identifying ${ready.length} jars`);
-    const identities = await this.identifier.identifyMany(
+    // 3. Identify every jar in one batch (skipping any identifyBundled() already did).
+    const known = (c: Candidate) =>
+      c.origin === 'bundled' ? identified?.get(c.path) : undefined;
+    const unknown = ready.filter((c) => !known(c));
+    onStep(`Identifying ${unknown.length} jars`);
+    const looked = await this.identifier.identifyMany(
       await Promise.all(
-        ready.map(async (c) => ({
+        unknown.map(async (c) => ({
           filename: c.filename,
           data: await fsp.readFile(
             c.abs ?? this.pathGuard.dataPath(c.lib!.relPath),
@@ -293,6 +375,8 @@ export class ContentImportService {
         })),
       ),
     );
+    const lookedUp = new Map(unknown.map((c, i) => [c, looked[i]!]));
+    const identities = ready.map((c) => known(c) ?? lookedUp.get(c)!);
 
     // 4. Install what fits, tied to a new import row.
     const importId = `imp_${nanoid(10)}`;

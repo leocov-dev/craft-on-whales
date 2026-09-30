@@ -408,3 +408,100 @@ Files: `frontend/src/pages/server/ModsTab.vue`, `components/ModImportReportDialo
 - **`createdAt` has no zone.** `content_imports.created_at` is SQLite `datetime('now')`, UTC as
   `YYYY-MM-DD HH:MM:SS`. `new Date()` reads that as local time, so the dialog appends `Z` when
   the value has no zone.
+
+## Create a server from a zip (upstream parity 4.31)
+
+Upstream reference: `8a7c330` (`contentZip.previewStandalone`, `POST /api/servers/from-zip`, the
+wizard's "Custom zip" card). Read for behavior only. Files: `server-from-zip.service.ts`
+(`ServerFromZipService`, `inferZipTarget`, `fromZipSchema`), the route in
+`mod-browser.controller.ts` next to `from-mods`, `frontend/src/components/CreateFromZipPanel.vue`
+(the Modpacks page's "Upload zip" tab) and `frontend/src/utils/zip-server.ts`.
+
+### What it is, and what it isn't
+
+The same archives the Mods-tab import takes (a `.mrpack` or a jar zip, see above), installed into
+a server created for them. It is not blueprints: a blueprint (`.mcserver.zip`, `manifest.json`
+with `msm: 1`) is the panel's own full-server snapshot and has its own import in `blueprints/`.
+Nothing here touches that. It's also not the Modpacks page's pinned pack install: a `.mrpack`
+upload becomes a plain FABRIC/FORGE/... server with overlay content, not a `MODRINTH`-type server
+itzg installs. An uploaded pack has no published version to pin or upgrade to.
+
+### One endpoint, one task
+
+`POST /api/servers/from-zip`, multipart: `file` plus `name`, `loader` (`auto` default, or
+fabric/quilt/forge/neoforge/paper), `mcVersion` (blank = auto), `applyOverrides`, and the
+optional `portGame` / `diskQuotaGb` / `heapMb` / `containerMemoryMb`. Same auth as `from-mods`
+and `from-pack`: any non-viewer (there's no per-server permission before the server exists). The
+upload cap is the Mods-tab import's (`IMPORT_MAX_BYTES`). The response is `{ ok, taskId }`; the
+task's `result` is a `ServerFromZipResult` (`shared/types/mods.d.ts`): `serverId`, `name`,
+`target` (loader, MC version, loader build), the `ContentImportReport`, and `startError`.
+
+Why not "create the server, then call `POST .../mods/import`" from the browser? It would reuse
+the same code, but:
+
+- The loader and version have to be known before the server is created, and for a jar zip that
+  means identifying the jars, which only the backend can do. A client-side sequence would need a
+  preview endpoint that parks the upload under a token (upstream's two-phase design, and what
+  blueprint import does), and then upload again or keep the token alive.
+- The content has to be in place before first boot (as in `from-mods`), so the client would also
+  have to create stopped, import, then start: three round trips.
+- If the browser tab closes midway, the half-made server is left behind with nothing to clean it
+  up. In a task, cleanup is a `try`/`catch` next to the create.
+
+So there's a new endpoint, but nearly no new pipeline: `ContentImportService` was split into
+`stage()` (extract + `describeStagedPack`), `identifyBundled()`, `importStaged()` and `discard()`.
+`importArchive()` (the Mods tab) is now `stage` → install → `discard`, with the same behavior.
+
+The task runs:
+
+1. **Stage** the archive into `data/tmp/import-<id>/`. A broken or unrecognized archive fails here.
+2. **Target.** `inferZipTarget` fills in whatever was left on auto. If anything can't be
+   determined it throws 400 and the task fails. Nothing has been created yet.
+3. **Create** the server stopped (`start: false`), `type` = loader upper-cased, `VERSION` = the
+   MC version, and the loader-build env var (`envKeyFor`) when there's a build to set.
+4. **Import** with `importStaged`, same report as the Mods tab.
+5. **Start.**
+
+### Failure handling
+
+- Anything that rejects the archive or the target happens before step 3, so no server exists.
+- Per-jar failures (a dead download, a checksum mismatch) are in the report and don't stop
+  anything, like the Mods tab and `from-mods`. The server keeps whatever did install.
+- If `importStaged` itself throws (quota, DB error, overrides apply is already caught inside
+  and reported as a warning), the new server is deleted with `deleteServer` and the task fails.
+  The server is seconds old and holds nothing the user made, so there's nothing to lose. A
+  deletion failure is logged and the original error is what the task reports.
+- A failed start is _not_ rolled back: the server is complete and the report says what's on it.
+  The error goes in `startError`, the task still succeeds, and the UI shows it as a warning.
+
+### Loader and version detection
+
+Upstream pre-fills the wizard from a separate preview request. Here there's no preview; detection
+runs at create time and the form offers **Auto-detect** or an explicit choice for each. An
+explicit choice always wins.
+
+- **`.mrpack`**: the index's `dependencies` (`minecraft`, `fabric-loader`, `quilt-loader`,
+  `forge`, `neoforge`), as `parseMrpackIndex` already reads them. The pack's loader build is used
+  only when the server runs the pack's loader. A pack that doesn't name one is a 400 asking the
+  user to pick.
+- **Jar zip**: the bundled jars are identified up front with `identifyBundled`, which remembers
+  the results on the `StagedArchive`, so the install step doesn't look them up again (one registry
+  round per archive, as before). Then a majority vote, like upstream:
+  - **Kind**: plugins outnumber mods → `paper`. Unidentified jars don't vote; a tie goes to mods.
+  - **Loader**: the most common of fabric/quilt/forge/neoforge across the jars' `loaders`. A tie
+    goes to Fabric, then Forge, NeoForge, Quilt, since a Quilt server runs Fabric mods but not the
+    reverse.
+  - **Minecraft version**: the release listed by the most jars' `mcVersions` (registry matches
+    only: manifests give ranges like `>=1.20`, not versions). Snapshots and pre-releases never
+    vote. A tie goes to the newest.
+  - No version data: a Paper server gets `LATEST` (plugins mostly work across versions); a mod
+    server is a 400. Upstream would guess; a mod zip on the wrong version just crash-loops.
+
+### UI
+
+`CreateFromZipPanel.vue` copies the Mods tab's import interaction: `q-file` (`.zip,.mrpack`), an
+"Apply overrides" toggle, `http.postForm`, and `tasksApi.waitFor` with `onProgress` driving a
+linear progress bar and the task step. The finished report opens in the Mods tab's
+`ModImportReportDialog`, unchanged; closing it navigates to the new server. The server name
+defaults to the file name. Port, disk, heap and container memory default the same way the Packwiz
+form does (suggested port, admin-configured defaults).

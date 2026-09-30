@@ -20,6 +20,7 @@ import { ModsService } from './mods.service';
 import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
 import { ContentImportService } from './content-import.service';
 import { PackOverridesService } from './pack-overrides.service';
+import { ServerFromZipService } from './server-from-zip.service';
 import { ModsController } from './mods.controller';
 import { ModBrowserController } from './mod-browser.controller';
 
@@ -52,6 +53,7 @@ import { ModBrowserController } from './mod-browser.controller';
     ModBrowserOrchestratorService,
     PackOverridesService,
     ContentImportService,
+    ServerFromZipService,
   ],
   exports: [
     ApiCacheService,
