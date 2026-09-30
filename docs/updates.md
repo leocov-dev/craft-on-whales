@@ -23,6 +23,14 @@ Updates are never silent. When you choose to upgrade a pack, the panel:
 
 If it doesn't come up healthy, you roll back to the pre-update backup. A stable-tracking server is never offered a beta, and the changelog link points at the real per-version diff where the source provides one.
 
+### Mods and plugins
+
+Mods and plugins you added by link are checked too, from Modrinth, CurseForge, Hangar, SpigotMC and GitHub Releases. **Update** swaps the installed jar for the new one and keeps it enabled or disabled as it was.
+
+- If you installed a stable build, you're only offered stable builds. If you installed a Hangar snapshot or a GitHub pre-release, you're offered the newest build of any kind.
+- You're never offered a build older than the one you have.
+- Some updates can't be downloaded by the panel: CurseForge files whose author turned off third-party downloads, paid SpigotMC resources, and plugins hosted outside Hangar or SpigotMC. For those, **Update** shows where to download the new version. Download it in your browser, pick the jar, and click **Upload & update**. It replaces the installed jar the same way.
+
 ## Ignoring an update
 
 Not every available build is one you want to take right now. Hitting **Ignore** on an entry (a mod, modpack, or server) dismisses that specific version — it drops off the Updates page, the dashboard count, and any per-server "update available" badge.

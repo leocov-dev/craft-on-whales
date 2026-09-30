@@ -4,9 +4,8 @@ import { DbService } from '../db/db.service';
 import { EventsService } from '../events/events.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { PacksService } from '../packs/packs.service';
-import { ModrinthApiService } from '../mods/modrinth-api.service';
-import { CurseforgeApiService } from '../mods/curseforge-api.service';
 import { ModsService } from '../mods/mods.service';
+import { ContentLatestService } from './content-latest.service';
 import { ApiCacheService } from '../mods/api-cache.service';
 import {
   serverContent,
@@ -36,8 +35,7 @@ export class UpdateCheckerService {
     private readonly events: EventsService,
     private readonly serverQuery: ServerQueryService,
     private readonly packs: PacksService,
-    private readonly modrinth: ModrinthApiService,
-    private readonly curseforge: CurseforgeApiService,
+    private readonly contentLatest: ContentLatestService,
     private readonly mods: ModsService,
     private readonly apiCache: ApiCacheService,
   ) {}
@@ -91,6 +89,7 @@ export class UpdateCheckerService {
           libVersion: libraryFiles.version,
           platform: libraryFiles.platform,
           projectId: libraryFiles.projectId,
+          fileId: libraryFiles.fileId,
         })
         .from(serverContent)
         .innerJoin(libraryFiles, eq(libraryFiles.id, serverContent.libraryId))
@@ -107,26 +106,17 @@ export class UpdateCheckerService {
           : server.mc_version;
       const loader = this.mods.loaderOf(server) ?? undefined;
       for (const row of rows) {
+        if (!row.projectId) continue;
         try {
-          let latest: { id: string; name: string } | null = null;
-          let changelogUrl: string | null = null;
-          if (row.platform === 'modrinth' && row.projectId) {
-            const versions = await this.modrinth.getVersions(row.projectId, {
-              loader,
-              mcVersion,
-            });
-            const first = versions[0];
-            if (first) latest = { id: first.id, name: first.version_number };
-            changelogUrl = `https://modrinth.com/project/${row.projectId}/changelog`;
-          } else if (row.platform === 'curseforge' && row.projectId) {
-            const files = await this.curseforge.getFiles(
-              Number(row.projectId),
-              { mcVersion, loader },
-            );
-            const first = files[0];
-            if (first) latest = { id: String(first.fileId), name: first.name };
-            changelogUrl = `https://www.curseforge.com/projects/${row.projectId}`;
-          }
+          const latest = await this.contentLatest.latestFor(
+            {
+              platform: row.platform,
+              projectId: row.projectId,
+              fileId: row.fileId,
+              version: row.libVersion,
+            },
+            { loader, mcVersion },
+          );
           if (latest) {
             // Name-to-name comparison — mods.updateFor and listOutdated use the
             // same rule, so a check can never invent a phantom update.
@@ -135,7 +125,7 @@ export class UpdateCheckerService {
               isNew,
               latestId: latest.id,
               latestName: latest.name,
-              changelogUrl: isNew ? changelogUrl : null,
+              changelogUrl: isNew ? latest.changelogUrl : null,
             });
             if (isNew) {
               findings.push({

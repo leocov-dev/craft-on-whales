@@ -37,6 +37,7 @@ import {
   parseGithubRef,
   pickGithubAsset,
   pickGithubRelease,
+  pickGithubUpdateAsset,
 } from './github-releases-api.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
@@ -458,6 +459,65 @@ export class ModsService {
   }
 
   /**
+   * The add-by-link input that installs build `latestId` of an installed
+   * library row — what the update route resolves, and what a blocked
+   * update's manual upload is completed against. Pinned to that exact build,
+   * so the install is the one the update check found rather than whatever is
+   * newest by then.
+   */
+  async updateRefFor(
+    lib: Pick<
+      LibraryFileRow,
+      'platform' | 'projectId' | 'filename' | 'version' | 'fileId'
+    >,
+    latestId: string,
+  ): Promise<string> {
+    const projectId = lib.projectId;
+    if (!projectId)
+      throw new ConflictException(
+        'No update source is known for this mod (installed from a direct URL or upload)',
+      );
+    switch (lib.platform) {
+      case 'modrinth':
+      case 'curseforge':
+      case 'spiget':
+        return this.refToUrl(lib.platform, projectId, latestId);
+      case 'hangar': {
+        // Page URLs need the owner, which the library row doesn't keep.
+        const project = await this.hangar.getProject(projectId);
+        return this.refToUrl(
+          'hangar',
+          `${project.owner}/${project.slug}`,
+          latestId,
+        );
+      }
+      case 'github': {
+        // A download link naming the asset, so a multi-jar release stays on
+        // the variant that was installed (see pickGithubUpdateAsset).
+        const release = (await this.github.getReleases(projectId)).find(
+          (r) => r.tag === latestId,
+        );
+        const asset = release
+          ? pickGithubUpdateAsset(
+              release.assets,
+              lib.filename,
+              lib.fileId ?? lib.version,
+              release.tag,
+            )
+          : null;
+        const base = `https://github.com/${projectId}/releases`;
+        return asset
+          ? `${base}/download/${encodeURIComponent(latestId)}/${encodeURIComponent(asset.name)}`
+          : `${base}/tag/${encodeURIComponent(latestId)}`;
+      }
+      default:
+        throw new ConflictException(
+          `Cannot auto-update content from platform "${lib.platform}"`,
+        );
+    }
+  }
+
+  /**
    * Install content from any source reference (see classifyModSource).
    * Downloads into the library, links into the server dir, and records an
    * overlay row. onProgress passes through to the download.
@@ -511,20 +571,27 @@ export class ModsService {
    * hash (CurseForge), the upload must match it. Otherwise it's taken on the
    * user's word, like any upload. If the link has since become downloadable,
    * the upload is still accepted against the same metadata.
+   *
+   * `replaceContentId` completes a blocked *update*: that overlay row must be
+   * the same project as the link, and is removed (its enabled state and
+   * import kept) only once the upload has passed every check.
    */
   async installManualUpload(
     serverId: string,
     tmpPath: string,
     origName: string,
     input: string,
-    { actor = 'system', kind }: { actor?: string; kind?: ContentKind } = {},
+    {
+      actor = 'system',
+      kind,
+      replaceContentId,
+    }: { actor?: string; kind?: ContentKind; replaceContentId?: string } = {},
   ): Promise<{ library: LibraryFileRow; filename: string; verified: boolean }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
     this.assertAcceptsManualContent(server);
     if (!/\.(jar|zip)$/i.test(origName))
       throw new BadRequestException('Only .jar or .zip files can be uploaded');
-    const targetKind: ContentKind = kind || this.jarKindFor(server);
 
     let meta: DownloadMeta;
     try {
@@ -533,6 +600,14 @@ export class ModsService {
       if (!(err instanceof BlockedDownloadException)) throw err;
       meta = err.meta;
     }
+
+    const replacing = replaceContentId
+      ? await this.replaceableRow(server.id, replaceContentId, meta)
+      : null;
+    const targetKind: ContentKind =
+      (replacing?.kind as ContentKind | undefined) ||
+      kind ||
+      this.jarKindFor(server);
 
     const expected = meta.expectedHash ?? null;
     if (expected) {
@@ -562,11 +637,16 @@ export class ModsService {
       lib.id,
       meta,
     );
+    if (replacing)
+      await this.removeContent(server.id, replacing.filename, { actor });
     const { filename } = await this.addLibraryContent(
       server,
       withProvenance,
       targetKind,
+      { importId: replacing?.importId ?? null },
     );
+    if (replacing && !replacing.enabled)
+      await this.setEnabled(server.id, filename, false, { actor });
     this.events.recordEvent({
       serverId,
       actor,
@@ -576,6 +656,43 @@ export class ModsService {
     });
     this.scanInBackground();
     return { library: withProvenance, filename, verified: Boolean(expected) };
+  }
+
+  /**
+   * The overlay row a manual upload is about to replace, checked to be the
+   * same registry project as the link the upload was resolved against — so
+   * the replace can't be pointed at unrelated content.
+   */
+  private async replaceableRow(
+    serverId: string,
+    contentId: string,
+    meta: DownloadMeta,
+  ): Promise<typeof serverContent.$inferSelect> {
+    const [row] = await this.db
+      .select()
+      .from(serverContent)
+      .where(
+        and(
+          eq(serverContent.id, contentId),
+          eq(serverContent.serverId, serverId),
+        ),
+      )
+      .limit(1);
+    if (!row) throw new NotFoundException('The content to update is gone');
+    if (row.managedBy === 'pack')
+      throw new ConflictException(
+        'Pack-managed content updates with the pack — upgrade the modpack instead',
+      );
+    const lib = row.libraryId
+      ? await this.library.getLibraryFile(row.libraryId)
+      : undefined;
+    if (
+      !lib ||
+      lib.platform !== meta.platform ||
+      lib.projectId !== meta.projectId
+    )
+      throw new BadRequestException(`That link isn't an update of ${row.name}`);
+    return row;
   }
 
   /**

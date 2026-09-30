@@ -20,6 +20,7 @@ import type {
 } from './mods.types';
 import {
   githubRepoSchema,
+  githubReleaseSchema,
   githubReleaseListSchema,
   githubCacheEntrySchema,
   type RawGithubRelease,
@@ -105,6 +106,71 @@ export function pickGithubAsset(
     if (match) return match;
   }
   return assets.find((a) => !SIDECAR_JAR_RE.test(a.name)) ?? assets[0] ?? null;
+}
+
+/**
+ * The release an installed tag should update to, or null when there's
+ * nothing newer. `releases` is newest first; `installed` is the installed
+ * tag's own release record when it could be looked up (found in `releases`,
+ * or fetched by tag when it has dropped out of that window).
+ *
+ * An installed stable release follows pickGithubRelease (newest stable with
+ * jars, so pre-releases are skipped); an installed pre-release was a
+ * deliberate opt-in and takes the newest release with jars of either kind.
+ * An installed release that can't be looked up counts as stable.
+ *
+ * Never offers a downgrade: when the installed tag is in the list, only
+ * releases ahead of it count; when it isn't (older than the window, or a
+ * pre-release the window no longer reaches), the candidate must be published
+ * after it. If the installed release is gone upstream (deleted, or the lookup
+ * failed) there's no date to compare, so the candidate is offered.
+ */
+export function pickGithubUpdate(
+  releases: GithubRelease[],
+  installedTag: string | null,
+  installed: GithubRelease | null,
+): GithubRelease | null {
+  const candidate = installed?.prerelease
+    ? (releases.find((r) => r.assets.length > 0) ?? null)
+    : pickGithubRelease(releases);
+  if (!candidate || candidate.tag === installedTag) return null;
+  const installedIdx = releases.findIndex((r) => r.tag === installedTag);
+  if (installedIdx >= 0) {
+    return releases.indexOf(candidate) < installedIdx ? candidate : null;
+  }
+  const after = Date.parse(candidate.publishedAt ?? '');
+  const before = Date.parse(installed?.publishedAt ?? '');
+  if (Number.isFinite(after) && Number.isFinite(before) && after <= before)
+    return null;
+  return candidate;
+}
+
+/**
+ * Which jar of a newer release replaces an installed one: the same asset
+ * name (`ProtocolLib.jar`), then the installed name with its version swapped
+ * for the new tag's (`Foo-1.2.0.jar` → `Foo-1.3.0.jar`), then pickGithubAsset's
+ * default. Keeps a multi-jar release (Paper/Velocity/Fabric variants) on the
+ * variant that was installed.
+ */
+export function pickGithubUpdateAsset(
+  assets: GithubReleaseAsset[],
+  installedFilename: string | null,
+  installedTag: string | null,
+  newTag: string,
+): GithubReleaseAsset | null {
+  const bare = (tag: string) => tag.replace(/^v(?=\d)/i, '');
+  const hints: string[] = [];
+  if (installedFilename) {
+    hints.push(installedFilename);
+    const oldVersion = installedTag ? bare(installedTag) : '';
+    if (oldVersion && installedFilename.includes(oldVersion))
+      hints.push(installedFilename.split(oldVersion).join(bare(newTag)));
+  }
+  for (const hint of hints) {
+    const match = assets.find((a) => a.name === hint);
+    if (match) return match;
+  }
+  return pickGithubAsset(assets);
 }
 
 /**
@@ -227,6 +293,22 @@ export class GithubReleasesApiService {
     return list
       .filter((rel) => !rel.draft)
       .map((rel) => this.normalizeRelease(rel));
+  }
+
+  /**
+   * One published release by tag — for an installed tag that has dropped out
+   * of getReleases' window. 404s (NotFoundException) when the release was
+   * deleted, or is still a draft.
+   */
+  async getReleaseByTag(repo: string, tag: string): Promise<GithubRelease> {
+    const rel = await this.ghFetch(
+      `/repos/${this.assertRepo(repo)}/releases/tags/${encodeURIComponent(tag)}`,
+      githubReleaseSchema,
+      { ttlMs: 60 * 60 * 1000 },
+    );
+    if (rel.draft)
+      throw new NotFoundException('That release was not found on GitHub');
+    return this.normalizeRelease(rel);
   }
 
   /** Resolve a pasted GitHub URL / `owner/repo` to the repo plus any tag/asset it pinned. */

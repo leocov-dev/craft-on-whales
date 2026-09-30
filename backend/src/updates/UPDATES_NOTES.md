@@ -76,3 +76,120 @@ Both routes are gated by `ServerPermissionGuard` + `@RequireServerPermission('co
 (the same `content` capability the mods/pack update-apply routes already require), with a custom
 resolver (`updateSubjectServerId`) that looks up the owning server id from `server_content` for the
 `content` case — following the existing `backupServerId` pattern in `backups.controller.ts`.
+
+## Hangar, SpigotMC and GitHub content (4.29b)
+
+Our own follow-up to 4.29 (no upstream reference). Content installed from Hangar, SpigotMC (via
+Spiget) or GitHub Releases is checked and updated like Modrinth/CurseForge content. Files:
+`content-latest.service.ts`, the `pick*Update` helpers next to each client in `mods/`,
+`ModsService.updateRefFor`, the update and `mods/manual` routes in `mods.controller.ts`,
+`content-updates.spec.ts`, and `UpdatesPage.vue` / `BlockedDownloadBanner.vue` on the frontend.
+
+### Per-platform dispatch
+
+`ContentLatestService.latestFor(row, { mcVersion, loader })` is the one place that knows how each
+platform answers "what's the newest build of this". `checkAll()` calls it per overlay row and keeps
+its existing rule: `isNew = latest.name !== libVersion`, `latest_version` holds `latest.id`. The
+Modrinth/CurseForge branches moved there unchanged. `null` still means "nothing to compare
+against, leave the cached row alone". For the three new sources, "nothing newer" returns the
+installed build itself, so the row is rewritten as up to date.
+
+What each source stores (the ids the install already writes to `library_files`):
+
+| Platform | `latest_version` / `ignored_version` | `latest_name` | changelog link                        |
+| -------- | ------------------------------------ | ------------- | ------------------------------------- |
+| hangar   | version name (unique per project)    | version name  | the version's Hangar page             |
+| spiget   | numeric version id                   | version name  | `spigotmc.org/resources/<id>/updates` |
+| github   | tag                                  | tag           | the release's `html_url`              |
+
+### "Newer", per source
+
+- **Hangar** (`pickHangarUpdate`): same MC filter and 50-build window as add-by-link. It follows
+  the installed build's channel: a Release build only moves to a newer release, however many
+  snapshots are ahead of it (ViaVersion had 50 snapshots and one release in the window when this
+  was checked). A Snapshot/Beta build moves to the newest build of any channel, which includes a
+  newer release. The user got a snapshot by pinning it, or because the project had no release,
+  so staying release-only would strand them on an old snapshot. An installed build that can't be
+  looked up counts as release. Never a downgrade: if the installed build is in the list, only
+  builds ahead of it count; if it isn't (older than the window, or tagged for another MC version),
+  the candidate must be published after it (one cached `getVersion` for its date).
+- **SpigotMC** (`pickSpigetUpdate`): version order only. The newest version (Spiget ids only go
+  up; `getVersions` sorts by `-id`) is an update when its id is above the installed one.
+  `testedVersions` isn't consulted at all, so a stale list can't hide or invent an update, and the
+  resource's `external`/`premium` flags don't matter to the check (only to downloading). Known
+  limit: some resources reuse one version name (SkinsRestorer publishes every build as `latest`),
+  and name-to-name comparison can't see those as updates. Changing that would mean changing the
+  name-based contract `listOutdated` and `updateFor` share, which is out of scope.
+- **GitHub** (`pickGithubUpdate`): an installed stable release follows `pickGithubRelease` (newest
+  stable with jars, so pre-releases are skipped). An installed pre-release takes the newest release
+  with jars of either kind. Never a downgrade, same rule as Hangar: when the installed tag is in
+  the 30-release window, only releases ahead of it count; when it isn't, one cached
+  `getReleaseByTag` (`/releases/tags/<tag>`) fetches its record, and the candidate must be
+  published after it. List membership alone isn't enough: an installed pre-release can age out of
+  the window, or the window's newest release can be deleted, while the installed build is still
+  the newest one. If the by-tag lookup fails (the release was deleted upstream, or GitHub errored),
+  there's no date to compare, so the installed release counts as stable and the candidate is
+  offered. Drafts are already dropped by the client.
+
+### GitHub polling and the ETag cache
+
+There's no second polling loop. The check runs on item 3.18's existing cadence (the scheduler's
+daily `checkAll`, plus "Check all" on the Updates page) and calls `getReleases(repo)` with its
+default window, which is the same request, and so the same `github:<path>` ETag cache row, that
+add-by-link's `resolveGithub` uses. Within the 10-minute TTL a check is free; after it, a
+revalidation is a 304 that doesn't count against the rate limit.
+
+### One-click update: auto-download or manual upload
+
+`POST .../mods/update` used to refuse anything but Modrinth/CurseForge before building its link.
+It now asks `ModsService.updateRefFor(lib, latestVersion)` for a link pinned to the checked build:
+
+- Modrinth/CurseForge/SpigotMC: `refToUrl` with the version id.
+- Hangar: `refToUrl('hangar', owner/slug, versionName)`. Library rows keep only the slug, so the
+  owner comes from `getProject` (cached for 30 minutes).
+- GitHub: a `releases/download/<tag>/<asset>` link. `pickGithubUpdateAsset` keeps the variant that
+  was installed: the same asset name (`ProtocolLib.jar`), else the old name with its version
+  swapped for the new tag's (`EssentialsXChat-2.21.2.jar` becomes `EssentialsXChat-2.22.0.jar`),
+  else `pickGithubAsset`'s default. Without this, updating EssentialsXChat would have installed
+  core EssentialsX, the first jar in the release.
+- Anything else (`url`, `upload`): 409, as before.
+
+Then, as before, `assertResolvable` runs before anything is removed, through the same
+`resolveForServer` as add-by-link. So whether a build is downloadable is decided by exactly the
+code that decided it for a fresh install: Hangar external builds and SpigotMC premium/external
+resources throw `BlockedDownloadException`, and the route never tries to fetch them. The route
+rethrows that 409 with an extra `updateRef` (the pinned link).
+
+The Updates page (`UpdatesPage.vue`, the only place with a one-click update; the Mods tab just
+shows the badge) reads that with `blockedUpdateOf(err)` and shows `BlockedDownloadBanner` in
+place of a failed toast. The banner's upload posts to `mods/manual` with `url: updateRef` and
+`replaceContentId`. `installManualUpload` then:
+
+1. resolves the link again and takes provenance from the registry, as for any blocked install;
+2. checks the row to replace is on this server, isn't pack-managed, and is the same
+   `platform`/`projectId` as the link (a 400 otherwise, before anything is imported), so the
+   replace can't be pointed at unrelated content;
+3. after the hash check and library import, removes the old row, adds the new one with the old
+   row's `kind` and `importId`, and disables it again if the old one was disabled, the same things
+   the update route preserves.
+
+### `ignored_version`
+
+Nothing was special-cased. The new sources put a platform id in `latest_version` that changes
+exactly when a newer build appears, which is all the self-clearing rule needs. The spec checks the
+whole cycle for all three: ignore, a re-check that finds the same builds keeps them ignored, a new
+build brings the row back and empties the ignored list.
+
+### Verification
+
+`content-updates.spec.ts` covers the pickers, `checkAll` against the real migrations with the real
+clients (fetch stubbed), `ignored_version`, the shared GitHub cache row, `updateRefFor`, the update
+route's routing and the replace path of `installManualUpload`. Checked live against the real
+registries (Sept 2026), calling `ContentLatestService` and `updateRefFor` + `assertResolvable`
+directly: ViaVersion on Hangar (release 5.11.0 goes to 5.12.0, not the 50 newer snapshots; a
+snapshot goes to the newest snapshot; downloadable), EssentialsX on Hangar (external build,
+blocked), LuckPerms on SpigotMC (5.4.131 goes to 5.5.71, with `testedVersions` that don't list
+1.21.4), VoteParty (premium, blocked) and SkinsRestorer (external, blocked), EssentialsX and
+ProtocolLib on GitHub (asset variant kept, downloadable). The full install-then-update flow in a
+running panel wasn't exercised, since it needs a Docker-backed server; the panel was booted to
+check the new provider wiring.

@@ -74,6 +74,44 @@ export function hangarExpectedHash(
 }
 
 /**
+ * The build an installed Hangar version should update to, or null when
+ * there's nothing newer. `versions` is newest first (getVersions order,
+ * already MC-filtered); `installed` is the installed build's own record when
+ * it could be looked up.
+ *
+ * Channel-following: a build on the Release channel only updates to a newer
+ * release, the same preference add-by-link has (ViaVersion-style projects
+ * publish many more snapshots than releases). A build on a Snapshot/Beta
+ * channel was a deliberate opt-in (a pinned link, or a project with no
+ * release at all), so it updates to the newest build of any channel. An
+ * installed build that can't be looked up counts as release.
+ *
+ * Never offers a downgrade: when the installed build is in the list, only
+ * builds ahead of it count; when it isn't (older than the window, or not
+ * tagged for this MC version), the candidate must be published after it.
+ */
+export function pickHangarUpdate(
+  versions: HangarVersion[],
+  installedName: string | null,
+  installed: HangarVersion | null,
+): HangarVersion | null {
+  const followsRelease = !installed || installed.versionType === 'release';
+  const candidate = followsRelease
+    ? versions.find((v) => v.versionType === 'release')
+    : versions[0];
+  if (!candidate || candidate.name === installedName) return null;
+  const installedIdx = versions.findIndex((v) => v.name === installedName);
+  if (installedIdx >= 0) {
+    return versions.indexOf(candidate) < installedIdx ? candidate : null;
+  }
+  const after = Date.parse(candidate.datePublished ?? '');
+  const before = Date.parse(installed?.datePublished ?? '');
+  if (Number.isFinite(after) && Number.isFinite(before) && after <= before)
+    return null;
+  return candidate;
+}
+
+/**
  * Parse the forms people paste for a Hangar project: a page URL
  * (`hangar.papermc.io/<owner>/<slug>[/versions/<version>]`), `owner/slug`,
  * or a bare slug. Hangar's API addresses projects by slug alone, so the

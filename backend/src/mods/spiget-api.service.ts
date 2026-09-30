@@ -58,6 +58,32 @@ export function parseSpigetRef(input: string): SpigetResourceRef | null {
 }
 
 /**
+ * The version an installed SpigotMC resource should update to, or null when
+ * there's nothing newer. `versions` is newest first (getVersions' `-id`
+ * order). Decided on version order alone: Spiget version ids only go up, so
+ * the newest one is newer than the installed one exactly when its id is
+ * larger. The resource's `testedVersions` plays no part — it's author-kept
+ * and goes stale (see MODS_NOTES.md), so it can neither hide nor invent an
+ * update. A newer id under the same version name (a re-upload) isn't offered:
+ * update state compares names (UPDATES_NOTES.md), and it would look like a
+ * no-op to the user.
+ */
+export function pickSpigetUpdate(
+  versions: SpigetVersion[],
+  installed: { versionId: string | null; name: string | null },
+): SpigetVersion | null {
+  const newest = versions[0];
+  if (!newest || newest.name === installed.name) return null;
+  if (
+    installed.versionId &&
+    /^\d+$/.test(installed.versionId) &&
+    Number(newest.versionId) <= Number(installed.versionId)
+  )
+    return null;
+  return newest;
+}
+
+/**
  * Spiget API client — the SpigotMC resource catalog, no key required.
  * Docs: https://spiget.org/documentation. Downloads go through Spiget's
  * `/download/proxy` CDN endpoint rather than spigotmc.org itself, whose

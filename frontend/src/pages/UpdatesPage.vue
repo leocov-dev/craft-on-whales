@@ -18,6 +18,17 @@
       </template>
     </PageHeader>
 
+    <BlockedDownloadBanner
+      v-if="blockedUpdate"
+      :key="rowKey(blockedUpdate.row)"
+      :server-id="blockedUpdate.row.serverId"
+      :url="blockedUpdate.ref"
+      :blocked="blockedUpdate.blocked"
+      :replace-content-id="blockedUpdate.row.contentId ?? undefined"
+      @installed="onManualUpdated"
+      @dismiss="blockedUpdate = null"
+    />
+
     <q-banner v-if="updates.length === 0" rounded class="q-mb-lg">
       <template #avatar>
         <q-icon name="info" color="primary" />
@@ -106,8 +117,10 @@
 import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { updatesApi, type OutdatedRow } from '@/api/updates';
+import { blockedUpdateOf, type BlockedDownload } from '@/api/mods';
 import { tasksApi } from '@/api/tasks';
 import PageHeader from '@/components/PageHeader.vue';
+import BlockedDownloadBanner from '@/components/BlockedDownloadBanner.vue';
 
 const $q = useQuasar();
 
@@ -116,6 +129,12 @@ const ignored = ref<OutdatedRow[]>([]);
 const lastChecked = ref<string | null>(null);
 const checking = ref(false);
 const busyKey = ref<string | null>(null);
+/**
+ * A mod update the panel can't download itself (CurseForge distribution
+ * disabled, Hangar/SpigotMC hosted elsewhere, SpigotMC premium): finished
+ * by uploading the jar, which replaces the installed one.
+ */
+const blockedUpdate = ref<{ row: OutdatedRow; ref: string; blocked: BlockedDownload } | null>(null);
 
 function rowKey(u: OutdatedRow) {
   return `${u.subjectType}:${u.subjectId}`;
@@ -144,6 +163,7 @@ async function checkAll() {
 
 async function apply(u: OutdatedRow) {
   busyKey.value = rowKey(u);
+  blockedUpdate.value = null;
   try {
     if (u.kind === 'Modpack') {
       const { taskId } = await updatesApi.upgradePack(u.serverId, u.versionId ?? undefined);
@@ -154,10 +174,20 @@ async function apply(u: OutdatedRow) {
     $q.notify({ type: 'positive', message: `${u.subject} updated.` });
     await load();
   } catch (err) {
+    const blocked = blockedUpdateOf(err);
+    if (blocked) {
+      blockedUpdate.value = { row: u, ...blocked };
+      return;
+    }
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Update failed.' });
   } finally {
     busyKey.value = null;
   }
+}
+
+async function onManualUpdated() {
+  blockedUpdate.value = null;
+  await load();
 }
 
 async function ignore(u: OutdatedRow) {

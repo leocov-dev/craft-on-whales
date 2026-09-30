@@ -47,7 +47,7 @@
       </q-file>
       <q-btn
         color="primary"
-        label="Upload & install"
+        :label="replaceContentId ? 'Upload & update' : 'Upload & install'"
         :loading="uploading"
         :disable="!file"
         @click="upload"
@@ -69,13 +69,16 @@ import { modsApi, type BlockedDownload, type ContentInstallResult } from '@/api/
  * Add-by-link's fallback when the file can't be downloaded automatically
  * (CurseForge distribution disabled, SpigotMC premium/external, Hangar
  * external): link to where the user can download it, then upload the jar to
- * finish the install. See backend/src/mods/MODS_NOTES.md.
+ * finish the install. Also finishes a blocked one-click update (the Updates
+ * page), replacing the installed jar. See backend/src/mods/MODS_NOTES.md.
  */
 const props = defineProps<{
   serverId: string;
   /** The add-by-link input that was blocked; the backend resolves it again. */
   url: string;
   blocked: BlockedDownload;
+  /** Set when this completes a blocked update: the installed row the upload replaces. */
+  replaceContentId?: string | undefined;
 }>();
 
 const emit = defineEmits<{
@@ -99,7 +102,11 @@ const what = computed(() =>
   props.blocked.version ? `${props.blocked.name} ${props.blocked.version}` : props.blocked.name,
 );
 
-const title = computed(() => `${what.value} can't be downloaded automatically`);
+const title = computed(() =>
+  props.replaceContentId
+    ? `The update to ${what.value} can't be downloaded automatically`
+    : `${what.value} can't be downloaded automatically`,
+);
 
 const explanation = computed(() => {
   switch (props.blocked.reason) {
@@ -127,10 +134,12 @@ async function upload() {
   if (!file.value) return;
   uploading.value = true;
   try {
-    const res = await modsApi.completeManual(props.serverId, props.url, file.value);
+    const res = await modsApi.completeManual(props.serverId, props.url, file.value, {
+      replaceContentId: props.replaceContentId,
+    });
     $q.notify({
       type: 'positive',
-      message: `Installed ${res.installed.name}${res.verified ? ' (checksum verified)' : ''}.`,
+      message: `${props.replaceContentId ? 'Updated' : 'Installed'} ${res.installed.name}${res.verified ? ' (checksum verified)' : ''}.`,
     });
     file.value = null;
     emit('installed', res.installed);

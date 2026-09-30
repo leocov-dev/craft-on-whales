@@ -24,6 +24,7 @@ import { DbService } from '../db/db.service';
 import { serverContent, libraryFiles, updateChecks } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ModsService } from './mods.service';
+import { BlockedDownloadException } from './blocked-download.exception';
 import {
   ContentImportService,
   IMPORT_MAX_BYTES,
@@ -37,6 +38,11 @@ import { RequireServerPermission } from '../permissions/require-server-permissio
 const installSchema = z.object({
   url: z.string().trim().min(3).max(500),
   kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
+});
+
+// A blocked update's completion also names the row it replaces.
+const manualSchema = installSchema.extend({
+  replaceContentId: z.string().trim().min(1).max(40).optional(),
 });
 
 const uploadSchema = z.object({
@@ -180,19 +186,24 @@ export class ModsController {
         'No newer version is known — run an update check first',
       );
 
-    if (lib.platform !== 'modrinth' && lib.platform !== 'curseforge')
-      throw new ConflictException(
-        `Cannot auto-update content from platform "${lib.platform}"`,
-      );
-    const ref = this.mods.refToUrl(
-      lib.platform,
-      lib.projectId,
-      check.latestVersion,
-    );
+    // Modrinth, CurseForge, Hangar, SpigotMC and GitHub; anything else 409s.
+    const ref = await this.mods.updateRefFor(lib, check.latestVersion);
 
     // Resolve before removing: a newer build that can't be downloaded
-    // automatically (BlockedDownload) must not cost the user the installed one.
-    await this.mods.assertResolvable(server.id, ref);
+    // automatically (BlockedDownload: CurseForge distribution disabled,
+    // Hangar external, SpigotMC premium/external) must not cost the user the
+    // installed one. Its 409 also carries `updateRef`, the pinned link the UI
+    // completes the update with (mods/manual + replaceContentId).
+    try {
+      await this.mods.assertResolvable(server.id, ref);
+    } catch (err) {
+      if (err instanceof BlockedDownloadException)
+        throw new ConflictException({
+          ...(err.getResponse() as Record<string, unknown>),
+          updateRef: ref,
+        });
+      throw err;
+    }
     const wasEnabled = Boolean(row.enabled);
     await this.mods.removeContent(server.id, row.filename, { actor });
     const result = await this.mods.installFromUrl(server.id, ref, {
@@ -351,7 +362,9 @@ export class ModsController {
   /**
    * Complete an add-by-link install that 409'd with `blocked` (the file
    * can't be fetched automatically): multipart `file` (the jar the user
-   * downloaded), `url` (the same link that was blocked), optional `kind`.
+   * downloaded), `url` (the same link that was blocked), optional `kind`,
+   * and for a blocked update, `replaceContentId` (the row being updated;
+   * `url` is then the update 409's `updateRef`).
    * See MODS_NOTES.md, "Blocked-download fallback".
    */
   @RequireServerPermission('content')
@@ -370,13 +383,16 @@ export class ModsController {
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     try {
-      const { url, kind } = parseBody(installSchema, body ?? {});
+      const { url, kind, replaceContentId } = parseBody(
+        manualSchema,
+        body ?? {},
+      );
       const result = await this.mods.installManualUpload(
         id,
         file.path,
         file.originalname,
         url,
-        { actor: currentUser(req).username, kind },
+        { actor: currentUser(req).username, kind, replaceContentId },
       );
       return {
         ok: true,
