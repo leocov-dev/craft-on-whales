@@ -35,11 +35,24 @@ export const modsApi = {
       url,
       kind,
     }),
-  /** Finish a blocked add-by-link with the jar the user downloaded themselves. */
-  completeManual: (serverId: string, url: string, file: File, kind?: ContentItem['kind']) => {
+  /**
+   * Finish a blocked add-by-link with the jar the user downloaded themselves.
+   * For a blocked update, `url` is the update's `updateRef` and
+   * `replaceContentId` the row it replaces.
+   */
+  completeManual: (
+    serverId: string,
+    url: string,
+    file: File,
+    {
+      kind,
+      replaceContentId,
+    }: { kind?: ContentItem['kind']; replaceContentId?: string | undefined } = {},
+  ) => {
     const form = new FormData();
     form.append('url', url);
     if (kind) form.append('kind', kind);
+    if (replaceContentId) form.append('replaceContentId', replaceContentId);
     form.append('file', file);
     return http.postForm<{ ok: true; installed: ContentInstallResult; verified: boolean }>(
       `/api/servers/${serverId}/mods/manual`,
@@ -91,4 +104,14 @@ export function blockedDownloadOf(err: unknown): BlockedDownload | null {
   if (!(err instanceof ApiError) || err.status !== 409) return null;
   const blocked = err.body?.blocked;
   return blocked && typeof blocked === 'object' ? (blocked as BlockedDownload) : null;
+}
+
+/**
+ * A blocked update (POST mods/update 409): the BlockedDownload plus the pinned
+ * link to complete it with through completeManual.
+ */
+export function blockedUpdateOf(err: unknown): { blocked: BlockedDownload; ref: string } | null {
+  const blocked = blockedDownloadOf(err);
+  const ref = err instanceof ApiError ? err.body?.updateRef : undefined;
+  return blocked && typeof ref === 'string' ? { blocked, ref } : null;
 }

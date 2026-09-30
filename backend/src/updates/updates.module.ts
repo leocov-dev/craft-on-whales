@@ -6,6 +6,7 @@ import { ModsModule } from '../mods/mods.module';
 import { WorldsModule } from '../worlds/worlds.module';
 import { DockerModule } from '../docker/docker.module';
 import { UpdateCheckerService } from './update-checker.service';
+import { ContentLatestService } from './content-latest.service';
 import { UpdateUpgradeService } from './update-upgrade.service';
 import { PackwizWatcherService } from './packwiz-watcher.service';
 
@@ -24,6 +25,7 @@ import { PackwizWatcherService } from './packwiz-watcher.service';
     DockerModule,
   ],
   providers: [
+    ContentLatestService,
     UpdateCheckerService,
     UpdateUpgradeService,
     PackwizWatcherService,

@@ -108,6 +108,58 @@ export function pickGithubAsset(
 }
 
 /**
+ * The release an installed tag should update to, or null when there's
+ * nothing newer. `releases` is newest first. An installed stable release
+ * follows pickGithubRelease (newest stable with jars, so pre-releases are
+ * skipped); an installed pre-release was a deliberate opt-in and takes the
+ * newest release with jars of either kind. Never a downgrade: when the
+ * installed tag is in the list, only releases ahead of it count. A tag that
+ * has dropped out of the recent-releases window is older than all of them.
+ */
+export function pickGithubUpdate(
+  releases: GithubRelease[],
+  installedTag: string | null,
+): GithubRelease | null {
+  const installedIdx = releases.findIndex((r) => r.tag === installedTag);
+  const installed = installedIdx >= 0 ? releases[installedIdx] : undefined;
+  const candidate = installed?.prerelease
+    ? (releases.find((r) => r.assets.length > 0) ?? null)
+    : pickGithubRelease(releases);
+  if (!candidate || candidate.tag === installedTag) return null;
+  if (installedIdx >= 0 && releases.indexOf(candidate) > installedIdx)
+    return null;
+  return candidate;
+}
+
+/**
+ * Which jar of a newer release replaces an installed one: the same asset
+ * name (`ProtocolLib.jar`), then the installed name with its version swapped
+ * for the new tag's (`Foo-1.2.0.jar` → `Foo-1.3.0.jar`), then pickGithubAsset's
+ * default. Keeps a multi-jar release (Paper/Velocity/Fabric variants) on the
+ * variant that was installed.
+ */
+export function pickGithubUpdateAsset(
+  assets: GithubReleaseAsset[],
+  installedFilename: string | null,
+  installedTag: string | null,
+  newTag: string,
+): GithubReleaseAsset | null {
+  const bare = (tag: string) => tag.replace(/^v(?=\d)/i, '');
+  const hints: string[] = [];
+  if (installedFilename) {
+    hints.push(installedFilename);
+    const oldVersion = installedTag ? bare(installedTag) : '';
+    if (oldVersion && installedFilename.includes(oldVersion))
+      hints.push(installedFilename.split(oldVersion).join(bare(newTag)));
+  }
+  for (const hint of hints) {
+    const match = assets.find((a) => a.name === hint);
+    if (match) return match;
+  }
+  return pickGithubAsset(assets);
+}
+
+/**
  * GitHub Releases client — many plugins/mods only publish jars as release
  * assets. Keyless for public repos; the unauthenticated 60 req/hr quota is
  * made livable by ETag revalidation (a 304 serves the cache and doesn't count

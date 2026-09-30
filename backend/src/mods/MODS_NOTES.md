@@ -183,9 +183,8 @@ identification can match.
 
 ### Still deferred
 
-1. **Update checker** (`updates/`) and `mods.controller.ts` update(): newer-version checks and
-   one-click updates for `hangar`/`spiget`/`github` library rows (they 409 "Cannot auto-update"
-   today, via an explicit platform check before `refToUrl`). Tracked as 4.29b.
+1. ~~**Update checker** and one-click updates for `hangar`/`spiget`/`github` rows.~~ Done in
+   4.29b; see `updates/UPDATES_NOTES.md`, "Hangar, SpigotMC and GitHub content (4.29b)".
 2. **Frontend**: Hangar/SpigotMC search chips. There is no mod-search UI to add them to; see the
    next section. (The manual download fallback for the 409s landed in 4.32, below.)
 
@@ -257,8 +256,9 @@ work; when it's built, it gets all four sources from these routes as they are.
   `resolveDependencies` never looks up versions for them and their closure is empty.
 
 `refToUrl` now builds all four platforms' page URLs (Hangar `/versions/<name>`, SpigotMC
-`?version=<id>`), round-trip tested against `parseHangarRef` / `parseSpigetRef`. The update route
-still refuses hangar/spiget before calling it; widening `refToUrl` doesn't enable updates.
+`?version=<id>`), round-trip tested against `parseHangarRef` / `parseSpigetRef`. Since 4.29b the
+update route builds its link through `ModsService.updateRefFor`, which uses `refToUrl` for
+Modrinth/CurseForge/SpigotMC and looks up the Hangar owner (library rows keep only the slug).
 
 ## Blocked-download fallback (upstream parity 4.32)
 
@@ -376,6 +376,12 @@ CurseForge jar has full provenance, so the update checker can offer a newer file
 usually be blocked too. The route now calls `ModsService.assertResolvable` on the target before
 removing anything, so a blocked (or missing) update is a 409 (or 404) with the installed jar left
 alone.
+
+Since 4.29b the same applies to Hangar external builds and SpigotMC premium/external resources,
+and the update route's blocked 409 also carries `updateRef`, the pinned link for that build. The
+Updates page shows `BlockedDownloadBanner` with it and posts the upload to `mods/manual` with
+`replaceContentId`, which swaps the installed row for the upload. See
+`updates/UPDATES_NOTES.md`.
 
 ### UI
 
