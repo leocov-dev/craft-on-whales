@@ -414,6 +414,23 @@ describe('ModBrowserService — Hangar / Spiget', () => {
           .sort(),
       ).toEqual(['/api/v1/projects/ViaVersion', '/v2/resources/28140']);
     });
+
+    it('skips Hangar/Spiget picks for a mod loader, offline', async () => {
+      const out = await browser.resolveDependencies({
+        loader: 'fabric',
+        mc: '1.21.4',
+        selection: [
+          {
+            platform: 'hangar',
+            ref: 'ViaVersion/ViaVersion',
+            versionId: '5.2.1',
+          },
+          { platform: 'spiget', ref: '28140', versionId: '600' },
+        ],
+      });
+      expect(out).toEqual({ deps: [], warnings: [] });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });
 

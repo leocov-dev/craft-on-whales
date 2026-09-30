@@ -457,6 +457,10 @@ export class ModBrowserService {
     // Seed: mark every selected project as covered, then enqueue its required deps.
     for (const item of selection) {
       if (!item || !item.ref) continue;
+      // Same guard as search()/versions(): a plugin-only platform can't serve
+      // a mod loader, so a mismatched pick makes no network call. Deps are
+      // queued under their parent's platform, so this covers the whole BFS.
+      if (!platformServesLoader(item.platform, loader)) continue;
       let meta: ModMeta;
       try {
         meta = await this.metaFor(item.platform, item.ref);
