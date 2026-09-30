@@ -15,12 +15,14 @@ import * as os from 'node:os';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { ModrinthApiService } from './modrinth-api.service';
-import { ModBrowserService } from './mod-browser.service';
+import { ModBrowserService, BROWSABLE_PLATFORMS } from './mod-browser.service';
 import { LoaderVersionsService } from './loader-versions.service';
 import {
   ModBrowserOrchestratorService,
   MOD_LOADERS,
+  BROWSE_LOADERS,
   fromModsSchema,
+  modPickSchema,
 } from './mod-browser-orchestrator.service';
 import { ServerFromZipService, fromZipSchema } from './server-from-zip.service';
 import { IMPORT_MAX_BYTES } from './content-import.service';
@@ -77,8 +79,8 @@ export class ModBrowserController {
     const { q, platform, loader, mc } = parseBody(
       z.object({
         q: z.string().trim().max(120).default(''),
-        platform: z.enum(['modrinth', 'curseforge']).default('modrinth'),
-        loader: z.enum(MOD_LOADERS).optional(),
+        platform: z.enum(BROWSABLE_PLATFORMS).default('modrinth'),
+        loader: z.enum(BROWSE_LOADERS).optional(),
         mc: z.string().trim().max(32).optional(),
       }),
       {
@@ -98,9 +100,9 @@ export class ModBrowserController {
   async versions(@Req() req: Request) {
     const { platform, ref, loader, mc } = parseBody(
       z.object({
-        platform: z.enum(['modrinth', 'curseforge']),
+        platform: z.enum(BROWSABLE_PLATFORMS),
         ref: z.string().trim().min(1).max(200),
-        loader: z.enum(MOD_LOADERS).optional(),
+        loader: z.enum(BROWSE_LOADERS).optional(),
         mc: z.string().trim().max(32).optional(),
       }),
       {
@@ -120,17 +122,9 @@ export class ModBrowserController {
   async deps(@Body() body: unknown) {
     const { loader, mc, selection } = parseBody(
       z.object({
-        loader: z.enum(MOD_LOADERS),
+        loader: z.enum(BROWSE_LOADERS),
         mc: z.string().trim().max(32).optional(),
-        selection: z
-          .array(
-            z.object({
-              platform: z.enum(['modrinth', 'curseforge']),
-              ref: z.string().trim().min(1).max(200),
-              versionId: z.string().trim().min(1).max(60),
-            }),
-          )
-          .max(50),
+        selection: z.array(modPickSchema.required({ versionId: true })).max(50),
       }),
       body,
     );

@@ -7,8 +7,24 @@ import {
   type CreateServerInput,
 } from '../servers/server-lifecycle.service';
 import { TasksService } from '../tasks/tasks.service';
+import {
+  BROWSABLE_PLATFORMS,
+  PLUGIN_LOADER,
+  platformServesLoader,
+} from './mod-browser.service';
 
 export const MOD_LOADERS = ['fabric', 'forge', 'neoforge', 'quilt'] as const;
+
+/** What the browse routes and from-mods accept: the mod loaders plus Paper. */
+export const BROWSE_LOADERS = [...MOD_LOADERS, PLUGIN_LOADER] as const;
+
+/** One mod picked in the wizard (also the `selection` entry of `mods/deps`). */
+export const modPickSchema = z.object({
+  platform: z.enum(BROWSABLE_PLATFORMS),
+  ref: z.string().trim().min(1).max(200),
+  // Hangar version names are free-form author strings, longer than ids.
+  versionId: z.string().trim().min(1).max(128).optional(),
+});
 
 // Shared "Advanced Docker Settings" fields — ports `dockerOverridesSchema.ts`
 // (duplicated inline per the established convention in
@@ -57,21 +73,13 @@ export const fromModsSchema = z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
       .optional(),
-    // 'paper' is accepted for the Auto-detect (solver) path, which can pick
-    // a plugin loader; the browse UI only offers the four mod loaders.
-    loader: z.enum([...MOD_LOADERS, 'paper']),
+    // 'paper' creates a PAPER server: the Auto-detect (solver) path can pick
+    // it, and it's the only loader Hangar/SpigotMC picks are valid for
+    // (checked below).
+    loader: z.enum(BROWSE_LOADERS),
     mcVersion: z.string().trim().min(1).max(32),
     loaderVersion: z.string().trim().max(40).optional(),
-    mods: z
-      .array(
-        z.object({
-          platform: z.enum(['modrinth', 'curseforge']),
-          ref: z.string().trim().min(1).max(200),
-          versionId: z.string().trim().min(1).max(60).optional(),
-        }),
-      )
-      .max(100)
-      .default([]),
+    mods: z.array(modPickSchema).max(100).default([]),
     heapMb: z.coerce.number().int().min(512).max(262144).optional(),
     containerMemoryMb: z.coerce.number().int().min(1024).max(524288).optional(),
     diskQuotaGb: z.coerce.number().min(0).max(16384).optional(),
@@ -85,7 +93,36 @@ export const fromModsSchema = z
       message:
         'Container memory limit must be higher than the Java heap (or the JVM will be OOM-killed)',
     },
-  );
+  )
+  // Fail the request up front instead of creating a server whose installs
+  // would each be refused by installFromUrl's plugin-registry guard.
+  .refine(
+    (v) => v.mods.every((m) => platformServesLoader(m.platform, v.loader)),
+    {
+      message:
+        'Hangar and SpigotMC only host Paper/Spigot plugins — pick the Paper loader to add them',
+      path: ['mods'],
+    },
+  )
+  // refToUrl builds a Hangar page URL from `owner/slug` (a bare slug would
+  // read as an owner) and a SpigotMC one from the numeric resource id.
+  .refine((v) => v.mods.every(hasInstallableRef), {
+    message:
+      'Hangar mods need an owner/slug ref and SpigotMC mods a numeric resource id',
+    path: ['mods'],
+  });
+
+function hasInstallableRef(m: z.infer<typeof modPickSchema>): boolean {
+  switch (m.platform) {
+    case 'hangar':
+      return /^[\w.-]+\/[\w.-]+$/.test(m.ref);
+    case 'spiget':
+      return /^\d+$/.test(m.ref);
+    case 'modrinth':
+    case 'curseforge':
+      return true;
+  }
+}
 
 export type FromModsInput = z.infer<typeof fromModsSchema>;
 
