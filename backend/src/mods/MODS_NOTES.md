@@ -176,22 +176,89 @@ add-by-link, which works today.
 
 ### Types
 
-`ModPlatform` now has all five registries. `BrowsablePlatform` (`modrinth | curseforge`) is what
-`ModBrowserService` and `refToUrl` take. Both are only reached through zod enums restricted to
-those two, and widening their types would have let Hangar/Spiget silently fall into their
-Modrinth `else` branches. `refToUrl` didn't gain the new platforms: its only callers
-(`mods.controller.ts` update(), the orchestrator's from-mods flow) never see them.
+`ModPlatform` now has all five registries. As of 4.29a, `BrowsablePlatform` is `modrinth |
+curseforge | hangar | spiget` (see "Mod browser: Hangar and SpigotMC" below); `IdentifiedJar`
+uses the narrower `HashLookupPlatform` (`modrinth | curseforge`), the only registries jar
+identification can match.
 
 ### Still deferred
 
-1. **Mod browser** (`ModBrowserService` / `ModBrowserOrchestratorService`, server-creation
-   wizard): Hangar/Spiget search and version listing. Neither publishes machine-readable
-   dependencies, so their dependency closure would be empty. Widen `BrowsablePlatform` then.
-2. **Update checker** (`updates/`) and `mods.controller.ts` update(): newer-version checks and
+1. **Update checker** (`updates/`) and `mods.controller.ts` update(): newer-version checks and
    one-click updates for `hangar`/`spiget`/`github` library rows (they 409 "Cannot auto-update"
-   today). `refToUrl` gains the new platforms at that point.
-3. **Frontend**: Hangar/SpigotMC search chips. (The manual download fallback for the 409s landed
-   in 4.32, below.)
+   today, via an explicit platform check before `refToUrl`). Tracked as 4.29b.
+2. **Frontend**: Hangar/SpigotMC search chips. There is no mod-search UI to add them to; see the
+   next section. (The manual download fallback for the 409s landed in 4.32, below.)
+
+## Mod browser: Hangar and SpigotMC (4.29a)
+
+Our own follow-up to 4.29, not an upstream item. Files: `mod-browser.service.ts`,
+`mod-browser.controller.ts`, `mod-browser-orchestrator.service.ts` (`fromModsSchema`),
+`ModsService.refToUrl`, `mod-browser.service.spec.ts`.
+
+### There is no frontend for the mod browser
+
+Checked on this branch, not taken on trust from earlier notes: nothing in `frontend/src` calls
+`GET /api/mods/search`, `GET /api/mods/versions`, `POST /api/mods/deps`,
+`GET /api/modrinth/search`, `GET /api/loaders/versions` or `POST /api/servers/from-mods`.
+`WizardPage.vue` is a single form (no tabs, no "From mods" step), the Mods tab only has
+add-by-link and zip import, and the Modpacks page's "Browse packs" is `/api/packs/search`
+(modpacks, a different service). The legacy app had a "From mods" wizard; the Vue rewrite never
+rebuilt it. So "wire Hangar/Spiget into the mod-browser UI" had no UI to wire into, and 4.29a
+made the **API** complete instead. A "From mods" wizard UI in `frontend/` is unplanned future
+work; when it's built, it gets all four sources from these routes as they are.
+
+### What the routes accept now
+
+- `platform` on `mods/search`, `mods/versions`, `mods/deps` and `servers/from-mods` is
+  `BROWSABLE_PLATFORMS` (modrinth, curseforge, hangar, spiget). Search is still one platform per
+  request, as before; there's no cross-platform merge.
+- `loader` on those routes is `BROWSE_LOADERS`: the four mod loaders plus `paper`. `from-mods`
+  already took `paper`; the browse routes didn't, which would have left Hangar/Spiget searchable
+  only with no loader at all.
+- `ref` per platform: Modrinth/CurseForge slug (unchanged), Hangar **`owner/slug`**, SpigotMC
+  numeric resource id. Hangar's API only needs the slug, but `refToUrl` has to build a page URL
+  (`hangar.papermc.io/<owner>/<slug>`) that `installFromUrl` can route, and a bare slug would
+  parse as an owner with no project. `mods/versions` and `mods/deps` also take a bare Hangar slug
+  (they go through `HangarApiService.resolveUrl`); `from-mods` refuses one (zod refine), since it
+  builds the install URL from it. Search hits always carry `owner/slug`.
+- Hangar `versionId` is the version name (unique per project, free text), so the `versionId`
+  length cap went from 60 to 128. Spiget's is the numeric version id.
+
+### Compatibility filtering, per source
+
+- **Loader.** `platformServesLoader`: Hangar and Spiget only serve `paper` (or no loader filter).
+  A Fabric/Forge/NeoForge/Quilt search or version list on them returns `[]` without a network
+  call, so the wizard can't be offered a plugin it can't install. `from-mods` refuses Hangar/Spiget
+  picks unless `loader` is `paper` (a 400 up front, rather than a created server whose installs all
+  fail on `installFromUrl`'s plugin-registry guard). Modrinth/CurseForge with `paper` now search
+  plugins (`kind: 'plugin'`; CurseForge's Bukkit Plugins class, with no mod-loader filter) instead
+  of mods tagged "paper", which found nothing. Their version lists pass the loader through exactly
+  as add-by-link's `resolveModrinth` / `resolveCurseforge` do.
+- **MC version, Hangar.** The API filters search by `version`, and `getVersions` drops builds
+  whose PAPER platform tags don't fit (`hangarCompatibleWith`; untagged builds are kept, as for
+  add-by-link). `LATEST`/`SNAPSHOT` mean no filter, as for the other sources.
+- **MC version, SpigotMC: not filtered.** Spiget has no per-version MC data and no search filter;
+  the only signal is the resource's author-maintained `testedVersions`, which goes stale. Live
+  (Sept 2026): Vault (34315) lists only 1.13 to 1.17 and still runs on 1.21; EssentialsX lists
+  `1.20.6` but not `1.20`, so a strict match would hide it on 1.20.1. Filtering on it would hide
+  exactly the most-used plugins. Instead each Spiget `ModVersion.gameVersions` carries the
+  resource's `testedVersions` so a UI can show it, and search order is Spiget's `-downloads`.
+  Add-by-link doesn't check it either.
+
+### Normalized versions
+
+- Hangar: `versionType` from the channel (as in `HangarApiService`), `gameVersions` = the PAPER
+  tags, `downloadable: false` for an externally-hosted build.
+- Spiget: `versionType: 'release'` (no channels), `downloadable: false` on every version of a
+  premium or external resource.
+- `downloadable: false` means install would answer the 409 `BlockedDownload`, the same meaning it
+  already had for CurseForge files.
+- `requiredDeps` is always `[]`: neither registry publishes machine-readable dependencies, so
+  `resolveDependencies` never looks up versions for them and their closure is empty.
+
+`refToUrl` now builds all four platforms' page URLs (Hangar `/versions/<name>`, SpigotMC
+`?version=<id>`), round-trip tested against `parseHangarRef` / `parseSpigetRef`. The update route
+still refuses hangar/spiget before calling it; widening `refToUrl` doesn't enable updates.
 
 ## Blocked-download fallback (upstream parity 4.32)
 
@@ -220,7 +287,8 @@ to be detected: `CurseforgeApiService.normalizeFile` already kept the null, and
 was downstream: `http.ts` showed a Nest error's `error` field, which is only the status name, so
 the Mods tab toast just said "Conflict". Every 409 from 4.29 had the same problem. `http.ts` now
 prefers `message`. `ModBrowserService.normCurseforgeFile` already exposes the same signal as
-`downloadable: false`, but no frontend reads it yet (there is no mod-browser UI in `frontend/`).
+`downloadable: false`, but no frontend reads it yet (there is no mod-browser UI in `frontend/`;
+see "Mod browser: Hangar and SpigotMC").
 
 The file's hashes are still there on a blocked file, so a CurseForge upload can be verified. The
 panel doesn't fall back to an older distributable file when the newest match is blocked:

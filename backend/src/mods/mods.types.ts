@@ -8,10 +8,20 @@ export type ModPlatform =
 
 /**
  * The platforms the mod browser (search, version lists, dependency closure)
- * and one-click updates handle so far. Hangar/Spiget/GitHub are add-by-link
- * only for now — see MODS_NOTES.md.
+ * handles. GitHub has no search, so it stays add-by-link only. One-click
+ * updates (mods.controller.ts update()) still narrow this to Modrinth and
+ * CurseForge — see MODS_NOTES.md.
  */
-export type BrowsablePlatform = Extract<ModPlatform, 'modrinth' | 'curseforge'>;
+export type BrowsablePlatform = Extract<
+  ModPlatform,
+  'modrinth' | 'curseforge' | 'hangar' | 'spiget'
+>;
+
+/** The registries that can identify a jar by its hash (JarIdentifierService). */
+export type HashLookupPlatform = Extract<
+  ModPlatform,
+  'modrinth' | 'curseforge'
+>;
 
 export type {
   BlockedDownload,
@@ -361,7 +371,7 @@ export interface IdentifiedJar {
   /** CurseForge fingerprint (murmur2 over the whitespace-stripped bytes). */
   fingerprint: number;
   source: JarIdentitySource;
-  platform: BrowsablePlatform | null;
+  platform: HashLookupPlatform | null;
   projectId: string | null;
   versionId: string | null;
   slug: string | null;

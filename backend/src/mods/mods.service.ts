@@ -431,14 +431,30 @@ export class ModsService {
     ref: string,
     versionId?: string | null,
   ): string {
-    const base =
-      platform === 'curseforge'
-        ? `https://www.curseforge.com/minecraft/mc-mods/${ref}`
-        : `https://modrinth.com/mod/${ref}`;
-    if (!versionId) return base;
-    return platform === 'curseforge'
-      ? `${base}/files/${versionId}`
-      : `${base}/version/${versionId}`;
+    switch (platform) {
+      case 'curseforge': {
+        const base = `https://www.curseforge.com/minecraft/mc-mods/${ref}`;
+        return versionId ? `${base}/files/${versionId}` : base;
+      }
+      case 'hangar': {
+        // Hangar page URLs need the owner: the mod browser's Hangar ref is
+        // `owner/slug`, and a bare slug would parse as an owner with no project.
+        const base = `https://hangar.papermc.io/${ref}`;
+        return versionId
+          ? `${base}/versions/${encodeURIComponent(versionId)}`
+          : base;
+      }
+      case 'spiget': {
+        const base = `https://www.spigotmc.org/resources/${ref}/`;
+        return versionId
+          ? `${base}?version=${encodeURIComponent(versionId)}`
+          : base;
+      }
+      case 'modrinth': {
+        const base = `https://modrinth.com/mod/${ref}`;
+        return versionId ? `${base}/version/${versionId}` : base;
+      }
+    }
   }
 
   /**
