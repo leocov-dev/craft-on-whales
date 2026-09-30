@@ -5,8 +5,10 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
 import { eq, and } from 'drizzle-orm';
@@ -16,6 +18,7 @@ import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
 import {
   LibraryService,
+  truncateHash,
   type DownloadMeta,
   type LibraryFileRow,
 } from '../library/library.service';
@@ -23,7 +26,9 @@ import { ModrinthApiService } from './modrinth-api.service';
 import {
   CurseforgeApiService,
   curseforgeExpectedHash,
+  curseforgePageUrl,
 } from './curseforge-api.service';
+import { BlockedDownloadException } from './blocked-download.exception';
 import { HangarApiService, hangarExpectedHash } from './hangar-api.service';
 import { SpigetApiService } from './spiget-api.service';
 import {
@@ -461,31 +466,7 @@ export class ModsService {
     if (!server) throw new NotFoundException('Server not found');
     this.assertAcceptsManualContent(server);
     const targetKind: ContentKind = kind || this.jarKindFor(server);
-    const mcVersion =
-      server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
-        ? undefined
-        : server.mc_version;
-    const loader = this.loaderOf(server) || undefined;
-
-    const source = this.classifyModSource(input);
-    if (source.kind === 'invalid') {
-      throw new BadRequestException(
-        'Enter a Modrinth, CurseForge, Hangar, SpigotMC or GitHub link, a GitHub owner/repo, a Modrinth project slug, or a direct download URL',
-      );
-    }
-    if (
-      (source.kind === 'hangar' || source.kind === 'spiget') &&
-      !PLUGIN_TYPES.has(server.type)
-    ) {
-      throw new BadRequestException(
-        `${source.kind === 'hangar' ? 'Hangar' : 'SpigotMC'} only hosts Paper/Spigot plugins, and this ${server.type} server doesn't load plugins`,
-      );
-    }
-
-    const { downloadUrl, meta } = await this.resolveSource(source, {
-      mcVersion,
-      loader,
-    });
+    const { downloadUrl, meta } = await this.resolveForServer(server, input);
     meta.category = targetKind;
 
     const lib = await this.library.downloadToLibrary(downloadUrl, meta, {
@@ -502,6 +483,129 @@ export class ModsService {
       summary: `Custom ${targetKind} installed: ${lib.name}${lib.version ? ` ${lib.version}` : ''} (overlay)`,
       details: { libraryId: lib.id, filename },
     });
+    this.scanInBackground();
+    return { library: lib, filename };
+  }
+
+  /**
+   * Finish an add-by-link install that came back blocked (BlockedDownload):
+   * the user downloaded the file in a browser and uploads it here, along with
+   * the same link. The link is resolved again, so the file's provenance comes
+   * from the registry, not from the client. When the registry published a
+   * hash (CurseForge), the upload must match it. Otherwise it's taken on the
+   * user's word, like any upload. If the link has since become downloadable,
+   * the upload is still accepted against the same metadata.
+   */
+  async installManualUpload(
+    serverId: string,
+    tmpPath: string,
+    origName: string,
+    input: string,
+    { actor = 'system', kind }: { actor?: string; kind?: ContentKind } = {},
+  ): Promise<{ library: LibraryFileRow; filename: string; verified: boolean }> {
+    const server = await this.query.getServer(serverId);
+    if (!server) throw new NotFoundException('Server not found');
+    this.assertAcceptsManualContent(server);
+    if (!/\.(jar|zip)$/i.test(origName))
+      throw new BadRequestException('Only .jar or .zip files can be uploaded');
+    const targetKind: ContentKind = kind || this.jarKindFor(server);
+
+    let meta: DownloadMeta;
+    try {
+      ({ meta } = await this.resolveForServer(server, input));
+    } catch (err) {
+      if (!(err instanceof BlockedDownloadException)) throw err;
+      meta = err.meta;
+    }
+
+    const expected = meta.expectedHash ?? null;
+    if (expected) {
+      const hash = crypto.createHash(expected.algorithm);
+      await pipeline(fs.createReadStream(tmpPath), hash);
+      const actual = hash.digest('hex');
+      if (actual.toLowerCase() !== expected.hex.toLowerCase())
+        throw new BadRequestException(
+          `That isn't ${meta.filename || `${meta.name} ${meta.version ?? ''}`.trim()}: ` +
+            `its ${expected.algorithm} is ${truncateHash(actual)}, the registry says ${truncateHash(expected.hex)}`,
+        );
+    }
+
+    const lib = await this.library.importFile(
+      tmpPath,
+      {
+        category: targetKind,
+        name: meta.name,
+        // A verified upload is exactly the registry's file, so it takes the
+        // registry's filename (browsers rename duplicates to "x (1).jar").
+        filename: (expected && meta.filename) || origName,
+        version: meta.version,
+      },
+      { actor },
+    );
+    const withProvenance = await this.library.fillMissingProvenance(
+      lib.id,
+      meta,
+    );
+    const { filename } = await this.addLibraryContent(
+      server,
+      withProvenance,
+      targetKind,
+    );
+    this.events.recordEvent({
+      serverId,
+      actor,
+      type: 'mod-installed',
+      summary: `Manually downloaded ${targetKind} installed: ${withProvenance.name}${withProvenance.version ? ` ${withProvenance.version}` : ''} (overlay, ${expected ? `${expected.algorithm} verified` : 'unverified'})`,
+      details: { libraryId: lib.id, filename, platform: meta.platform },
+    });
+    this.scanInBackground();
+    return { library: withProvenance, filename, verified: Boolean(expected) };
+  }
+
+  /**
+   * Resolve a reference without installing it, so a caller that removes
+   * something first (an update) fails before it does: a missing build, or a
+   * BlockedDownloadException. Registry lookups are cached, so the install
+   * that follows doesn't repeat them.
+   */
+  async assertResolvable(serverId: string, input: string): Promise<void> {
+    const server = await this.query.getServer(serverId);
+    if (!server) throw new NotFoundException('Server not found');
+    await this.resolveForServer(server, input);
+  }
+
+  /**
+   * Route a source reference for this server and resolve it to one file:
+   * the checks and lookups installFromUrl and installManualUpload share.
+   */
+  private async resolveForServer(
+    server: Server,
+    input: string,
+  ): Promise<ResolvedDownload> {
+    const source = this.classifyModSource(input);
+    if (source.kind === 'invalid') {
+      throw new BadRequestException(
+        'Enter a Modrinth, CurseForge, Hangar, SpigotMC or GitHub link, a GitHub owner/repo, a Modrinth project slug, or a direct download URL',
+      );
+    }
+    if (
+      (source.kind === 'hangar' || source.kind === 'spiget') &&
+      !PLUGIN_TYPES.has(server.type)
+    ) {
+      throw new BadRequestException(
+        `${source.kind === 'hangar' ? 'Hangar' : 'SpigotMC'} only hosts Paper/Spigot plugins, and this ${server.type} server doesn't load plugins`,
+      );
+    }
+    return this.resolveSource(source, {
+      mcVersion:
+        server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
+          ? undefined
+          : server.mc_version,
+      loader: this.loaderOf(server) || undefined,
+    });
+  }
+
+  private scanInBackground(): void {
     this.indexer
       .scan()
       .catch((err: unknown) =>
@@ -509,7 +613,6 @@ export class ModsService {
           `background storage-index scan failed: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
-    return { library: lib, filename };
   }
 
   /** Turn a classified source into the file to download plus its library metadata. */
@@ -587,24 +690,36 @@ export class ModsService {
       throw new NotFoundException(
         `No ${resolved.name} file matches ${loader || 'this loader'} ${mcVersion || ''}`.trim(),
       );
-    if (!file.downloadUrl)
-      throw new ConflictException(
-        `${resolved.name} disallows automated downloads — download it in a browser and upload the jar instead`,
-      );
-    return {
-      downloadUrl: file.downloadUrl,
-      meta: {
-        platform: 'curseforge',
-        projectId: String(resolved.modId),
-        fileId: String(file.fileId),
-        name: resolved.name,
-        filename: file.fileName,
-        version: file.name,
-        iconUrl: resolved.iconUrl,
-        mcVersions: file.gameVersions,
-        expectedHash: curseforgeExpectedHash(file),
-      },
+    const meta: DownloadMeta = {
+      platform: 'curseforge',
+      projectId: String(resolved.modId),
+      fileId: String(file.fileId),
+      name: resolved.name,
+      filename: file.fileName,
+      version: file.name,
+      iconUrl: resolved.iconUrl,
+      mcVersions: file.gameVersions,
+      expectedHash: curseforgeExpectedHash(file),
     };
+    // CurseForge's signal for "the author turned off third-party downloads"
+    // (the project's allowModDistribution): the file comes back with
+    // downloadUrl null. Its hashes are still there, so an upload can be
+    // checked against them.
+    if (!file.downloadUrl)
+      throw new BlockedDownloadException(
+        {
+          source: 'curseforge',
+          reason: 'distribution-disabled',
+          name: resolved.name,
+          version: file.name,
+          filename: file.fileName,
+          pageUrl: curseforgePageUrl(resolved, file.fileId),
+          externalUrl: null,
+          verifiable: Boolean(meta.expectedHash),
+        },
+        meta,
+      );
+    return { downloadUrl: file.downloadUrl, meta };
   }
 
   /**
@@ -638,27 +753,35 @@ export class ModsService {
           ? `${resolved.name} ${version.name} has no Paper build on Hangar`
           : `No ${resolved.name} Paper build matches Minecraft ${mcVersion || '(any version)'}`,
       );
+    const meta: DownloadMeta = {
+      platform: 'hangar',
+      projectId: resolved.slug,
+      fileId: version.name,
+      name: resolved.name,
+      filename: version.filename ?? undefined,
+      version: version.name,
+      iconUrl: resolved.iconUrl,
+      mcVersions: version.gameVersions,
+      expectedHash: hangarExpectedHash(version),
+    };
     // Externally-hosted builds link to an arbitrary page or file (GitHub
     // release pages, CI servers, Patreon, …) with no hash to check — not
     // something to fetch blind.
     if (!version.downloadUrl)
-      throw new ConflictException(
-        `${resolved.name} ${version.name} isn't hosted on Hangar, so it can't be downloaded automatically — get it from ${version.externalUrl} and upload the jar instead`,
+      throw new BlockedDownloadException(
+        {
+          source: 'hangar',
+          reason: 'external',
+          name: resolved.name,
+          version: version.name,
+          filename: null,
+          pageUrl: `https://hangar.papermc.io/${resolved.owner}/${resolved.slug}/versions/${encodeURIComponent(version.name)}`,
+          externalUrl: version.externalUrl,
+          verifiable: false,
+        },
+        meta,
       );
-    return {
-      downloadUrl: version.downloadUrl,
-      meta: {
-        platform: 'hangar',
-        projectId: resolved.slug,
-        fileId: version.name,
-        name: resolved.name,
-        filename: version.filename ?? undefined,
-        version: version.name,
-        iconUrl: resolved.iconUrl,
-        mcVersions: version.gameVersions,
-        expectedHash: hangarExpectedHash(version),
-      },
-    };
+    return { downloadUrl: version.downloadUrl, meta };
   }
 
   /**
@@ -668,40 +791,57 @@ export class ModsService {
    */
   private async resolveSpiget(ref: string): Promise<ResolvedDownload> {
     const resolved = await this.spiget.resolveUrl(ref);
-    if (resolved.premium)
-      throw new ConflictException(
-        `${resolved.name} is a premium SpigotMC resource, so it can't be downloaded automatically — buy and download it at ${resolved.pageUrl}, then upload the jar instead`,
+    const lookup = async () =>
+      resolved.versionId
+        ? await this.spiget.getVersion(resolved.resourceId, resolved.versionId)
+        : (await this.spiget.getVersions(resolved.resourceId))[0];
+    // A premium/external resource still gets its version looked up, to name
+    // what the user should fetch by hand. That's only a label there, so a
+    // failed lookup mustn't hide the block.
+    const blocked = resolved.premium || resolved.external;
+    const version = blocked
+      ? await lookup().catch(() => undefined)
+      : await lookup();
+    // Spiget gives no filename; build a stable one from name + version.
+    const slugify = (s: string) =>
+      s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
+    const meta: DownloadMeta = {
+      platform: 'spiget',
+      projectId: String(resolved.resourceId),
+      fileId: version?.versionId ?? null,
+      name: resolved.name,
+      filename: version
+        ? `${slugify(resolved.name) || `spigot-${resolved.resourceId}`}-${slugify(version.name)}.jar`
+        : undefined,
+      version: version?.name ?? null,
+      iconUrl: resolved.iconUrl,
+      // Resource-level "tested versions" — Spiget has nothing per version.
+      mcVersions: resolved.testedVersions,
+    };
+    if (blocked)
+      throw new BlockedDownloadException(
+        {
+          source: 'spiget',
+          reason: resolved.premium ? 'premium' : 'external',
+          name: resolved.name,
+          version: version?.name ?? null,
+          filename: null,
+          pageUrl: resolved.pageUrl,
+          externalUrl: resolved.premium ? null : resolved.externalUrl,
+          verifiable: false,
+        },
+        meta,
       );
-    if (resolved.external)
-      throw new ConflictException(
-        `${resolved.name} is hosted outside SpigotMC, so it can't be downloaded automatically — get it from ${resolved.externalUrl || resolved.pageUrl} and upload the jar instead`,
-      );
-    const version = resolved.versionId
-      ? await this.spiget.getVersion(resolved.resourceId, resolved.versionId)
-      : (await this.spiget.getVersions(resolved.resourceId))[0];
     if (!version)
       throw new NotFoundException(
         `${resolved.name} has no downloadable version on SpigotMC`,
       );
-    // Spiget gives no filename; build a stable one from name + version.
-    const slugify = (s: string) =>
-      s.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '');
     return {
       downloadUrl: this.spiget.downloadUrl(
         resolved.resourceId,
         version.versionId,
       ),
-      meta: {
-        platform: 'spiget',
-        projectId: String(resolved.resourceId),
-        fileId: version.versionId,
-        name: resolved.name,
-        filename: `${slugify(resolved.name) || `spigot-${resolved.resourceId}`}-${slugify(version.name)}.jar`,
-        version: version.name,
-        iconUrl: resolved.iconUrl,
-        // Resource-level "tested versions" — Spiget has nothing per version.
-        mcVersions: resolved.testedVersions,
-      },
+      meta,
     };
   }
 

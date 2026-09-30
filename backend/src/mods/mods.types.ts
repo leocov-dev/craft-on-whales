@@ -13,6 +13,11 @@ export type ModPlatform =
  */
 export type BrowsablePlatform = Extract<ModPlatform, 'modrinth' | 'curseforge'>;
 
+export type {
+  BlockedDownload,
+  BlockedDownloadReason,
+} from '../../../shared/types/mods';
+
 /**
  * A registry-published checksum for a not-yet-downloaded file, carried
  * alongside a download URL so LibraryService can verify the bytes it

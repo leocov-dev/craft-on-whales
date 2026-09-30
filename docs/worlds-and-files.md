@@ -24,6 +24,10 @@ Every file operation is confined to the server's own data directory. The panel r
 
 For modded servers, the **Mods** tab (also under **World**) manages the mod set — browse and add mods, and see what's installed. Mod and pack updates surface on the [Updates](updates.md) page.
 
+### Files you have to download yourself
+
+Some files can't be downloaded by the panel: CurseForge projects whose author has turned off third-party downloads, paid (premium) SpigotMC resources, and plugins hosted outside SpigotMC or Hangar. When you add one of these by link, the Mods tab says why and links to the download page. Download the jar in your browser, pick it under the message, and click **Upload & install**. For CurseForge, the panel checks that the jar is exactly the file it was expecting.
+
 ### Importing a pack
 
 You can also import a whole set of mods or plugins at once: pick a Modrinth `.mrpack` or a `.zip` of jars under the add-by-link box and click **Import**. The panel works out what each jar is, installs the ones that fit the server, and shows a report of what was installed, what was skipped (and why), and what failed. Jars already on the server are never overwritten.
