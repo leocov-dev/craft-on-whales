@@ -24,7 +24,10 @@ import { DbService } from '../db/db.service';
 import { serverContent, libraryFiles, updateChecks } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ModsService } from './mods.service';
-import { ContentImportService } from './content-import.service';
+import {
+  ContentImportService,
+  IMPORT_MAX_BYTES,
+} from './content-import.service';
 import { TasksService } from '../tasks/tasks.service';
 import { currentUser } from '../auth/current-user';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
@@ -41,9 +44,6 @@ const importSchema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
 });
-
-// A jar zip bundles whole mods (a .mrpack is small: its jars are downloaded).
-const IMPORT_MAX_BYTES = 1024 ** 3;
 
 /**
  * Installed-mod CRUD for one server. Ports the `/servers/:id/mods*` and

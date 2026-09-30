@@ -1,5 +1,17 @@
-import { Body, Controller, Get, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import { z } from 'zod';
 import { parseBody } from '../utils/parse-body';
 import { ModrinthApiService } from './modrinth-api.service';
@@ -10,6 +22,8 @@ import {
   MOD_LOADERS,
   fromModsSchema,
 } from './mod-browser-orchestrator.service';
+import { ServerFromZipService, fromZipSchema } from './server-from-zip.service';
+import { IMPORT_MAX_BYTES } from './content-import.service';
 import { requireAdminForOverrides } from '../api/docker-overrides.schema';
 import { currentUser } from '../auth/current-user';
 
@@ -26,6 +40,7 @@ export class ModBrowserController {
     private readonly modBrowser: ModBrowserService,
     private readonly loaderVersions: LoaderVersionsService,
     private readonly orchestrator: ModBrowserOrchestratorService,
+    private readonly fromZip: ServerFromZipService,
   ) {}
 
   @Get('modrinth/search')
@@ -132,5 +147,41 @@ export class ModBrowserController {
     const actor = currentUser(req).username;
     const taskId = this.orchestrator.createFromMods(input, actor);
     return { ok: true, taskId };
+  }
+
+  /**
+   * Create a server from an uploaded .mrpack or zip of jars (multipart
+   * `file` plus the fromZipSchema fields). Runs as a task; poll
+   * `GET /api/tasks/:taskId`, whose `result` is a ServerFromZipResult.
+   */
+  @Post('servers/from-zip')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: os.tmpdir(),
+      limits: { fileSize: IMPORT_MAX_BYTES, files: 1 },
+    }),
+  )
+  async createFromZip(
+    @Req() req: Request,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    try {
+      if (!/\.(zip|mrpack)$/i.test(file.originalname))
+        throw new BadRequestException('Upload a .zip or .mrpack file');
+      const input = parseBody(fromZipSchema, body ?? {});
+      const actor = currentUser(req).username;
+      const taskId = this.fromZip.createFromZip(
+        input,
+        file.path,
+        file.originalname,
+        actor,
+      );
+      return { ok: true, taskId };
+    } catch (err) {
+      await fs.rm(file.path, { force: true }).catch(() => {});
+      throw err;
+    }
   }
 }

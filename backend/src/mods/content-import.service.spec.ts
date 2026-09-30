@@ -17,6 +17,7 @@ import { ModsService } from './mods.service';
 import { JarIdentifierService } from './jar-identifier.service';
 import { PackOverridesService } from './pack-overrides.service';
 import { ContentImportService, jarMisfit } from './content-import.service';
+import { ServerFromZipService, fromZipSchema } from './server-from-zip.service';
 import type { ModrinthProject, ModrinthVersionWithProject } from './mods.types';
 import type { ContentImportReport } from '../../../shared/types/mods';
 
@@ -510,6 +511,167 @@ describe('ContentImportService', () => {
       ]);
       // Quilt loads Fabric mods, so the jar still installs.
       expect(report.installed.map((i) => i.filename)).toEqual(['lithium.jar']);
+    });
+  });
+
+  describe('create a server from a zip (ServerFromZipService)', () => {
+    let lifecycle: {
+      createServer: jest.Mock;
+      startServer: jest.Mock;
+      deleteServer: jest.Mock;
+    };
+    let fromZip: ServerFromZipService;
+    let steps: string[];
+
+    beforeEach(() => {
+      // The "new" server is the harness's SERVER_ID row, shaped by the create input.
+      lifecycle = {
+        createServer: jest.fn(
+          (input: { type: string; mcVersion: string; env: object }) => {
+            Object.assign(server, {
+              type: input.type,
+              mc_version: input.mcVersion,
+              env: input.env,
+            });
+            return Promise.resolve({ id: SERVER_ID, display_name: 'Zip' });
+          },
+        ),
+        startServer: jest.fn(() => Promise.resolve()),
+        deleteServer: jest.fn(() => Promise.resolve({ freedBytes: 0 })),
+      };
+      fromZip = new ServerFromZipService(
+        service,
+        lifecycle as never,
+        {
+          envKeyFor: (l: string) =>
+            l === 'fabric' ? 'FABRIC_LOADER_VERSION' : null,
+        } as never,
+        {} as never,
+      );
+      steps = [];
+    });
+
+    const create = (
+      entries: Record<string, Buffer | string>,
+      input: Record<string, string> = {},
+      name = 'pack.zip',
+    ) =>
+      fromZip.run(
+        fromZipSchema.parse({ name: 'Zip', ...input }),
+        archive(entries),
+        name,
+        'tester',
+        (s) => steps.push(s),
+      );
+
+    it('creates a Fabric server from a jar zip, installs before starting, and identifies once', async () => {
+      const jar = fabricJar('sodium');
+      knownModrinth.set(sha('sha1', jar), {
+        id: 'ver1',
+        project_id: 'AANobbMI',
+        name: 'Sodium',
+        version_number: '0.6.0',
+        game_versions: ['1.21.1'],
+        loaders: ['fabric'],
+        files: [],
+      });
+      const res = await create({
+        'mods/sodium.jar': jar,
+        'mods/other.jar': fabricJar('other'),
+        'overrides/config/sodium.json': '{}',
+      });
+
+      expect(res.target).toEqual({
+        loader: 'fabric',
+        mcVersion: '1.21.1',
+        loaderVersion: null,
+      });
+      expect(lifecycle.createServer).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'FABRIC', mcVersion: '1.21.1' }),
+        expect.objectContaining({ start: false, actor: 'tester' }),
+      );
+      expect(res.report.installed.map((i) => i.filename).sort()).toEqual([
+        'other.jar',
+        'sodium.jar',
+      ]);
+      expect(read('config/sodium.json')).toBe('{}');
+      expect(res.startError).toBeNull();
+      // Started only after the content went in.
+      expect(lifecycle.startServer.mock.invocationCallOrder[0]).toBeGreaterThan(
+        lifecycle.createServer.mock.invocationCallOrder[0]!,
+      );
+      expect(steps.indexOf('Starting server')).toBeGreaterThan(
+        steps.findIndex((s) => s.startsWith('Installing')),
+      );
+      // The jars were identified for the inference and not again for the install.
+      expect(modrinth.getVersionsByHashes).toHaveBeenCalledTimes(1);
+      expect(
+        fs
+          .readdirSync(path.join(dataDir, 'tmp'))
+          .filter((f) => f.startsWith('import-')),
+      ).toEqual([]);
+    });
+
+    it('takes a .mrpack’s loader build into the server env', async () => {
+      const res = await create(
+        {
+          'modrinth.index.json': JSON.stringify({
+            game: 'minecraft',
+            name: 'Cozy',
+            files: [],
+            dependencies: { minecraft: '1.21.1', 'fabric-loader': '0.16.5' },
+          }),
+          'overrides/config/a.toml': 'a',
+        },
+        {},
+        'cozy.mrpack',
+      );
+      expect(lifecycle.createServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'FABRIC',
+          mcVersion: '1.21.1',
+          env: { FABRIC_LOADER_VERSION: '0.16.5' },
+        }),
+        expect.anything(),
+      );
+      expect(res.report.pack.name).toBe('Cozy');
+      expect(res.report.warnings).toEqual([]);
+      // Nothing to identify up front for a .mrpack.
+      expect(modrinth.getVersionsByHashes).not.toHaveBeenCalled();
+    });
+
+    it('rejects a bad archive or an undetectable target before creating anything', async () => {
+      await expect(create({ 'readme.txt': 'hi' })).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(create({ 'a.jar': fabricJar('a') })).rejects.toThrow(
+        /Minecraft version/,
+      );
+      expect(lifecycle.createServer).not.toHaveBeenCalled();
+    });
+
+    it('deletes the new server again when the import itself fails', async () => {
+      jest
+        .spyOn(service, 'importStaged')
+        .mockRejectedValueOnce(new Error('disk on fire'));
+      await expect(
+        create({ 'a.jar': fabricJar('a') }, { mcVersion: '1.21.1' }),
+      ).rejects.toThrow('disk on fire');
+      expect(lifecycle.deleteServer).toHaveBeenCalledWith(SERVER_ID, {
+        actor: 'tester',
+      });
+      expect(lifecycle.startServer).not.toHaveBeenCalled();
+    });
+
+    it('keeps a filled server that fails to start and says why', async () => {
+      lifecycle.startServer.mockRejectedValueOnce(new Error('port taken'));
+      const res = await create(
+        { 'a.jar': fabricJar('a') },
+        { mcVersion: '1.21.1' },
+      );
+      expect(res.startError).toBe('port taken');
+      expect(res.report.installed).toHaveLength(1);
+      expect(lifecycle.deleteServer).not.toHaveBeenCalled();
     });
   });
 

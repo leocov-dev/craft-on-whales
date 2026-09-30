@@ -132,6 +132,27 @@ export interface ContentImportRemoval {
   };
 }
 
+/** Loaders `POST /api/servers/from-zip` can create a server for. */
+export type ZipServerLoader = 'fabric' | 'forge' | 'neoforge' | 'quilt' | 'paper';
+
+/** What `POST /api/servers/from-zip` created the server as. */
+export interface ZipServerTarget {
+  loader: ZipServerLoader;
+  mcVersion: string;
+  /** The .mrpack's own loader build, when the server runs the pack's loader. */
+  loaderVersion: string | null;
+}
+
+/** `POST /api/servers/from-zip` task result. */
+export interface ServerFromZipResult {
+  serverId: string;
+  name: string;
+  target: ZipServerTarget;
+  report: ContentImportReport;
+  /** Set when the server was created and filled but didn't start. */
+  startError: string | null;
+}
+
 /** `GET /api/servers/:id/pending-downloads` row shape. */
 export interface PendingDownload {
   name: string;
