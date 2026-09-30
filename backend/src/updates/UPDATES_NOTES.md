@@ -122,9 +122,14 @@ What each source stores (the ids the install already writes to `library_files`):
   name-based contract `listOutdated` and `updateFor` share, which is out of scope.
 - **GitHub** (`pickGithubUpdate`): an installed stable release follows `pickGithubRelease` (newest
   stable with jars, so pre-releases are skipped). An installed pre-release takes the newest release
-  with jars of either kind. Never a downgrade: when the installed tag is in the list, only releases
-  ahead of it count. A tag older than the 30-release window counts as older than all of them.
-  Drafts are already dropped by the client.
+  with jars of either kind. Never a downgrade, same rule as Hangar: when the installed tag is in
+  the 30-release window, only releases ahead of it count; when it isn't, one cached
+  `getReleaseByTag` (`/releases/tags/<tag>`) fetches its record, and the candidate must be
+  published after it. List membership alone isn't enough: an installed pre-release can age out of
+  the window, or the window's newest release can be deleted, while the installed build is still
+  the newest one. If the by-tag lookup fails (the release was deleted upstream, or GitHub errored),
+  there's no date to compare, so the installed release counts as stable and the candidate is
+  offered. Drafts are already dropped by the client.
 
 ### GitHub polling and the ETag cache
 

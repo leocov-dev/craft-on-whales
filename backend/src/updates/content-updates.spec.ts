@@ -117,12 +117,16 @@ const sv = (versionId: number, name: string): SpigetVersion => ({
 
 const gr = (
   tag: string,
-  { prerelease = false, jars = ['plugin.jar'] } = {},
+  {
+    prerelease = false,
+    jars = ['plugin.jar'],
+    publishedAt = null as string | null,
+  } = {},
 ): GithubRelease => ({
   tag,
   name: tag,
   prerelease,
-  publishedAt: null,
+  publishedAt,
   htmlUrl: `https://github.com/o/r/releases/tag/${tag}`,
   assets: jars.map((name) => ({
     name,
@@ -222,19 +226,27 @@ describe('pickSpigetUpdate', () => {
 });
 
 describe('pickGithubUpdate', () => {
+  // The installed release as latestGithub passes it when it's in the window.
+  const up = (releases: GithubRelease[], tag: string) =>
+    pickGithubUpdate(
+      releases,
+      tag,
+      releases.find((r) => r.tag === tag) ?? null,
+    );
+
   it('skips a newer pre-release for a stable install', () => {
     const releases = [
       gr('2.0.0-rc1', { prerelease: true }),
       gr('1.1.0'),
       gr('1.0.0'),
     ];
-    expect(pickGithubUpdate(releases, '1.0.0')?.tag).toBe('1.1.0');
-    expect(pickGithubUpdate(releases, '1.1.0')).toBeNull();
+    expect(up(releases, '1.0.0')?.tag).toBe('1.1.0');
+    expect(up(releases, '1.1.0')).toBeNull();
   });
 
   it('skips releases without jars', () => {
     const releases = [gr('1.2.0', { jars: [] }), gr('1.1.0'), gr('1.0.0')];
-    expect(pickGithubUpdate(releases, '1.0.0')?.tag).toBe('1.1.0');
+    expect(up(releases, '1.0.0')?.tag).toBe('1.1.0');
   });
 
   it('lets a pre-release install follow newer pre-releases', () => {
@@ -243,16 +255,34 @@ describe('pickGithubUpdate', () => {
       gr('2.0.0-rc1', { prerelease: true }),
       gr('1.1.0'),
     ];
-    expect(pickGithubUpdate(releases, '2.0.0-rc1')?.tag).toBe('2.0.0-rc2');
+    expect(up(releases, '2.0.0-rc1')?.tag).toBe('2.0.0-rc2');
   });
 
   it('never downgrades a pre-release install to an older stable', () => {
     const releases = [gr('2.0.0-rc1', { prerelease: true }), gr('1.1.0')];
-    expect(pickGithubUpdate(releases, '2.0.0-rc1')).toBeNull();
+    expect(up(releases, '2.0.0-rc1')).toBeNull();
   });
 
-  it('treats a tag that fell out of the window as older than everything listed', () => {
-    expect(pickGithubUpdate([gr('3.0.0')], '0.9.0')?.tag).toBe('3.0.0');
+  it('uses publish dates when the installed tag is outside the window', () => {
+    const window = [gr('3.0.0', { publishedAt: '2026-08-01T00:00:00Z' })];
+    // The installed release is newer than everything listed (an rc that aged
+    // out, or the window's newest was deleted): no downgrade.
+    const newerRc = gr('3.1.0-rc1', {
+      prerelease: true,
+      publishedAt: '2026-09-01T00:00:00Z',
+    });
+    expect(pickGithubUpdate(window, '3.1.0-rc1', newerRc)).toBeNull();
+    const newerStable = gr('3.0.1', { publishedAt: '2026-09-01T00:00:00Z' });
+    expect(pickGithubUpdate(window, '3.0.1', newerStable)).toBeNull();
+    // The installed release genuinely predates the window: offer the update.
+    const older = gr('0.9.0', { publishedAt: '2025-01-01T00:00:00Z' });
+    expect(pickGithubUpdate(window, '0.9.0', older)?.tag).toBe('3.0.0');
+  });
+
+  it('offers the candidate when the installed release is gone upstream', () => {
+    // Deleted, or the by-tag lookup failed: no date to compare against.
+    const window = [gr('3.0.0', { publishedAt: '2026-08-01T00:00:00Z' })];
+    expect(pickGithubUpdate(window, '0.9.0', null)?.tag).toBe('3.0.0');
   });
 });
 
@@ -353,12 +383,16 @@ const ghRepo = {
   owner: { avatar_url: null },
 };
 
-const rawGhRelease = (tag: string, prerelease = false) => ({
+const rawGhRelease = (
+  tag: string,
+  prerelease = false,
+  publishedAt = '2026-05-31T15:00:46Z',
+) => ({
   tag_name: tag,
   name: null,
   draft: false,
   prerelease,
-  published_at: '2026-05-31T15:00:46Z',
+  published_at: publishedAt,
   html_url: `https://github.com/EssentialsX/Essentials/releases/tag/${tag}`,
   assets: [
     {
@@ -376,6 +410,8 @@ interface Registry {
   spigetResource: unknown;
   spigetVersions: unknown[];
   ghReleases: unknown[];
+  /** Releases reachable by tag but outside the `releases` list window. */
+  ghOlderReleases: unknown[];
 }
 
 function registryRoutes(reg: Registry): Route[] {
@@ -431,6 +467,20 @@ function registryRoutes(reg: Registry): Route[] {
       u.pathname === '/repos/EssentialsX/Essentials/releases'
         ? Response.json(reg.ghReleases)
         : null,
+    (u) => {
+      const m = /^\/repos\/EssentialsX\/Essentials\/releases\/tags\/(.+)$/.exec(
+        u.pathname,
+      );
+      const tag = m ? decodeURIComponent(m[1]!) : null;
+      const found = [...reg.ghReleases, ...reg.ghOlderReleases].find(
+        (r) => (r as { tag_name: string }).tag_name === tag,
+      );
+      return m
+        ? found
+          ? Response.json(found)
+          : new Response(null, { status: 404 })
+        : null;
+    },
   ];
 }
 
@@ -469,6 +519,7 @@ describe('update checks for Hangar / SpigotMC / GitHub content', () => {
         rawGhRelease('2.20.1'),
         rawGhRelease('2.20.0'),
       ],
+      ghOlderReleases: [],
     };
     const routes = registryRoutes(reg);
     fetchMock = jest.spyOn(global, 'fetch').mockImplementation((input) => {
@@ -641,6 +692,49 @@ describe('update checks for Hangar / SpigotMC / GitHub content', () => {
       currentVersion: '5.0.0',
       latestVersion: null,
     });
+  });
+
+  it('dates a GitHub tag outside the window instead of offering a downgrade', async () => {
+    const setGithubTag = async (tag: string) => {
+      await db
+        .update(libraryFiles)
+        .set({ fileId: tag, version: tag })
+        .where(eq(libraryFiles.id, 'lib_github'));
+      await db
+        .update(serverContent)
+        .set({ version: tag })
+        .where(eq(serverContent.id, 'sc_github'));
+    };
+    // Installed 2.21.0 was published after everything in the window (its
+    // release scrolled out, or was unlisted): 2.20.1 would be a downgrade.
+    reg.ghOlderReleases = [
+      rawGhRelease('2.21.0', false, '2026-07-01T00:00:00Z'),
+      rawGhRelease('2.19.0', false, '2026-01-01T00:00:00Z'),
+    ];
+    await setGithubTag('2.21.0');
+    await checker.checkAll();
+    expect(await checkRow('sc_github')).toMatchObject({
+      currentVersion: '2.21.0',
+      latestVersion: null,
+    });
+    expect(
+      fetchMock.mock.calls
+        .map(([u]) => toUrl(u))
+        .some(
+          (u) =>
+            u.pathname === '/repos/EssentialsX/Essentials/releases/tags/2.21.0',
+        ),
+    ).toBe(true);
+
+    // Installed 2.19.0 genuinely predates the window: update offered.
+    await setGithubTag('2.19.0');
+    await checker.checkAll();
+    expect((await outdated()).sc_github).toBe('2.20.1');
+
+    // Installed release deleted upstream: no date to compare, so offered.
+    await setGithubTag('2.18.0');
+    await checker.checkAll();
+    expect((await outdated()).sc_github).toBe('2.20.1');
   });
 
   it("shares add-by-link's cached GitHub request instead of polling on its own", async () => {

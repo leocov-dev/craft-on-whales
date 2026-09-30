@@ -7,7 +7,7 @@ import {
   GithubReleasesApiService,
   pickGithubUpdate,
 } from '../mods/github-releases-api.service';
-import type { HangarVersion } from '../mods/mods.types';
+import type { GithubRelease, HangarVersion } from '../mods/mods.types';
 
 /** The installed library row an update check looks at. */
 export interface InstalledContent {
@@ -153,14 +153,23 @@ export class ContentLatestService {
     };
   }
 
-  /** getReleases' default window, so this shares add-by-link's ETag-cached request. */
+  /**
+   * getReleases' default window, so this shares add-by-link's ETag-cached
+   * request. An installed tag outside that window costs one cached by-tag
+   * lookup for its publish date (pickGithubUpdate's downgrade guard).
+   */
   private async latestGithub(
     row: InstalledContent,
   ): Promise<ContentLatest | null> {
-    const next = pickGithubUpdate(
-      await this.github.getReleases(row.projectId),
-      row.fileId ?? row.version,
-    );
+    const releases = await this.github.getReleases(row.projectId);
+    const installedTag = row.fileId ?? row.version;
+    let installed: GithubRelease | null =
+      releases.find((r) => r.tag === installedTag) ?? null;
+    if (!installed && installedTag)
+      installed = await this.github
+        .getReleaseByTag(row.projectId, installedTag)
+        .catch(() => null);
+    const next = pickGithubUpdate(releases, installedTag, installed);
     if (!next) return this.upToDate(row);
     return { id: next.tag, name: next.tag, changelogUrl: next.htmlUrl };
   }
