@@ -48,6 +48,16 @@
       <q-btn color="primary" label="Add" :loading="adding" @click="addMod" />
     </div>
 
+    <BlockedDownloadBanner
+      v-if="!isPackwiz && server && blocked"
+      :key="blocked.url"
+      :server-id="server.id"
+      :url="blocked.url"
+      :blocked="blocked.info"
+      @installed="onManualInstalled"
+      @dismiss="blocked = null"
+    />
+
     <div v-if="!isPackwiz" class="row items-center q-gutter-x-sm q-mb-md">
       <q-file
         v-model="importFile"
@@ -182,6 +192,8 @@ import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import {
   modsApi,
+  blockedDownloadOf,
+  type BlockedDownload,
   type ContentItem,
   type PendingDownload,
   type ContentImportSummary,
@@ -189,11 +201,11 @@ import {
 } from '@/api/mods';
 import { packsApi, type PackModInfo } from '@/api/packs';
 import { tasksApi } from '@/api/tasks';
-import { ApiError } from '@/api/http';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 import ModImportReportDialog from '@/components/ModImportReportDialog.vue';
 import ModImportsDialog from '@/components/ModImportsDialog.vue';
+import BlockedDownloadBanner from '@/components/BlockedDownloadBanner.vue';
 
 const $q = useQuasar();
 const { server, refresh } = useServerDetail();
@@ -205,6 +217,8 @@ const pending = ref<PendingDownload[]>([]);
 const packwizMods = ref<PackModInfo[]>([]);
 const addUrl = ref('');
 const adding = ref(false);
+/** The last add-by-link the panel couldn't download itself, awaiting a manual upload. */
+const blocked = ref<{ url: string; info: BlockedDownload } | null>(null);
 const syncing = ref(false);
 
 const imports = ref<ContentImportSummary[]>([]);
@@ -312,25 +326,35 @@ async function importPack() {
 
 async function addMod() {
   if (!server.value || !addUrl.value.trim()) return;
+  const url = addUrl.value.trim();
   adding.value = true;
+  blocked.value = null;
   try {
-    await modsApi.addByUrl(server.value.id, addUrl.value.trim());
+    await modsApi.addByUrl(server.value.id, url);
     addUrl.value = '';
     $q.notify({ type: 'positive', message: 'Added.' });
     await load();
   } catch (err) {
-    // A 409 means "can't be fetched automatically" (premium/off-site/
-    // download-disallowed) and names where to get the jar — keep that
-    // message up until dismissed so the link can be copied.
-    const manual = err instanceof ApiError && err.status === 409;
+    // Found but not downloadable by the panel (CurseForge distribution
+    // disabled, premium/off-site plugins): offer the manual download + upload.
+    const info = blockedDownloadOf(err);
+    if (info) {
+      blocked.value = { url, info };
+      return;
+    }
     $q.notify({
       type: 'negative',
       message: err instanceof Error ? err.message : 'Could not add.',
-      ...(manual ? { timeout: 0, actions: [{ label: 'Dismiss', color: 'white' }] } : {}),
     });
   } finally {
     adding.value = false;
   }
+}
+
+async function onManualInstalled() {
+  blocked.value = null;
+  addUrl.value = '';
+  await load();
 }
 
 async function toggle(m: ContentItem) {

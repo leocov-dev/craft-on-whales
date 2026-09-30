@@ -1,8 +1,10 @@
 // Wraps /api/servers/:id/mods (+ pending-downloads, zip/.mrpack imports) in
 // backend/src/mods/mods.controller.ts.
 
-import { http } from './http';
+import { ApiError, http } from './http';
 import type {
+  BlockedDownload,
+  ContentInstallResult,
   ContentItem,
   ContentKind,
   PendingDownload,
@@ -13,6 +15,8 @@ import type {
 } from '../../../shared/types/mods';
 
 export type {
+  BlockedDownload,
+  ContentInstallResult,
   ContentItem,
   ContentKind,
   PendingDownload,
@@ -25,11 +29,23 @@ export type {
 export const modsApi = {
   list: (serverId: string) =>
     http.get<{ ok: true; mods: ContentItem[] }>(`/api/servers/${serverId}/mods`),
+  /** A 409 whose error carries `blocked` (see blockedDownloadOf) needs completeManual. */
   addByUrl: (serverId: string, url: string, kind?: ContentItem['kind']) =>
-    http.post<{ ok: true; installed: { name: string; filename: string; version: string | null } }>(
-      `/api/servers/${serverId}/mods`,
-      { url, kind },
-    ),
+    http.post<{ ok: true; installed: ContentInstallResult }>(`/api/servers/${serverId}/mods`, {
+      url,
+      kind,
+    }),
+  /** Finish a blocked add-by-link with the jar the user downloaded themselves. */
+  completeManual: (serverId: string, url: string, file: File, kind?: ContentItem['kind']) => {
+    const form = new FormData();
+    form.append('url', url);
+    if (kind) form.append('kind', kind);
+    form.append('file', file);
+    return http.postForm<{ ok: true; installed: ContentInstallResult; verified: boolean }>(
+      `/api/servers/${serverId}/mods/manual`,
+      form,
+    );
+  },
   update: (serverId: string, contentId: string) =>
     http.post<{ ok: true; installed: unknown }>(`/api/servers/${serverId}/mods/update`, {
       contentId,
@@ -69,3 +85,10 @@ export const modsApi = {
       `/api/servers/${serverId}/mods/imports/${encodeURIComponent(importId)}`,
     ),
 };
+
+/** The BlockedDownload an add-by-link 409 carries, if that's what the error is. */
+export function blockedDownloadOf(err: unknown): BlockedDownload | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const blocked = err.body?.blocked;
+  return blocked && typeof blocked === 'object' ? (blocked as BlockedDownload) : null;
+}

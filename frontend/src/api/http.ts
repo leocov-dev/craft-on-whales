@@ -5,18 +5,34 @@
 
 export class ApiError extends Error {
   status: number;
+  /** The parsed JSON error body, for errors that carry structured data (e.g. `blocked`). */
+  body: Record<string, unknown> | null;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, body: Record<string, unknown> | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.body = body;
   }
 }
 
 interface ApiEnvelope {
   ok?: boolean;
   error?: string;
+  message?: unknown;
   [key: string]: unknown;
+}
+
+/**
+ * The human-readable reason. Nest's HttpException bodies are
+ * `{ statusCode, message, error }`, where `error` is only the status name
+ * ("Conflict") and `message` is the reason (an array for validation errors).
+ * Handlers that answer `{ ok: false, error }` themselves put it in `error`.
+ */
+function errorMessage(json: ApiEnvelope | null): string | null {
+  if (typeof json?.message === 'string' && json.message) return json.message;
+  if (Array.isArray(json?.message) && json.message.length) return json.message.join('; ');
+  return json?.error || null;
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -41,7 +57,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   if (!res.ok || json?.ok === false) {
-    throw new ApiError(res.status, json?.error || res.statusText || 'Request failed');
+    throw new ApiError(res.status, errorMessage(json) || res.statusText || 'Request failed', json);
   }
 
   return (json ?? ({} as T)) as T;

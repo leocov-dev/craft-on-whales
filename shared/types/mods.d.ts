@@ -153,6 +153,44 @@ export interface ServerFromZipResult {
   startError: string | null;
 }
 
+/**
+ * Why the panel won't fetch a registry file itself.
+ * - `distribution-disabled`: CurseForge. The author turned off third-party
+ *   downloads, so the API gives the file no `downloadUrl`.
+ * - `external`: a Hangar build or SpigotMC resource hosted somewhere else.
+ * - `premium`: a paid SpigotMC resource.
+ */
+export type BlockedDownloadReason = 'distribution-disabled' | 'external' | 'premium';
+
+/**
+ * A file add-by-link found but can't download. Returned as `blocked` on the
+ * 409 from `POST /api/servers/:id/mods`. The user downloads it in a browser
+ * and completes the install with `POST /api/servers/:id/mods/manual`.
+ */
+export interface BlockedDownload {
+  source: 'curseforge' | 'hangar' | 'spiget';
+  reason: BlockedDownloadReason;
+  /** Project name. */
+  name: string;
+  /** The version the panel would have installed, when it got that far. */
+  version: string | null;
+  /** The file's name, when the registry gives one (CurseForge). */
+  filename: string | null;
+  /** The registry's page for the project or file. */
+  pageUrl: string;
+  /** Where the file is hosted instead (Hangar/SpigotMC external). May be a page, not a file. */
+  externalUrl: string | null;
+  /** The registry publishes a hash, so the uploaded jar is checked against it. */
+  verifiable: boolean;
+}
+
+/** `POST /api/servers/:id/mods` and `.../mods/manual` success shape. */
+export interface ContentInstallResult {
+  name: string;
+  filename: string;
+  version: string | null;
+}
+
 /** `GET /api/servers/:id/pending-downloads` row shape. */
 export interface PendingDownload {
   name: string;

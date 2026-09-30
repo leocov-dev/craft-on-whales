@@ -49,6 +49,21 @@ const GAME_MINECRAFT = 432;
 const CLASS_MODS = 6;
 const CLASS_MODPACKS = 4471;
 const CLASS_PLUGINS = 5;
+
+/** The curseforge.com page for a project, or for one of its files. */
+export function curseforgePageUrl(
+  mod: Pick<CurseforgeMod, 'slug' | 'classId'>,
+  fileId?: number | null,
+): string {
+  const section =
+    mod.classId === CLASS_MODPACKS
+      ? 'modpacks'
+      : mod.classId === CLASS_PLUGINS
+        ? 'bukkit-plugins'
+        : 'mc-mods';
+  const base = `https://www.curseforge.com/minecraft/${section}/${mod.slug}`;
+  return fileId ? `${base}/files/${fileId}` : base;
+}
 // Fingerprints / mod ids per bulk POST, to keep a big pack's bodies bounded.
 const BULK_CHUNK = 200;
 

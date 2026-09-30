@@ -150,8 +150,9 @@ Per source, on install:
 - **Hangar**: a pinned version via `getVersion`. Otherwise `getVersions(slug, { mcVersion, limit: 50
 })`, then the newest `release`, falling back to the newest of any channel. `limit: 50` because
   ViaVersion's newest release was 16th in the list, behind 15 snapshots. sha256 is verified.
-- **Spiget**: `premium` and `external` resources return **409**, with the page URL or the resource's
-  `file.externalUrl` (now on `SpigetResource.externalUrl`), before any download. A pinned
+- **Spiget**: `premium` and `external` resources return a **409** `BlockedDownload` (see
+  "Blocked-download fallback" below), with the page URL or the resource's `file.externalUrl`
+  (now on `SpigetResource.externalUrl`), before any download. A pinned
   `?version=` goes through a new `getVersion` (`/resources/{id}/versions/{vid}`), so pins older than
   the list window still work. Filename is `<name>-<version>.jar`, since Spiget gives none (the
   proxy does send `Content-Disposition`, but `LibraryService` doesn't read it). There's no hash, so
@@ -189,9 +190,136 @@ Modrinth `else` branches. `refToUrl` didn't gain the new platforms: its only cal
 2. **Update checker** (`updates/`) and `mods.controller.ts` update(): newer-version checks and
    one-click updates for `hangar`/`spiget`/`github` library rows (they 409 "Cannot auto-update"
    today). `refToUrl` gains the new platforms at that point.
-3. **Frontend**: Hangar/SpigotMC search chips, and the manual download fallback (open page +
-   upload jar) for the 409s. That's upstream-parity 4.32. For now the add-by-link toast shows the
-   409 message, URL included, and stays up until dismissed.
+3. **Frontend**: Hangar/SpigotMC search chips. (The manual download fallback for the 409s landed
+   in 4.32, below.)
+
+## Blocked-download fallback (upstream parity 4.32)
+
+Upstream reference: 0.10.0, `test/modBrowser.test.js` ("marks CF files without a downloadUrl as not
+downloadable") and `public/js/pages/mods.js` (`showManualFallback`, `showExternalFallback`). Read
+for behavior only. Files: `blocked-download.exception.ts`, `ModsService.installManualUpload`,
+the `mods/manual` route, `frontend/src/components/BlockedDownloadBanner.vue`.
+
+### Which files are blocked
+
+Three cases, one response. None of them is fetched another way: the point is that the panel
+doesn't download these, so there's no fallback fetch, proxy or scrape, and no URL allowlisting
+either (see `library/LIBRARY_NOTES.md`).
+
+| Source     | Signal                                                     | `reason`                |
+| ---------- | ---------------------------------------------------------- | ----------------------- |
+| CurseForge | the chosen file has `downloadUrl: null`                    | `distribution-disabled` |
+| SpigotMC   | the resource is `premium`                                  | `premium`               |
+| SpigotMC   | the resource is `external`                                 | `external`              |
+| Hangar     | the chosen build has no Hangar file, only an `externalUrl` | `external`              |
+
+**CurseForge.** When a project's author turns off third-party distribution (the project's
+`allowModDistribution`), the API still returns its files, with `downloadUrl: null`. Nothing new had
+to be detected: `CurseforgeApiService.normalizeFile` already kept the null, and
+`resolveCurseforge` already threw a bare 409 ("disallows automated downloads"). What went wrong
+was downstream: `http.ts` showed a Nest error's `error` field, which is only the status name, so
+the Mods tab toast just said "Conflict". Every 409 from 4.29 had the same problem. `http.ts` now
+prefers `message`. `ModBrowserService.normCurseforgeFile` already exposes the same signal as
+`downloadable: false`, but no frontend reads it yet (there is no mod-browser UI in `frontend/`).
+
+The file's hashes are still there on a blocked file, so a CurseForge upload can be verified. The
+panel doesn't fall back to an older distributable file when the newest match is blocked:
+installing something other than what the link resolves to would be a surprise, and upstream
+doesn't either. The user can paste a `/files/<id>` link for a specific file.
+
+Live-checked for Spiget (a premium resource, VoteParty `987`, and an external one, SkinsRestorer
+`2124`) and Hangar (EssentialsX, whose builds are on GitHub). CurseForge only in tests: there
+was no API key available to check a real distribution-disabled project.
+
+### The response
+
+`resolveCurseforge` / `resolveHangar` / `resolveSpiget` throw `BlockedDownloadException`, a
+`ConflictException` whose body is:
+
+```ts
+{ statusCode: 409, error: 'Conflict', message, blocked: BlockedDownload }
+// BlockedDownload (shared/types/mods.d.ts):
+{ source: 'curseforge' | 'hangar' | 'spiget',
+  reason: 'distribution-disabled' | 'external' | 'premium',
+  name, version: string | null, filename: string | null,
+  pageUrl,               // the registry page (for CurseForge and Hangar, the file's own page)
+  externalUrl: string | null, // where it's hosted instead; may be a page, not a file
+  verifiable: boolean }  // the upload will be checked against a registry hash
+```
+
+`message` is still a full sentence with the link, for any caller that only shows text (the
+from-mods wizard task's `failed` list, for one). The exception also carries the `DownloadMeta`
+the file would have been installed with. That stays server-side: `AllExceptionsFilter` only sends
+`getResponse()`.
+
+`externalUrl` is whatever the project's author entered, and the UI renders it as a link. Anything
+that isn't `http(s)://` is dropped to `null` in the exception, and the component checks again
+before binding the `href`.
+
+Spiget: a blocked resource still gets its version looked up (newest, or the `?version=` pin) so
+the banner can say which version to fetch and the upload gets a `fileId`. A failed lookup only
+leaves `version` null; it never turns the 409 into a 404.
+
+### Completing the install: `POST /api/servers/:id/mods/manual`
+
+`content` permission. Multipart: `file` (the jar, `.jar`/`.zip`, 250 MB like `mods/upload`),
+`url` (the same add-by-link input that was blocked), optional `kind`. Response:
+`{ ok, installed: { name, filename, version }, verified }`.
+
+Why the link and not the `blocked` payload or a token:
+
+- **The client never supplies provenance.** The backend resolves `url` again with the same
+  routing and guards as add-by-link (`resolveForServer`), catches the `BlockedDownloadException`,
+  and uses its `meta`. So the platform, project id, file id, version and hash in the library row
+  come from the registry. Registry lookups are cached, so this is usually free.
+- **No new server state.** A token would need an in-memory or DB table of pending blocked installs,
+  with expiry. Re-resolving the link needs nothing.
+- If the link has become downloadable since, the resolve succeeds and the upload is still accepted
+  against that metadata (and hash).
+
+Then:
+
+1. **Hash check** when the registry has one (CurseForge sha1/md5; a Hangar-hosted build's sha256
+   if it ever gets here). A mismatch is a 400 naming the expected file, before anything reaches
+   the library. A verified upload takes the registry's filename, since browsers rename a repeat
+   download to `name (1).jar`.
+2. `LibraryService.importFile` (sha256 dedupe), then `fillMissingProvenance` with the resolved
+   `meta`, so the row is tied to its project like any add-by-link install.
+3. `addLibraryContent`: quota check, link into `mods/` or `plugins/` (`contentDir` for the server's
+   type and `kind`), overlay row.
+
+Hangar and Spiget have no hash, so their uploads are unverified: the user's word, the same as
+`mods/upload`. The row still gets the registry provenance, which is what the user said they
+downloaded. That's the only cost of taking their word: a wrong jar would be labelled as the
+project.
+
+**Why the uploaded jar isn't run through `JarIdentifierService`.** For CurseForge, the hash check
+is stronger than any identification: it proves the jar is exactly the blocked file. For
+Hangar/Spiget, identification would mostly fall through to the jar's own `plugin.yml`, which only
+confirms it's some plugin. A Modrinth or CurseForge match would name a different platform than
+the link the user pasted. And the wrong-kind case it could catch (a Fabric mod uploaded to a Paper
+server) is already ruled out: the plugin-registry guard refuses Hangar/Spiget links on
+non-plugin servers before anything else runs.
+
+### Updates
+
+`POST .../mods/update` removes the old jar and then installs the new one. A manually uploaded
+CurseForge jar has full provenance, so the update checker can offer a newer file, which will
+usually be blocked too. The route now calls `ModsService.assertResolvable` on the target before
+removing anything, so a blocked (or missing) update is a 409 (or 404) with the installed jar left
+alone.
+
+### UI
+
+`ModsTab.vue`'s add-by-link: a 409 with `blocked` (`blockedDownloadOf(err)` in `api/mods.ts`) shows
+`BlockedDownloadBanner` under the input instead of a toast. It gives the reason, "Open
+CurseForge/Hangar/SpigotMC" (`pageUrl`), "Open download site" (`externalUrl`, when there is one),
+a `q-file` and "Upload & install". A successful upload clears the banner and the input and reloads
+the list. `ApiError` now carries the parsed error `body` so structured errors reach the page.
+
+Not covered: the server-creation wizard's "From mods" flow (no frontend for it yet; its task
+`result.failed` carries the blocked message) and blueprint imports (`blueprint-import.service.ts`
+keeps its own "install it manually" failure).
 
 ## Jar identification (upstream parity 4.30, phase 1)
 

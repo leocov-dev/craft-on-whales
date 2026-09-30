@@ -3,12 +3,19 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { ModsService } from './mods.service';
+import { BlockedDownloadException } from './blocked-download.exception';
+import { CurseforgeApiService } from './curseforge-api.service';
 import { HangarApiService } from './hangar-api.service';
 import { SpigetApiService } from './spiget-api.service';
 import { GithubReleasesApiService } from './github-releases-api.service';
 import type { ApiCacheService } from './api-cache.service';
 import type { ConfigService } from '../config/config.service';
+import type { ApiKeysService } from '../api-keys/api-keys.service';
 import type { DownloadMeta } from '../library/library.service';
 
 // installFromUrl's Hangar / Spiget / GitHub branches, end to end through the
@@ -126,6 +133,40 @@ const ghRelease = (
   })),
 });
 
+// --- CurseForge fixtures --------------------------------------------------
+
+const JAR_BYTES = Buffer.from('pretend this is a jar');
+const JAR_SHA1 = crypto.createHash('sha1').update(JAR_BYTES).digest('hex');
+
+const cfMod = {
+  id: 238222,
+  slug: 'jei',
+  name: 'Just Enough Items',
+  summary: 'x',
+  logo: { thumbnailUrl: 'https://media.forgecdn.net/jei.png' },
+  downloadCount: 1,
+  classId: 6,
+};
+
+const cfFile = (id: number, { distributable = true } = {}) => ({
+  id,
+  displayName: `jei-1.21.1-fabric-${id}`,
+  fileName: `jei-1.21.1-fabric-${id}.jar`,
+  // CurseForge's API gives no downloadUrl when the author disallows
+  // third-party downloads (allowModDistribution: false).
+  downloadUrl: distributable
+    ? `https://edge.forgecdn.net/files/${id}/jei.jar`
+    : null,
+  gameVersions: ['1.21.1', 'Fabric'],
+  releaseType: 1,
+  fileDate: '2026-08-01T00:00:00Z',
+  fileLength: JAR_BYTES.length,
+  hashes: [
+    { value: JAR_SHA1, algo: 1 },
+    { value: 'f'.repeat(32), algo: 2 },
+  ],
+});
+
 describe('ModsService — Hangar / Spiget / GitHub sources', () => {
   let mods: ModsService;
   let fetchMock: jest.SpiedFunction<typeof fetch>;
@@ -133,9 +174,19 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
   let server: { id: string; type: string; mc_version: string; env: object };
   let downloads: { url: string; meta: DownloadMeta }[];
   let inserted: Record<string, unknown>[];
+  let imported: { path: string; meta: DownloadMeta }[];
+  let provenance: DownloadMeta[];
+  let linked: { serverId: string; dir: string }[];
 
   const install = (input: string) =>
     mods.installFromUrl('srv1', input, { actor: 'test' });
+  /** The `blocked` payload of a 409, as the exception filter would send it. */
+  const blockedBody = (err: unknown) => {
+    expect(err).toBeInstanceOf(BlockedDownloadException);
+    return (
+      (err as BlockedDownloadException).getResponse() as { blocked: unknown }
+    ).blocked;
+  };
   const fetchedPaths = () =>
     fetchMock.mock.calls.map(([u]) => toUrl(u).pathname);
 
@@ -143,6 +194,9 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
     routes = [];
     downloads = [];
     inserted = [];
+    imported = [];
+    provenance = [];
+    linked = [];
     server = { id: 'srv1', type: 'PAPER', mc_version: '1.21.4', env: {} };
 
     fetchMock = jest.spyOn(global, 'fetch').mockImplementation((input) => {
@@ -167,12 +221,43 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
           sizeBytes: 1,
         });
       },
-      installToServer: () =>
-        Promise.resolve({
+      importFile: (p: string, meta: DownloadMeta) => {
+        imported.push({ path: p, meta });
+        return Promise.resolve({
+          id: 'lib2',
+          name: meta.name ?? 'x',
+          filename: meta.filename ?? 'x.jar',
+          version: meta.version ?? null,
+          iconUrl: null,
+          sizeBytes: 1,
+          projectId: null,
+        });
+      },
+      fillMissingProvenance: (_id: string, meta: DownloadMeta) => {
+        provenance.push(meta);
+        return Promise.resolve({
+          id: 'lib2',
+          name: meta.name ?? 'x',
+          version: meta.version ?? null,
+          iconUrl: meta.iconUrl ?? null,
+          sizeBytes: 1,
+          projectId: meta.projectId ?? null,
+        });
+      },
+      installToServer: (_lib: string, serverId: string, dir: string) => {
+        linked.push({ serverId, dir });
+        return Promise.resolve({
           installedPath: '/x',
-          filename: downloads.at(-1)?.meta.filename ?? 'file.jar',
-        }),
+          filename:
+            imported.at(-1)?.meta.filename ??
+            downloads.at(-1)?.meta.filename ??
+            'file.jar',
+        });
+      },
     };
+    const apiKeys = {
+      getKey: () => Promise.resolve('cf-test-key'),
+    } as unknown as ApiKeysService;
     const dbService = {
       db: {
         insert: () => ({
@@ -194,7 +279,7 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
       { recordEvent: () => undefined } as never,
       library as never,
       {} as never, // modrinth
-      {} as never, // curseforge
+      new CurseforgeApiService(cache, apiKeys),
       new HangarApiService(cache),
       new SpigetApiService(cache),
       new GithubReleasesApiService(cache, config),
@@ -335,6 +420,17 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
       expect((err as Error).message).toContain(
         'https://github.com/ViaVersion/ViaVersion/releases',
       );
+      expect(blockedBody(err)).toEqual({
+        source: 'hangar',
+        reason: 'external',
+        name: 'ViaVersion',
+        version: '5.0.0',
+        filename: null,
+        pageUrl:
+          'https://hangar.papermc.io/ViaVersion/ViaVersion/versions/5.0.0',
+        externalUrl: 'https://github.com/ViaVersion/ViaVersion/releases',
+        verifiable: false,
+      });
       expect(downloads).toHaveLength(0);
     });
 
@@ -413,15 +509,29 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
         'https://www.spigotmc.org/resources/luckperms.28140/',
       ).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ConflictException);
-      expect((err as Error).message).toMatch(/hosted outside SpigotMC/);
+      expect((err as Error).message).toMatch(/isn't hosted on SpigotMC/);
       expect((err as Error).message).toContain(
         'https://github.com/LuckPerms/LuckPerms/releases',
       );
+      expect(blockedBody(err)).toEqual({
+        source: 'spiget',
+        reason: 'external',
+        name: 'LuckPerms',
+        version: null, // no versions route: the failed lookup doesn't hide the block
+        filename: null,
+        pageUrl: 'https://www.spigotmc.org/resources/28140/',
+        externalUrl: 'https://github.com/LuckPerms/LuckPerms/releases',
+        verifiable: false,
+      });
       expect(downloads).toHaveLength(0);
     });
 
-    it('409s a premium resource with its page URL', async () => {
-      routes.push(resourceRoute({ premium: true }));
+    it('409s a premium resource with its page URL and newest version', async () => {
+      routes.push(resourceRoute({ premium: true }), (url) =>
+        url.pathname === '/v2/resources/28140/versions'
+          ? Response.json([{ id: 648014, name: '5.5.71', releaseDate: 1 }])
+          : null,
+      );
       const err = await install(
         'https://www.spigotmc.org/resources/luckperms.28140/',
       ).catch((e: unknown) => e);
@@ -430,6 +540,17 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
       expect((err as Error).message).toContain(
         'https://www.spigotmc.org/resources/28140/',
       );
+      expect(blockedBody(err)).toMatchObject({
+        source: 'spiget',
+        reason: 'premium',
+        version: '5.5.71',
+        externalUrl: null,
+      });
+      expect((err as BlockedDownloadException).meta).toMatchObject({
+        platform: 'spiget',
+        projectId: '28140',
+        fileId: '648014',
+      });
       expect(downloads).toHaveLength(0);
     });
   });
@@ -523,5 +644,269 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
       await install('EssentialsX/Essentials');
       expect(downloads[0]!.meta.expectedHash).toBeNull();
     });
+  });
+  describe('CurseForge', () => {
+    const PINNED =
+      'https://www.curseforge.com/minecraft/mc-mods/jei/files/5001';
+    const cfRoutes = (files: unknown[]): Route[] => [
+      (url) =>
+        url.host === 'api.curseforge.com' && url.pathname === '/v1/mods/search'
+          ? Response.json({ data: [cfMod] })
+          : null,
+      (url) =>
+        url.pathname === '/v1/mods/238222/files'
+          ? Response.json({ data: files })
+          : null,
+      (url) => {
+        const m = /^\/v1\/mods\/238222\/files\/(\d+)$/.exec(url.pathname);
+        const file = m
+          ? (files as { id: number }[]).find((f) => f.id === Number(m[1]))
+          : undefined;
+        return file ? Response.json({ data: file }) : null;
+      },
+    ];
+
+    beforeEach(() => {
+      server.type = 'FABRIC';
+      server.mc_version = '1.21.1';
+    });
+
+    it('returns a structured block for a file whose author disallows third-party downloads', async () => {
+      routes.push(...cfRoutes([cfFile(5001, { distributable: false })]));
+      const err = await install(PINNED).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toMatch(/disallows automated downloads/);
+      expect(blockedBody(err)).toEqual({
+        source: 'curseforge',
+        reason: 'distribution-disabled',
+        name: 'Just Enough Items',
+        version: 'jei-1.21.1-fabric-5001',
+        filename: 'jei-1.21.1-fabric-5001.jar',
+        pageUrl: PINNED,
+        externalUrl: null,
+        verifiable: true,
+      });
+      expect(downloads).toHaveLength(0);
+    });
+
+    it('blocks on the newest matching file rather than silently installing an older one', async () => {
+      routes.push(
+        ...cfRoutes([cfFile(5002, { distributable: false }), cfFile(5001)]),
+      );
+      const err = await install(
+        'https://www.curseforge.com/minecraft/mc-mods/jei',
+      ).catch((e: unknown) => e);
+      expect(blockedBody(err)).toMatchObject({
+        version: 'jei-1.21.1-fabric-5002',
+        pageUrl: 'https://www.curseforge.com/minecraft/mc-mods/jei/files/5002',
+      });
+      expect(downloads).toHaveLength(0);
+    });
+
+    it('assertResolvable surfaces the block without installing (update preflight)', async () => {
+      routes.push(...cfRoutes([cfFile(5001, { distributable: false })]));
+      await expect(
+        mods.assertResolvable('srv1', PINNED),
+      ).rejects.toBeInstanceOf(BlockedDownloadException);
+      expect(downloads).toHaveLength(0);
+      expect(inserted).toHaveLength(0);
+    });
+
+    it('downloads a distributable file with its sha1', async () => {
+      routes.push(...cfRoutes([cfFile(5001)]));
+      await install(PINNED);
+      expect(downloads[0]!.url).toBe(
+        'https://edge.forgecdn.net/files/5001/jei.jar',
+      );
+      expect(downloads[0]!.meta).toMatchObject({
+        platform: 'curseforge',
+        projectId: '238222',
+        fileId: '5001',
+        expectedHash: { algorithm: 'sha1', hex: JAR_SHA1 },
+      });
+    });
+  });
+
+  describe('installManualUpload (blocked-download fallback)', () => {
+    let dir: string;
+    let jar: string;
+    const upload = (name: string, input: string) =>
+      mods.installManualUpload('srv1', jar, name, input, { actor: 'test' });
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'manual-upload-'));
+      jar = path.join(dir, 'upload.tmp');
+      fs.writeFileSync(jar, JAR_BYTES);
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    describe('CurseForge', () => {
+      const PINNED =
+        'https://www.curseforge.com/minecraft/mc-mods/jei/files/5001';
+      beforeEach(() => {
+        server.type = 'FABRIC';
+        server.mc_version = '1.21.1';
+        routes.push(
+          (url) =>
+            url.pathname === '/v1/mods/search'
+              ? Response.json({ data: [cfMod] })
+              : null,
+          (url) =>
+            url.pathname === '/v1/mods/238222/files/5001'
+              ? Response.json({
+                  data: cfFile(5001, { distributable: false }),
+                })
+              : null,
+        );
+      });
+
+      it('installs a jar matching the blocked file’s sha1 with full provenance', async () => {
+        const res = await upload('jei-1.21.1-fabric-5001 (1).jar', PINNED);
+        expect(res.verified).toBe(true);
+        expect(imported).toEqual([
+          {
+            path: jar,
+            meta: expect.objectContaining({
+              category: 'mod',
+              name: 'Just Enough Items',
+              // The registry's name, not the browser's "(1)" copy.
+              filename: 'jei-1.21.1-fabric-5001.jar',
+              version: 'jei-1.21.1-fabric-5001',
+            }) as unknown,
+          },
+        ]);
+        expect(provenance[0]).toMatchObject({
+          platform: 'curseforge',
+          projectId: '238222',
+          fileId: '5001',
+        });
+        expect(linked).toEqual([{ serverId: 'srv1', dir: 'mods' }]);
+        expect(inserted[0]).toMatchObject({
+          serverId: 'srv1',
+          libraryId: 'lib2',
+          kind: 'mod',
+          managedBy: 'overlay',
+        });
+        expect(downloads).toHaveLength(0);
+      });
+
+      it('rejects a jar that is not the blocked file, before touching the library', async () => {
+        fs.writeFileSync(jar, 'some other jar');
+        const err = await upload('jei.jar', PINNED).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect((err as Error).message).toContain('jei-1.21.1-fabric-5001.jar');
+        expect(imported).toHaveLength(0);
+        expect(inserted).toHaveLength(0);
+      });
+    });
+
+    it('installs an externally-hosted Hangar build as an unverified plugin with Hangar provenance', async () => {
+      routes.push(
+        (url) =>
+          url.pathname === '/api/v1/projects/ViaVersion'
+            ? Response.json(hangarProject)
+            : null,
+        (url) =>
+          url.pathname === '/api/v1/projects/ViaVersion/versions'
+            ? Response.json({
+                result: [hangarVersion('5.0.0', ['1.21'], { hosted: false })],
+              })
+            : null,
+      );
+      const res = await upload(
+        'ViaVersion-5.0.0.jar',
+        'https://hangar.papermc.io/ViaVersion/ViaVersion',
+      );
+      expect(res.verified).toBe(false);
+      expect(imported[0]!.meta).toMatchObject({
+        category: 'plugin',
+        filename: 'ViaVersion-5.0.0.jar',
+        version: '5.0.0',
+      });
+      expect(provenance[0]).toMatchObject({
+        platform: 'hangar',
+        projectId: 'ViaVersion',
+        fileId: '5.0.0',
+      });
+      expect(linked).toEqual([{ serverId: 'srv1', dir: 'plugins' }]);
+      expect(inserted[0]).toMatchObject({ serverId: 'srv1', kind: 'plugin' });
+    });
+
+    it('installs a premium SpigotMC resource against its resolved version', async () => {
+      routes.push(
+        (url) =>
+          url.pathname === '/v2/resources/28140'
+            ? Response.json(spigetResource({ premium: true }))
+            : null,
+        (url) =>
+          url.pathname === '/v2/resources/28140/versions'
+            ? Response.json([{ id: 648014, name: '5.5.71', releaseDate: 1 }])
+            : null,
+      );
+      const res = await upload(
+        'LuckPerms-Bukkit-5.5.71.jar',
+        'https://www.spigotmc.org/resources/luckperms.28140/',
+      );
+      expect(res.verified).toBe(false);
+      expect(provenance[0]).toMatchObject({
+        platform: 'spiget',
+        projectId: '28140',
+        fileId: '648014',
+        version: '5.5.71',
+      });
+      expect(imported[0]!.meta.filename).toBe('LuckPerms-Bukkit-5.5.71.jar');
+    });
+
+    it('refuses non-jar files and plugin registries on mod servers before any lookup', async () => {
+      await expect(
+        upload('notes.txt', 'https://hangar.papermc.io/ViaVersion/ViaVersion'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      server.type = 'FABRIC';
+      await expect(
+        upload('x.jar', 'https://hangar.papermc.io/ViaVersion/ViaVersion'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(imported).toHaveLength(0);
+    });
+
+    it('passes through lookup failures other than a block', async () => {
+      routes.push(
+        (url) =>
+          url.pathname === '/api/v1/projects/ViaVersion'
+            ? Response.json(hangarProject)
+            : null,
+        (url) =>
+          url.pathname === '/api/v1/projects/ViaVersion/versions'
+            ? Response.json({ result: [] })
+            : null,
+      );
+      await expect(
+        upload('x.jar', 'https://hangar.papermc.io/ViaVersion/ViaVersion'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(imported).toHaveLength(0);
+    });
+  });
+});
+
+describe('BlockedDownloadException', () => {
+  it('drops an externalUrl that is not http(s), since the UI renders it as a link', () => {
+    const blocked = {
+      source: 'hangar' as const,
+      reason: 'external' as const,
+      name: 'X',
+      version: '1',
+      filename: null,
+      pageUrl: 'https://hangar.papermc.io/o/X/versions/1',
+      externalUrl: 'javascript:alert(1)',
+      verifiable: false,
+    };
+    const err = new BlockedDownloadException(blocked, {});
+    expect(err.blocked.externalUrl).toBeNull();
+    expect(err.getStatus()).toBe(409);
+    expect(err.getResponse()).toMatchObject({
+      statusCode: 409,
+      blocked: { externalUrl: null, pageUrl: blocked.pageUrl },
+    });
+    expect(err.message).toContain(blocked.pageUrl);
   });
 });

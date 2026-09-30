@@ -33,6 +33,12 @@ import { currentUser } from '../auth/current-user';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 
+// Add-by-link, and the manual-upload completion of a blocked one.
+const installSchema = z.object({
+  url: z.string().trim().min(3).max(500),
+  kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
+});
+
 const uploadSchema = z.object({
   excludeFilename: z.string().trim().min(1).max(300).optional(),
 });
@@ -77,13 +83,7 @@ export class ModsController {
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    const { url, kind } = parseBody(
-      z.object({
-        url: z.string().trim().min(3).max(500),
-        kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
-      }),
-      body,
-    );
+    const { url, kind } = parseBody(installSchema, body);
     const result = await this.mods.installFromUrl(id, url, {
       actor: currentUser(req).username,
       kind,
@@ -190,6 +190,9 @@ export class ModsController {
       check.latestVersion,
     );
 
+    // Resolve before removing: a newer build that can't be downloaded
+    // automatically (BlockedDownload) must not cost the user the installed one.
+    await this.mods.assertResolvable(server.id, ref);
     const wasEnabled = Boolean(row.enabled);
     await this.mods.removeContent(server.id, row.filename, { actor });
     const result = await this.mods.installFromUrl(server.id, ref, {
@@ -343,6 +346,50 @@ export class ModsController {
         actor: currentUser(req).username,
       })),
     };
+  }
+
+  /**
+   * Complete an add-by-link install that 409'd with `blocked` (the file
+   * can't be fetched automatically): multipart `file` (the jar the user
+   * downloaded), `url` (the same link that was blocked), optional `kind`.
+   * See MODS_NOTES.md, "Blocked-download fallback".
+   */
+  @RequireServerPermission('content')
+  @Post('mods/manual')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      dest: os.tmpdir(),
+      limits: { fileSize: 250 * 1024 * 1024, files: 1 },
+    }),
+  )
+  async manual(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() body: unknown,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    try {
+      const { url, kind } = parseBody(installSchema, body ?? {});
+      const result = await this.mods.installManualUpload(
+        id,
+        file.path,
+        file.originalname,
+        url,
+        { actor: currentUser(req).username, kind },
+      );
+      return {
+        ok: true,
+        installed: {
+          name: result.library.name,
+          filename: result.filename,
+          version: result.library.version,
+        },
+        verified: result.verified,
+      };
+    } finally {
+      await fs.rm(file.path, { force: true }).catch(() => {});
+    }
   }
 
   @RequireServerPermission('content')
