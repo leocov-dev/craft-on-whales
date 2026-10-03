@@ -27,6 +27,7 @@ import { PathGuardService } from '../storage/path-guard.service';
 import { libraryFiles } from '../db/schema';
 import { WorldOperationsService } from './world-operations.service';
 import { WorldLibraryService } from './world-library.service';
+import { WorldShrinkService } from './world-shrink.service';
 import type { SimpleWorld } from '../../../shared/types/worlds';
 import { currentUser } from '../auth/current-user';
 import { Roles } from '../auth/roles.decorator';
@@ -225,6 +226,7 @@ export class WorldsController {
 export class ServerWorldsController {
   constructor(
     private readonly ops: WorldOperationsService,
+    private readonly shrink: WorldShrinkService,
     private readonly permissions: PermissionsService,
   ) {}
 
@@ -322,6 +324,32 @@ export class ServerWorldsController {
     return {
       ok: true,
       ...(await this.ops.resetWorld(id, { ...opts, actor: actorOf(req) })),
+    };
+  }
+
+  /**
+   * Remove rarely-visited chunks to reclaim disk. `dryRun` only measures and
+   * is allowed while the server runs; a real run needs it stopped.
+   */
+  @RequireServerPermission('content')
+  @Post('shrink')
+  async shrinkWorld(@Param('id') id: string, @Req() req: Request) {
+    const { world, ...opts } = parseBody(
+      z.object({
+        world: worldNameSchema.optional(),
+        minInhabitedTicks: z.coerce.number().int().min(1).max(72000).optional(),
+        spawnKeepChunks: z.coerce.number().int().min(0).max(256).optional(),
+        dryRun: z.coerce.boolean().default(false),
+      }),
+      req.body,
+    );
+    return {
+      ok: true,
+      result: await this.shrink.shrinkWorld(id, {
+        ...opts,
+        worldName: world,
+        actor: actorOf(req),
+      }),
     };
   }
 

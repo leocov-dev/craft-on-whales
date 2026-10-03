@@ -16,6 +16,7 @@ import { WorldOperationsService } from './world-operations.service';
 import { WorldRuntimeService } from './world-runtime.service';
 import { WorldTransferService } from './world-transfer.service';
 import { WorldLifecycleService } from './world-lifecycle.service';
+import { WorldShrinkService } from './world-shrink.service';
 import { BackupsService } from './backups.service';
 import { WorldsController, ServerWorldsController } from './worlds.controller';
 
@@ -42,6 +43,7 @@ import { WorldsController, ServerWorldsController } from './worlds.controller';
     WorldRuntimeService,
     WorldTransferService,
     WorldLifecycleService,
+    WorldShrinkService,
     WorldOperationsService,
     { provide: MAP_SERVICE_CONTRACT, useExisting: MapService },
   ],

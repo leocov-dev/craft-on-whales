@@ -8,6 +8,16 @@ The **Worlds** page manages the world data across your servers — swap the acti
 
 ![Worlds](images/worlds.png)
 
+### Shrinking a world
+
+Worlds only grow: every chunk a player flies past stays on disk. **Shrink** (the compress button on a world in the server's Worlds tab) removes chunks that were barely visited, then repacks the region files so the world really gets smaller. Minecraft regenerates a removed chunk from the seed if someone goes there again.
+
+- A chunk is removed when players spent less than the chosen time in it (30 seconds by default).
+- Chunks near the world spawn are always kept (8 chunks by default; set 0 to turn this off). Only the overworld has this protection.
+- Every dimension is covered, including custom ones, and the removed chunks' entities and villager job sites go with them.
+- Chunks the panel can't read are kept and counted, and a damaged region file is left alone.
+- **Preview** shows how much would be freed and works while the server runs. Shrinking itself needs the server stopped, and can't be undone, so take a [backup](backups.md) first.
+
 ## The file manager
 
 Under a server's **World** section, the **Files** tab is a full in-browser file manager for that server's data directory. List, read, edit, create, rename, move, copy, delete, and upload files — everything you'd normally do over SSH, from the browser.

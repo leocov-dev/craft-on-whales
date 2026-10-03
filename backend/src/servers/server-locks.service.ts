@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 
-export type LifecycleOp = 'start' | 'stop' | 'restart' | 'recreate';
+export type LifecycleOp = 'start' | 'stop' | 'restart' | 'recreate' | 'shrink';
 
 interface InFlightEntry {
   op: LifecycleOp;

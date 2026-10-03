@@ -12,6 +12,7 @@ import * as zlib from 'node:zlib';
 import { ZipArchive } from 'archiver';
 import * as yauzl from 'yauzl';
 import * as tar from 'tar';
+import * as nbt from 'prismarine-nbt';
 import { PathGuardService } from '../storage/path-guard.service';
 import { extractZipSafely } from '../utils/safe-zip-extractor';
 
@@ -268,6 +269,40 @@ export class WorldArchiveService {
       }
     }
     return null;
+  }
+
+  /**
+   * World spawn (block X/Z) from level.dat, or null when unreadable. Old
+   * worlds store `Data.SpawnX/SpawnZ`; newer ones a `Data.spawn.pos` int array.
+   */
+  async readLevelSpawn(
+    levelDatAbs: string,
+  ): Promise<{ x: number; z: number } | null> {
+    try {
+      const { parsed } = await nbt.parse(await fsp.readFile(levelDatAbs));
+      const data = (nbt.simplify(parsed) as { Data?: unknown } | null)?.Data as
+        | {
+            SpawnX?: unknown;
+            SpawnZ?: unknown;
+            spawn?: { pos?: unknown };
+          }
+        | undefined;
+      if (!data) return null;
+      const num = (v: unknown): number | null =>
+        typeof v === 'number' && Number.isFinite(v) ? v : null;
+      const x = num(data.SpawnX);
+      const z = num(data.SpawnZ);
+      if (x !== null && z !== null) return { x, z };
+      const pos = data.spawn?.pos;
+      if (Array.isArray(pos) && pos.length >= 3) {
+        const px = num(pos[0]);
+        const pz = num(pos[2]);
+        if (px !== null && pz !== null) return { x: px, z: pz };
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private readLevelBuffer(levelDatAbs: string): Buffer | null {

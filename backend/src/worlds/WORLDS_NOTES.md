@@ -218,3 +218,36 @@ backend-only change.
 - `yauzl` has no types anywhere (`@types/yauzl` only covers the 2.x line;
   this repo pins 3.4.0) — copied the legacy repo's hand-rolled
   `types/yauzl.d.ts` into `backend/src/types/yauzl.d.ts` verbatim.
+
+## Shrink world (`WorldShrinkService`, `utils/mca-region.ts`)
+
+Removes region chunks with low `InhabitedTime` and repacks the files so they
+shrink on disk (upstream 0.13.0, see `UPSTREAM_PARITY.md`). Decisions worth
+knowing before changing it:
+
+- **Dry run reads only**, so it is allowed on a running server; a real run
+  refuses unless the server is stopped, checked once up front and again inside
+  the lock. A real run also holds `ServerLocksService.guard(id, 'shrink')`
+  (so start/stop/restart/recreate get a 409 meanwhile, and the reverse) and
+  `WorldSaveLockService` (so it can't overlap a backup/export copy).
+- **Anything unreadable is kept**: unsupported compression (LZ4), external
+  `.mcc` chunks, or bad NBT count as "unreadable", never as "drop". A region
+  file whose kept slots run past end-of-file throws in `repack` and the file is
+  reported as skipped rather than copied corrupt.
+- **Spawn protection is overworld only**, centred on the spawn in `level.dat`
+  (`Data.SpawnX/SpawnZ`, or `Data.spawn.pos` on newer worlds), falling back to
+  the origin and saying so in the result.
+- **Dimensions**: for the world dir and each Bukkit sibling, the region folder
+  directly, `DIM-1`, `DIM1`, and `dimensions/<ns>/<name>`. (Upstream missed
+  `world_nether/DIM-1`.)
+- **Symlinks are never followed.** `lstat` only checks the last path segment,
+  so each dimension folder, `dimensions/`, and the `entities`/`poi` folders are
+  checked as real directories on their own; region files must be regular files.
+  A spec covers a symlinked `DIM1`.
+- Dropped slots are also removed from the sibling `entities/` and `poi/` region
+  files (same file name, same slot index), so a regenerated chunk doesn't
+  inherit stale mobs or job sites.
+- Files are replaced via temp file + rename; a region with every chunk dropped
+  is deleted.
+- Not ported: upstream's "also shrink after a backup" option on manual and
+  scheduled backups. The Worlds-tab flow is the whole feature for now.
