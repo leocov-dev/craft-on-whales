@@ -32,6 +32,9 @@
                 <q-tooltip>Duplicate</q-tooltip>
               </q-btn>
               <q-btn flat dense round icon="edit" @click="renamePrompt(w)" />
+              <q-btn flat dense round icon="compress" @click="shrinkTarget = w">
+                <q-tooltip>Shrink (remove unvisited chunks)</q-tooltip>
+              </q-btn>
               <q-btn
                 v-if="auth.canWrite"
                 flat
@@ -54,22 +57,34 @@
         </q-item>
       </q-list>
     </q-card>
+
+    <ShrinkWorldDialog
+      v-if="shrinkTarget && server"
+      :server-id="server.id"
+      :world="shrinkTarget.name"
+      :server-stopped="serverStopped"
+      @close="shrinkTarget = null"
+      @shrunk="load"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { serverWorldsApi, type ServerWorldSummary } from '@/api/serverWorlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { useAuthStore } from '@/stores/auth';
+import ShrinkWorldDialog from '@/components/ShrinkWorldDialog.vue';
 
 const $q = useQuasar();
 const { server } = useServerDetail();
 const auth = useAuthStore();
 
 const worlds = ref<ServerWorldSummary[]>([]);
+const shrinkTarget = ref<ServerWorldSummary | null>(null);
+const serverStopped = computed(() => ['stopped', 'crashed'].includes(server.value?.status ?? ''));
 
 async function load() {
   if (!server.value) return;

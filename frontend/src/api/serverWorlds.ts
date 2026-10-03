@@ -3,9 +3,9 @@
 // src/web/routes/worlds.ts's serverWorlds sub-router.
 
 import { http } from './http';
-import type { ServerWorldSummary } from '../../../shared/types/server-worlds';
+import type { ServerWorldSummary, ShrinkWorldResult } from '../../../shared/types/server-worlds';
 
-export type { ServerWorldSummary };
+export type { ServerWorldSummary, ShrinkWorldResult };
 
 interface CopyToResponse {
   ok: true;
@@ -44,6 +44,19 @@ export const serverWorldsApi = {
     http.post<{ ok: true; active: string; changed: boolean }>(
       `/api/servers/${serverId}/worlds/activate`,
       { world },
+    ),
+  shrink: (
+    serverId: string,
+    opts: {
+      world: string;
+      dryRun: boolean;
+      minInhabitedTicks?: number;
+      spawnKeepChunks?: number;
+    },
+  ) =>
+    http.post<{ ok: true; result: ShrinkWorldResult }>(
+      `/api/servers/${serverId}/worlds/shrink`,
+      opts,
     ),
   downloadUrl: (serverId: string, world: string) =>
     `/api/servers/${serverId}/worlds/${encodeURIComponent(world)}/download`,
