@@ -40,10 +40,16 @@ Opening a server gives you a tabbed workspace:
   they're online.
 - **World** — [worlds, mods, the live map, and the file manager](worlds-and-files.md).
 - **Backups** — [snapshots and restore](backups.md) for this server.
-- **Insights** — metrics and per-server history.
+- **Insights** — the **Live** tab (CPU, memory, TPS/MSPT and a health summary) and per-server history.
 - **Settings** — everything about how the server runs.
 
 ![Server overview](images/server-overview.png)
+
+## The Live tab
+
+Open a running server's **Live** tab for CPU, memory and tick-rate graphs. **TPS** (ticks per second, 20 is perfect) and **MSPT** (milliseconds per tick) come from the server itself, so they only appear on Paper, Purpur, Forge, NeoForge, or servers with the spark mod. Vanilla has no way to report them; the tab says so instead of showing an empty graph.
+
+The **Health & stability** card works on stopped servers too. It shows the container's health, the last exit code, whether it was killed for running out of memory, and how many crashes, out-of-memory kills, crash loops and stalled startups happened in the last 7 days, with the latest crash.
 
 ## Server settings
 
@@ -70,7 +76,7 @@ adds the missing `M` if you type a bare number, so `512` and `512M` both mean
 512 MB (without that, Java would read `512` as 512 _bytes_ and refuse to
 start).
 
-The memory meters on the Overview and Metrics tabs mark where the heap sits on
+The memory meters on the Overview and Live tabs mark where the heap sits on
 the container memory limit's scale and say which of the two cases you're in;
 the server card says the same on hover.
 

@@ -43,6 +43,8 @@
       </div>
     </div>
 
+    <ResourceOverview />
+
     <div v-if="store.loading && !store.loaded" class="row justify-center q-pa-xl">
       <q-spinner color="primary" size="32px" />
     </div>
@@ -68,6 +70,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useServersStore, type SortKey } from '@/stores/servers';
 import ServerCard from '@/components/ServerCard.vue';
 import PageHeader from '@/components/PageHeader.vue';
+import ResourceOverview from '@/components/ResourceOverview.vue';
 
 const store = useServersStore();
 
