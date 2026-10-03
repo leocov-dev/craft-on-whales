@@ -38,21 +38,21 @@ describe('PackPinGuardService', () => {
     expect(
       guard.unpinnedSelectors('AUTO_CURSEFORGE', {
         CF_SLUG: 'all-the-mods-10',
-      })[0].pinKey,
+      })[0]?.pinKey,
     ).toBe('CF_FILE_ID');
     expect(
       guard.unpinnedSelectors('AUTO_CURSEFORGE', {
         CF_PAGE_URL: 'https://www.curseforge.com/minecraft/modpacks/atm10',
-      })[0].pinKey,
+      })[0]?.pinKey,
     ).toBe('CF_FILE_ID');
     expect(
       guard.unpinnedSelectors('MODRINTH', { MODRINTH_MODPACK: 'cobblemon' })[0]
-        .pinKey,
+        ?.pinKey,
     ).toBe('MODRINTH_VERSION');
     expect(
-      guard.unpinnedSelectors('FTBA', { FTB_MODPACK_ID: '126' })[0].pinKey,
+      guard.unpinnedSelectors('FTBA', { FTB_MODPACK_ID: '126' })[0]?.pinKey,
     ).toBe('FTB_MODPACK_VERSION_ID');
-    expect(guard.unpinnedSelectors('GTNH', {})[0].pinKey).toBe(
+    expect(guard.unpinnedSelectors('GTNH', {})[0]?.pinKey).toBe(
       'GTNH_PACK_VERSION',
     );
   });
@@ -60,19 +60,19 @@ describe('PackPinGuardService', () => {
   it('extracts a lowercased projectRef for cross-checking against server_packs', () => {
     expect(
       guard.unpinnedSelectors('AUTO_CURSEFORGE', { CF_SLUG: 'ATM-10' })[0]
-        .projectRef,
+        ?.projectRef,
     ).toBe('atm-10');
     expect(
       guard.unpinnedSelectors('AUTO_CURSEFORGE', {
         CF_PAGE_URL:
           'https://www.curseforge.com/minecraft/modpacks/All-The-Mods-10',
-      })[0].projectRef,
+      })[0]?.projectRef,
     ).toBe('all-the-mods-10');
     expect(
       guard.unpinnedSelectors('MODRINTH', { MODRINTH_MODPACK: 'Cobblemon' })[0]
-        .projectRef,
+        ?.projectRef,
     ).toBe('cobblemon');
-    expect(guard.unpinnedSelectors('GTNH', {})[0].projectRef).toBe('gtnh');
+    expect(guard.unpinnedSelectors('GTNH', {})[0]?.projectRef).toBe('gtnh');
   });
 
   it('treats a URL-embedded pin and a fixed local zip as pinned', () => {

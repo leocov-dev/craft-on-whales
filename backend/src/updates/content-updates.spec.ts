@@ -1022,6 +1022,7 @@ describe('installManualUpload replacing an installed build (blocked update)', ()
       spigetResource: spigetResource({ premium: true }),
       spigetVersions: [{ id: 648014, name: '5.5.71', releaseDate: 2 }],
       ghReleases: [],
+      ghOlderReleases: [],
     };
     const routes = registryRoutes(reg);
     fetchMock = jest.spyOn(global, 'fetch').mockImplementation((input) => {
