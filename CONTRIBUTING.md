@@ -55,7 +55,7 @@ Backend:
 ```bash
 cd backend
 npm run lint        # ESLint
-npx tsc --noEmit -p tsconfig.json    # strict typecheck, no emit
+npm run typecheck   # strict typecheck of src and specs, no emit
 npm run test          # node:test — currently just the unedited Nest CLI scaffold spec
 npm run build        # nest build
 ```
