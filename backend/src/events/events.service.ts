@@ -330,6 +330,35 @@ export class EventsService {
       .limit(limit);
   }
 
+  /** Per-type counts of a server's events from the last `days`. */
+  async countByType(
+    serverId: string,
+    types: readonly string[],
+    days: number,
+  ): Promise<Record<string, number>> {
+    const out: Record<string, number> = Object.fromEntries(
+      types.map((t) => [t, 0]),
+    );
+    if (types.length === 0) return out;
+    // Same JS-computed cutoff as recentAlerts above.
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 19)
+      .replace('T', ' ');
+    const rows = await this.dbService.db
+      .select({ type: events.type })
+      .from(events)
+      .where(
+        and(
+          eq(events.serverId, serverId),
+          inArray(events.type, [...types]),
+          gt(events.createdAt, cutoff),
+        ),
+      );
+    for (const r of rows) out[r.type] = (out[r.type] ?? 0) + 1;
+    return out;
+  }
+
   /** Delete events (and their captured log excerpts) older than `days`. */
   async pruneEvents(
     days: number,

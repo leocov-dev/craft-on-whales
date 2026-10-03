@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ServersModule } from '../servers/servers.module';
 import { DockerModule } from '../docker/docker.module';
 import { EventsModule } from '../events/events.module';
+import { MonitoringModule } from '../monitoring/monitoring.module';
 import { StatusBusModule } from '../status-bus/status-bus.module';
 import { ConsoleGateway } from './console.gateway';
 import { StatsGateway } from './stats.gateway';
@@ -15,6 +16,7 @@ import { StatusGateway } from './status.gateway';
     DockerModule,
     EventsModule,
     StatusBusModule,
+    MonitoringModule,
   ],
   providers: [ConsoleGateway, StatsGateway, StatusGateway],
 })

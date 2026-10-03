@@ -11,6 +11,10 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
 import { authenticateGatewayConnection } from './gateway-auth';
 import { PermissionsService } from '../permissions/permissions.service';
+import { TpsService } from '../monitoring/tps.service';
+
+/** How often each open stats socket asks for a TPS reading (cached 5s). */
+const TPS_INTERVAL_MS = 10_000;
 
 /**
  * `/ws/stats` — replaces legacy `src/ws/index.ts`'s `/ws/stats/:serverId`
@@ -21,7 +25,11 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(StatsGateway.name);
   private readonly stoppers = new WeakMap<
     Socket,
-    { stop: (() => void) | null; closed: boolean }
+    {
+      stop: (() => void) | null;
+      closed: boolean;
+      tpsTimer: NodeJS.Timeout | null;
+    }
   >();
 
   constructor(
@@ -30,6 +38,7 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly serverQuery: ServerQueryService,
     private readonly stats: DockerStatsService,
     private readonly permissions: PermissionsService,
+    private readonly tps: TpsService,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -50,7 +59,11 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!auth) return;
     const { serverId } = auth;
 
-    const entry = { stop: null as (() => void) | null, closed: false };
+    const entry = {
+      stop: null as (() => void) | null,
+      closed: false,
+      tpsTimer: null as NodeJS.Timeout | null,
+    };
     this.stoppers.set(client, entry);
 
     try {
@@ -59,7 +72,9 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           client.emit('message', { kind: 'stats', ...sample });
       });
       entry.stop = stop;
-      if (entry.closed) stop(); // client left during the await
+      if (entry.closed)
+        stop(); // client left during the await
+      else this.startTps(client, serverId, entry);
     } catch (err) {
       if (client.connected) {
         client.emit('message', {
@@ -74,10 +89,27 @@ export class StatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.cleanup(client);
   }
 
+  /** `{ kind: 'tps', tps: null }` means the server has no TPS command (vanilla). */
+  private startTps(
+    client: Socket,
+    serverId: string,
+    entry: { closed: boolean; tpsTimer: NodeJS.Timeout | null },
+  ): void {
+    const tick = async (): Promise<void> => {
+      const sample = await this.tps.probe(serverId);
+      if (!entry.closed && client.connected) {
+        client.emit('message', { kind: 'tps', tps: sample });
+      }
+    };
+    void tick();
+    entry.tpsTimer = setInterval(() => void tick(), TPS_INTERVAL_MS);
+  }
+
   private cleanup(client: Socket): void {
     const entry = this.stoppers.get(client);
     if (!entry || entry.closed) return;
     entry.closed = true;
+    if (entry.tpsTimer) clearInterval(entry.tpsTimer);
     entry.stop?.();
   }
 }
