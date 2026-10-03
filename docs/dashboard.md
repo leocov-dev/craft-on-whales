@@ -23,6 +23,10 @@ Click a card to open that server. The **Servers** page has an **Add server** car
 
 You can search and sort your servers, and switch between grid and list layouts with the toggle on the right.
 
+## Live resources
+
+Once a server is running, a **Live resources** card appears above the server cards. It shows memory and CPU added up across every running server you can see, with a short history graph for each and a per-server list. Click a server in the list to open its [Live tab](servers.md#the-live-tab). CPU is measured in cores, so 100% is one full core.
+
 ## Recent activity
 
 The feed at the bottom is a live, human-readable audit trail — logins, backups, blueprint exports, update checks, chat-command changes, server starts and stops, and more. Every entry is tagged with the server it belongs to (or the panel itself) and how long ago it happened. The full history lives on the [Activity](activity.md) page.

@@ -142,7 +142,7 @@ const SUB_LABELS: Record<string, string> = {
   mods: 'Mods',
   map: 'Map',
   files: 'Files',
-  metrics: 'Metrics',
+  metrics: 'Live',
   history: 'History',
   settings: 'General',
   integrations: 'Integrations',

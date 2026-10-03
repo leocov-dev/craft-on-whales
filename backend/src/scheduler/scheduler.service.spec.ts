@@ -17,6 +17,8 @@ import { SchedulerService } from './scheduler.service';
 // so every dependency below is a bare stub — invalid-cron cases never reach
 // them, and onModuleInit() is never triggered (moduleRef.compile() doesn't
 // run lifecycle hooks), so no DB schema is needed either.
+type HttpErr = { status?: number; message?: string };
+
 describe('SchedulerService.createSchedule — invalid cron handling', () => {
   let service: SchedulerService;
 
@@ -55,7 +57,10 @@ describe('SchedulerService.createSchedule — invalid cron handling', () => {
   it('rejects a cron string with the wrong field count as a 4xx with a specific reason', async () => {
     const err = await service
       .createSchedule({ taskType: 'backup', cron: '* * * *' })
-      .catch((e: unknown) => e as { status?: number; message?: string });
+      .then(
+        (): HttpErr => ({}),
+        (e: unknown) => e as HttpErr,
+      );
     expect(err.status).toBe(400);
     expect(err.message).toMatch(/invalid cron expression/i);
   });
@@ -63,7 +68,10 @@ describe('SchedulerService.createSchedule — invalid cron handling', () => {
   it('rejects an out-of-range field (minute 99) as a 4xx naming the bad field', async () => {
     const err = await service
       .createSchedule({ taskType: 'backup', cron: '99 * * * *' })
-      .catch((e: unknown) => e as { status?: number; message?: string });
+      .then(
+        (): HttpErr => ({}),
+        (e: unknown) => e as HttpErr,
+      );
     expect(err.status).toBe(400);
     expect(err.message).toMatch(/minute/i);
   });

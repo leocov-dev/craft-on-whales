@@ -4,6 +4,7 @@ import { EventsService } from '../events/events.service';
 import { ContainerService } from './container.service';
 import { DockerConnectionService } from './docker-connection.service';
 import { DockerLogsService } from './docker-logs.service';
+import type { StatusBusService } from '../status-bus/status-bus.service';
 import { DockerWatcherService } from './docker-watcher.service';
 
 /** Minimal stand-in for the dockerode events stream. */
@@ -16,6 +17,9 @@ function makeService(getEvents: jest.Mock): DockerWatcherService {
   const eventsService = {
     recordEvent: jest.fn(),
   } as unknown as EventsService;
+  const statusBus = {
+    emitStatusChanged: jest.fn(),
+  } as unknown as StatusBusService;
   const connection = {
     getDocker: () => ({ getEvents }),
   } as unknown as DockerConnectionService;
@@ -25,6 +29,7 @@ function makeService(getEvents: jest.Mock): DockerWatcherService {
     logs,
     eventsService,
     dbService,
+    statusBus,
   );
 }
 
