@@ -118,6 +118,37 @@ export class IconsController {
     }
   }
 
+  /**
+   * Mod/plugin icons the library cached from the content platform
+   * (`LibraryService.cacheIcon`, `<dataDir>/library/icons/mods/<libraryId><ext>`).
+   * Same locked-down headers as custom icons: the bytes come from a remote
+   * host, so an SVG here is as untrusted as an uploaded one.
+   */
+  @Get('icons/library/:file')
+  getLibraryIcon(@Res() res: Response, @Param('file') fileParam: string) {
+    const file = z
+      .string()
+      .regex(
+        /^lib_[\w-]+\.(png|svg|jpg|jpeg|webp|gif|ico)$/i,
+        'Invalid icon file',
+      )
+      .parse(fileParam);
+    const abs = path.join(
+      this.config.dataDir,
+      'library',
+      'icons',
+      'mods',
+      file,
+    );
+    if (!fs.existsSync(abs)) throw new NotFoundException('Icon not found');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(abs);
+  }
+
   @Get('icons/custom/:file')
   getIcon(@Res() res: Response, @Param('file') fileParam: string) {
     const file = z
