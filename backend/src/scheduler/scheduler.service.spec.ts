@@ -11,6 +11,7 @@ import { BackupsService } from '../worlds/backups.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { UpdateCheckerService } from '../updates/update-checker.service';
 import { PackwizWatcherService } from '../updates/packwiz-watcher.service';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import { SchedulerService } from './scheduler.service';
 
 // createSchedule() only touches the DB/events after cron validation passes,
@@ -40,6 +41,7 @@ describe('SchedulerService.createSchedule — invalid cron handling', () => {
         { provide: ServerLifecycleService, useValue: {} },
         { provide: UpdateCheckerService, useValue: {} },
         { provide: PackwizWatcherService, useValue: {} },
+        { provide: MaintenanceService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(SchedulerService);

@@ -8,6 +8,7 @@ import { AuthModule } from '../auth/auth.module';
 import { WorldsModule } from '../worlds/worlds.module';
 import { ServersModule } from '../servers/servers.module';
 import { UpdatesModule } from '../updates/updates.module';
+import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { SchedulerService } from './scheduler.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { SchedulerService } from './scheduler.service';
     AuthModule,
     WorldsModule,
     UpdatesModule,
+    MaintenanceModule,
     forwardRef(() => ServersModule),
   ],
   providers: [SchedulerService],

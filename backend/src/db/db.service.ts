@@ -48,11 +48,30 @@ export class DbService implements OnModuleDestroy {
     }
 
     fs.mkdirSync(this.config.dataDir, { recursive: true });
-    const dbFile = path.join(this.config.dataDir, 'panel.db');
-    this.sqlite = new DatabaseSync(dbFile);
+    this.sqlite = new DatabaseSync(path.join(this.config.dataDir, 'panel.db'));
     this.sqlite.exec('PRAGMA journal_mode = WAL');
     this.sqlite.exec('PRAGMA foreign_keys = ON');
     this.db = drizzleSqlite({ client: this.sqlite });
+  }
+
+  /** Path of the SQLite database file, or null under Postgres. */
+  get sqliteFile(): string | null {
+    return this.driver === 'sqlite'
+      ? path.join(this.config.dataDir, 'panel.db')
+      : null;
+  }
+
+  /**
+   * `PRAGMA quick_check` rows (`['ok']` when healthy), or null under Postgres.
+   * Cheaper than a full `integrity_check` (skips index/content cross-checks)
+   * but still catches page-level corruption, which is what a boot check is for.
+   */
+  quickCheck(): string[] | null {
+    if (!this.sqlite) return null;
+    return this.sqlite
+      .prepare('PRAGMA quick_check')
+      .all()
+      .map((row) => String(Object.values(row)[0]));
   }
 
   async onModuleDestroy(): Promise<void> {

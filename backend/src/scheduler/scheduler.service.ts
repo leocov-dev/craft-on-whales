@@ -18,6 +18,7 @@ import { rcon } from '../utils/rcon';
 import { StorageIndexService } from '../storage/storage-index.service';
 import { DataRootService } from '../storage/data-root.service';
 import { SessionService } from '../auth/session.service';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import { BackupsService } from '../worlds/backups.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { UpdateCheckerService } from '../updates/update-checker.service';
@@ -58,6 +59,7 @@ export const TASK_TYPES = {
   'packwiz-check': { label: 'Packwiz pack check', serverScoped: false },
   'storage-scan': { label: 'Storage re-scan', serverScoped: false },
   'tmp-clean': { label: 'Purge tmp', serverScoped: false },
+  'db-maintenance': { label: 'Database maintenance', serverScoped: false },
 } as const satisfies Record<
   string,
   { label: string; serverScoped: boolean; capability?: Capability }
@@ -105,6 +107,7 @@ export class SchedulerService implements OnModuleInit {
     private readonly lifecycle: ServerLifecycleService,
     private readonly updateChecker: UpdateCheckerService,
     private readonly packwizWatcher: PackwizWatcherService,
+    private readonly maintenance: MaintenanceService,
   ) {}
 
   private get db() {
@@ -172,6 +175,10 @@ export class SchedulerService implements OnModuleInit {
         // downloads/uploads survive the 04:30 sweep (boot still wipes fully).
         this.dataRoot.cleanTmp({ olderThanMs: 24 * 60 * 60 * 1000 });
         await this.sessions.pruneExpiredSessions();
+        break;
+      case 'db-maintenance':
+        // Prune unbounded tables, then snapshot the panel DB (never throws).
+        await this.maintenance.run();
         break;
       default:
         throw new Error(`Unknown task type ${job.taskType}`);
@@ -263,6 +270,7 @@ export class SchedulerService implements OnModuleInit {
       { taskType: 'packwiz-check', cron: '*/5 * * * *' },
       { taskType: 'storage-scan', cron: '0 */6 * * *' },
       { taskType: 'tmp-clean', cron: '30 4 * * *' },
+      { taskType: 'db-maintenance', cron: '15 4 * * *' },
     ];
     for (const d of defaults) {
       const [exists] = await this.db

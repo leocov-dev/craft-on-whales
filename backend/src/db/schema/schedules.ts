@@ -7,7 +7,7 @@ export const schedules = sqliteTable('schedules', {
   serverId: text('server_id').references(() => servers.id, {
     onDelete: 'cascade',
   }), // NULL = global
-  taskType: text('task_type').notNull(), // restart|backup|rcon|update-check|storage-scan|tmp-clean|start|stop
+  taskType: text('task_type').notNull(), // restart|backup|rcon|update-check|storage-scan|tmp-clean|db-maintenance|start|stop
   cron: text('cron').notNull(),
   payloadJson: text('payload_json').notNull().default('{}'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
