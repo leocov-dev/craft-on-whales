@@ -157,6 +157,13 @@ body {
   font-family: var(--font-sans);
 }
 
+// Underlines follow the theme's link blue (dark/light variants) instead of
+// inheriting the surrounding text colour. Only recolours underlines that are
+// already drawn; Quasar's own buttons/items still set text-decoration: none.
+a {
+  text-decoration-color: var(--color-link);
+}
+
 // Quasar has no equivalent for native browser form-control chrome (the
 // number-input spin arrows), so this is a deliberate exception to leaning on
 // Quasar's own theming rather than custom CSS — nothing Quasar-side can

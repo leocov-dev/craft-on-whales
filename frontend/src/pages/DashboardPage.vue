@@ -12,7 +12,6 @@
           padding="xs md"
           :options="sortOptions"
         />
-        <q-btn class="q-ml-sm" color="primary" icon="add" label="New server" to="/servers/new" />
       </template>
     </PageHeader>
 
