@@ -48,6 +48,7 @@ onMounted(async () => {
 <style scoped>
 .block {
   display: block;
+  text-decoration: none;
 }
 .add-server-card {
   min-height: 220px;
