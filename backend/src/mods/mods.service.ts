@@ -340,7 +340,7 @@ export class ModsService {
         sharedWith: lib ? await this.library.usageCount(lib.id) : null,
         iconUrl:
           (lib && lib.iconRelPath
-            ? `/${lib.iconRelPath}`
+            ? `/api/icons/library/${path.basename(lib.iconRelPath)}`
             : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
         updateAvailable: await this.updateFor(row),
         importId: row ? row.importId : null,
