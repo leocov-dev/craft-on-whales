@@ -154,6 +154,14 @@ describe('SolverService with CurseForge projects', () => {
             cfFile(['1.21.1', 'Forge']),
           ],
         },
+        'jei-alias': {
+          mod: cfMod('jei', MODS, 10),
+          files: [cfFile(['1.20.1', 'Fabric'])],
+        },
+        neo: {
+          mod: cfMod('neo', MODS, 12),
+          files: [cfFile(['1.21.1', 'NeoForge'])],
+        },
         lonely: {
           mod: cfMod('lonely', MODS, 11),
           files: [cfFile(['1.19.2', 'Fabric'])],
@@ -219,6 +227,44 @@ describe('SolverService with CurseForge projects', () => {
         'modrinth:jei',
         'curseforge:jei',
       ]);
+    });
+
+    it('counts a project once when two refs resolve to the same key', async () => {
+      const res = await solver.solve([
+        { platform: 'curseforge', ref: 'jei' },
+        { platform: 'curseforge', ref: 'jei-alias' },
+        { platform: 'curseforge', ref: 'neo' },
+      ]);
+      expect(res.perProject.map((p) => p.key)).toEqual([
+        'curseforge:jei',
+        'curseforge:neo',
+      ]);
+      expect(res.best).toBeNull();
+      expect(res.partial).toMatchObject({ coveredCount: 1, total: 2 });
+    });
+
+    it('solves a plugin project given by bukkit-plugins URL as Paper', async () => {
+      const url = 'https://www.curseforge.com/minecraft/bukkit-plugins/ess';
+      const res = await build({
+        curseforge: {
+          [url]: {
+            mod: cfMod('ess', PLUGINS, 20),
+            files: [cfFile(['1.21.4', 'Bukkit'])],
+          },
+        },
+      }).solve([{ platform: 'curseforge', ref: url }]);
+      expect(res.best).toMatchObject({ loader: 'paper', mcVersion: '1.21.4' });
+    });
+
+    it('rejects a modpack', async () => {
+      const m = build({
+        curseforge: {
+          pack: { mod: cfMod('pack', 4471, 30), files: [] },
+        },
+      });
+      await expect(
+        m.solve([{ platform: 'curseforge', ref: 'pack' }]),
+      ).rejects.toThrow('modpack');
     });
 
     it('names the platform in a not-found error', async () => {

@@ -47,7 +47,7 @@ export function curseforgeExpectedHash(
 const BASE = 'https://api.curseforge.com/v1';
 const GAME_MINECRAFT = 432;
 const CLASS_MODS = 6;
-const CLASS_MODPACKS = 4471;
+export const CLASS_MODPACKS = 4471;
 export const CLASS_PLUGINS = 5;
 
 /** The curseforge.com page for a project, or for one of its files. */

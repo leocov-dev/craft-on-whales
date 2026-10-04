@@ -6,6 +6,7 @@ import {
 import { ModrinthApiService } from '../mods/modrinth-api.service';
 import {
   CurseforgeApiService,
+  CLASS_MODPACKS,
   CLASS_PLUGINS,
 } from '../mods/curseforge-api.service';
 import { JavaMatrixService } from '../servers/java-matrix.service';
@@ -18,11 +19,15 @@ import type {
   SolvePartial,
   SolvePerProject,
   SolveResult,
+  SolverPlatform,
 } from './solver.types';
 
 const MAX_PROJECTS = 25;
 const PLUGIN_LOADER = 'paper';
-const PLATFORM_LABEL = { modrinth: 'Modrinth', curseforge: 'CurseForge' };
+const PLATFORM_LABEL: Record<SolverPlatform, string> = {
+  modrinth: 'Modrinth',
+  curseforge: 'CurseForge',
+};
 
 // Panel loader buckets, in preference order (used as the tiebreaker after
 // "newest MC version wins"). Each bucket lists the Modrinth loader tags that
@@ -44,6 +49,11 @@ const LOADERS: LoaderDef[] = [
 const LOADER_RANK = new Map(LOADERS.map((l, i) => [l.id, i]));
 
 type LoaderMap = Map<string, Set<string>>;
+
+/** Plain release versions only ("1.21.4"). parseVersion() matches prefixes, so
+ *  the regex also rejects snapshots/RCs like "26.2-rc-1" or "1.21.2-pre1". */
+const isReleaseVersion = (gv: string, parse: (v: string) => unknown): boolean =>
+  /^\d+\.\d+(\.\d+)?$/.test(gv) && Boolean(parse(gv));
 
 interface SolveProject {
   platform: SolveRef['platform'];
@@ -81,6 +91,10 @@ export class SolverService {
     return vb.major - va.major || vb.minor - va.minor || vb.patch - va.patch;
   }
 
+  private isRelease(gv: string): boolean {
+    return isReleaseVersion(gv, (v) => this.javaMatrix.parseVersion(v));
+  }
+
   /** loader id → Set of release-style MC versions, from a project's version list. */
   buildLoaderMap(versions: ModrinthVersion[]): LoaderMap {
     const map: LoaderMap = new Map(
@@ -92,10 +106,7 @@ export class SolverService {
       for (const loader of LOADERS) {
         if (!loader.tags.some((t) => vLoaders.includes(t))) continue;
         for (const gv of v.game_versions || []) {
-          // Plain release versions only — parseVersion() matches prefixes, so
-          // also reject snapshots/RCs like "26.2-rc-1" or "1.21.2-pre1".
-          if (/^\d+\.\d+(\.\d+)?$/.test(gv) && this.javaMatrix.parseVersion(gv))
-            map.get(loader.id)?.add(gv);
+          if (this.isRelease(gv)) map.get(loader.id)?.add(gv);
         }
       }
     }
@@ -121,8 +132,7 @@ export class SolverService {
       const mcVersions: string[] = [];
       const tags: string[] = [];
       for (const gv of f.gameVersions) {
-        if (/^\d+\.\d+(\.\d+)?$/.test(gv) && this.javaMatrix.parseVersion(gv))
-          mcVersions.push(gv);
+        if (this.isRelease(gv)) mcVersions.push(gv);
         else tags.push(gv.toLowerCase());
       }
       const buckets = LOADERS.filter((l) =>
@@ -163,6 +173,10 @@ export class SolverService {
     try {
       if (platform === 'curseforge') {
         const mod = await this.curseforge.resolveUrl(ref);
+        if (mod.classId === CLASS_MODPACKS)
+          throw new BadRequestException(
+            `"${ref}" is a CurseForge modpack, not a mod or plugin`,
+          );
         const files = await this.curseforge.getAllFiles(mod.modId);
         return {
           platform,
@@ -221,7 +235,15 @@ export class SolverService {
 
     // Sequential fetches through the cached clients — never hammers the APIs.
     const projects: SolveProject[] = [];
-    for (const ref of refs) projects.push(await this.loadProject(ref));
+    // De-dupe on the resolved key: "10" and "jei", or a Modrinth id and its
+    // slug, are the same project.
+    const loaded = new Set<string>();
+    for (const ref of refs) {
+      const project = await this.loadProject(ref);
+      if (loaded.has(project.key)) continue;
+      loaded.add(project.key);
+      projects.push(project);
+    }
 
     // Full-coverage candidates: for each loader, intersect every project's
     // supported MC versions on that loader.
@@ -279,7 +301,6 @@ export class SolverService {
           total: projects.length,
           coveredKeys: [...coveredSet],
           dropped: projects
-
             .filter((p) => !coveredSet.has(p.key))
             .map((p) => ({
               platform: p.platform,

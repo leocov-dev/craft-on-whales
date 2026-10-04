@@ -19,3 +19,12 @@ the stored API key (412 without it) like every other CurseForge route.
 - **Whole file history.** `CurseforgeApiService.getAllFiles` pages 50 at a time (cap 10 pages, 500
   files); the newest page alone would miss older MC versions. Responses go through the shared API cache.
 - No frontend consumer exists yet; the wizard's "Auto-detect" panel is not ported.
+- **Plugin reachability.** `CurseforgeApiService.resolveUrl` resolves bare slugs and search hits as
+  _mods_ only, so a CurseForge Bukkit-plugin project is reachable only by pasting its `bukkit-plugins`
+  URL as the `ref`. Deliberate: `resolveUrl` is shared and left unchanged.
+- **Modpacks are rejected.** A modpack URL (classId 4471) resolves fine but is not a mod, so
+  `loadProject` throws 400 instead of solving over it.
+- **De-dupe is on the resolved key**, after load: `10` and `jei`, or a Modrinth id and its slug, count
+  once in `total`/`coveredCount`.
+- **Cold-cache cost.** `getAllFiles` is capped at 10 pages per project, so the worst case is 25
+  projects x 10 pages = 250 calls. Fetches are sequential and cached, so only the first solve pays.
