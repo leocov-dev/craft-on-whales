@@ -54,6 +54,7 @@ export const modResponseSchema = z.object({
 
 export const fileListResponseSchema = z.object({
   data: z.array(fileSchema),
+  pagination: z.object({ totalCount: z.number() }).optional(),
 });
 
 export const fileResponseSchema = z.object({

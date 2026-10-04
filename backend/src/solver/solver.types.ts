@@ -1,3 +1,11 @@
+export type SolverPlatform = 'modrinth' | 'curseforge';
+
+/** One project the caller wants solved: which registry, and its slug/id there. */
+export interface SolveRef {
+  platform: SolverPlatform;
+  ref: string;
+}
+
 export interface LoaderDef {
   id: string;
   label: string;
@@ -17,6 +25,7 @@ export interface SolveBest extends PairMeta {
 }
 
 export interface SolvePartialDropped {
+  platform: SolverPlatform;
   ref: string;
   slug: string;
   title: string;
@@ -30,11 +39,15 @@ export interface SolvePartial {
   mcVersion: string;
   coveredCount: number;
   total: number;
-  coveredSlugs: string[];
+  /** `platform:slug` keys, matching `SolvePerProject.key`. */
+  coveredKeys: string[];
   dropped: SolvePartialDropped[];
 }
 
 export interface SolvePerProject {
+  platform: SolverPlatform;
+  /** `platform:slug` — unique across registries (slugs can collide). */
+  key: string;
   ref: string;
   slug: string;
   title: string;
