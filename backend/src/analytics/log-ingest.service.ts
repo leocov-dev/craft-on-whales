@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { eq, and, desc, lt, isNull, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, isNull } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { playerEvents, playerSessions } from '../db/schema';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -371,26 +371,5 @@ export class LogIngestService implements OnModuleInit {
         inserted++;
     }
     return { inserted };
-  }
-
-  /** Prune old timeline rows and closed sessions. Returns deleted counts. */
-  async pruneOlderThan(
-    days: number,
-  ): Promise<{ events: number; sessions: number }> {
-    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-    const deletedEvents = await this.db
-      .delete(playerEvents)
-      .where(lt(playerEvents.ts, cutoff))
-      .returning({ id: playerEvents.id });
-    const deletedSessions = await this.db
-      .delete(playerSessions)
-      .where(
-        and(
-          isNotNull(playerSessions.endedAt),
-          lt(playerSessions.endedAt, cutoff),
-        ),
-      )
-      .returning({ serverId: playerSessions.serverId });
-    return { events: deletedEvents.length, sessions: deletedSessions.length };
   }
 }

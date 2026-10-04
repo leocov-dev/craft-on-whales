@@ -59,3 +59,26 @@ explicit `await app.init()` first, or `DbService.db` is still `undefined`
 when `runMigrations()` reads it — confirmed by a `TypeError: Cannot read
 properties of undefined (reading 'session')` boot-test failure before this
 was added.
+
+## Panel-DB snapshots and integrity check are SQLite-only
+
+`PanelDbService` (`backend/src/maintenance/`) snapshots the SQLite file nightly
+with `VACUUM INTO` and runs `PRAGMA quick_check` once at boot. Neither has a
+Postgres equivalent inside the app, and that is deliberate:
+
+- A Postgres dump needs `pg_dump`, a separate binary the panel image does not
+  ship. Shelling out would add a native dependency and a version-matching problem
+  this project avoids on principle (see `docs/architecture.md`), and a
+  pure-JS dump would be a second, untested serializer for the whole schema.
+- Under Postgres the database is a separate service, usually already covered by
+  the operator's own backup and integrity tooling.
+
+So under `DB_DRIVER=postgres` the snapshot step and the boot check are no-ops,
+and `docs/backups.md` tells the operator to take their own dumps. Retention
+pruning is dialect-neutral and runs on both. If a Postgres in-app path is ever
+wanted, it needs an explicit decision about shipping `pg_dump`, not a quiet add.
+
+`VACUUM INTO` takes a bound parameter for the destination (`VACUUM INTO ?`), so
+the path is never string-interpolated into SQL. It runs on a second connection in
+a worker thread (the file is WAL-mode, and a second reader sees the committed
+state without a manual checkpoint); the copy is quick-checked before it counts.

@@ -51,6 +51,16 @@ Give a backup a custom display name from its row's rename (pencil) button. This 
 shown in the panel — the archive file on disk keeps its original name, and renaming has no effect
 on which retention bucket a backup is in or whether it gets pruned.
 
+## The panel's own database
+
+Server backups only cover world data. Your users, 2FA, schedules, pins and history live in the panel's database (`data/panel.db`), so the built-in **Database maintenance** [schedule](schedules.md) snapshots it every night at 04:15 into `data/backups/_panel/`, keeping the newest 14. Snapshots are private to the panel's user (they hold password hashes and encrypted secrets). They are not shown on this page and are not counted in the retention tables above.
+
+On boot the panel runs a quick integrity check on the database. If it fails, the panel logs a clear error pointing here. To restore: stop the panel, replace `data/panel.db` with the newest good file from `data/backups/_panel/` (and delete any `panel.db-wal` and `panel.db-shm` next to it), then start the panel again.
+
+The same nightly task also trims things that would otherwise grow forever: player activity older than 90 days, activity history older than a year, and cached lookups older than 30 days.
+
+If you run the panel on Postgres instead of the built-in SQLite database, the panel only does the trimming. Back the database up yourself (for example with `pg_dump`), because it lives outside the panel's data folder.
+
 ## Restoring
 
 Restoring a backup stops the server, takes a **pre-restore** safety snapshot, replaces its world data with the snapshot, and leaves it stopped for you to start again. Because pack upgrades always take a pre-update backup first, you can always roll back a bad upgrade.

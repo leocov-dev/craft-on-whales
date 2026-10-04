@@ -12,5 +12,6 @@ The **Schedules** page automates recurring tasks with cron expressions — no ex
 - **Backups** — regular snapshots (tagged `scheduled` on the [Backups](backups.md) page).
 - **Commands** — run any server command on a schedule.
 - **Update checks** — periodically refresh what's out of date.
+- **Database maintenance** — a built-in nightly task (04:15) that trims old history and snapshots the panel's own database ([details](backups.md#the-panels-own-database)). You can change its time or disable it like any other schedule.
 
 Each schedule targets a specific server (or the panel globally), runs on its own cron expression, and can be enabled or disabled without deleting it. The last run time is shown so you can confirm it's firing.
