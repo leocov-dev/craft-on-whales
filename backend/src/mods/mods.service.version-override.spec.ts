@@ -36,7 +36,6 @@ describe('ModsService MC-version override', () => {
   let downloads: DownloadMeta[];
   let events: { summary: string; details: Record<string, unknown> }[];
   let builds: typeof BUILDS;
-  let packRows: { platform: string }[];
   const server = {
     id: 'srv1',
     type: 'QUILT',
@@ -48,7 +47,7 @@ describe('ModsService MC-version override', () => {
     downloads = [];
     events = [];
     builds = BUILDS;
-    packRows = [];
+    server.env = {};
     fetchMock = jest.spyOn(global, 'fetch').mockImplementation((input) => {
       const url = new URL(input instanceof Request ? input.url : input);
       if (url.pathname === '/v2/project/sodium')
@@ -98,11 +97,6 @@ describe('ModsService MC-version override', () => {
     };
     const dbService = {
       db: {
-        select: () => ({
-          from: () => ({
-            where: () => ({ limit: () => Promise.resolve(packRows) }),
-          }),
-        }),
         insert: () => ({
           values: () => ({ onConflictDoUpdate: () => Promise.resolve() }),
         }),
@@ -142,16 +136,22 @@ describe('ModsService MC-version override', () => {
     expect(downloads).toHaveLength(0);
   });
 
-  it('refuses the override on a packwiz pack server, whose pack pins the version', async () => {
-    packRows = [{ platform: 'packwiz' }];
+  it('refuses the override on a packwiz server, whose pack pins the version', async () => {
+    server.env = { PACKWIZ_URL: 'https://example.com/pack.toml' };
     await expect(install(true)).rejects.toBeInstanceOf(BadRequestException);
     expect(downloads).toHaveLength(0);
   });
 
-  it('allows the override on a server whose pack is not packwiz', async () => {
-    packRows = [{ platform: 'modrinth' }];
-    const result = await install(true);
-    expect(result.versionOverridden).toBe(true);
+  it('treats a PACKWIZ_URL server as pack-managed even though its type is a loader', () => {
+    const packwiz = {
+      type: 'FABRIC',
+      env: { PACKWIZ_URL: 'https://example.com/pack.toml' },
+    };
+    expect(mods.isPackServer(packwiz)).toBe(true);
+    expect(() => mods.assertAcceptsManualContent(packwiz)).toThrow(
+      BadRequestException,
+    );
+    expect(mods.isPackServer({ type: 'FABRIC', env: {} })).toBe(false);
   });
 
   it('with the override, installs the own-loader build over a newer fabric one', async () => {

@@ -82,6 +82,7 @@ export class ApiKeysService {
               // CurseForge-hosted mods and there's no cheap way to know
               // ahead of time) — flag it for recreate on rotation too.
               eq(servers.type, 'PACKWIZ'),
+              like(servers.envJson, '%PACKWIZ_URL%'),
               like(servers.envJson, '%CF_SLUG%'),
               like(servers.envJson, '%CURSEFORGE_FILES%'),
             ),

@@ -741,7 +741,9 @@ every source that filters by MC version (Modrinth, CurseForge, Hangar), and is i
 `gameVersions`; a client implementing the checkbox omits `mc` and flags hits whose
 `gameVersions` lack the server version. There is no frontend for this yet.
 
-The override is refused with a 400 on packwiz servers (a `server_packs` row with platform
-`packwiz`, or the legacy `PACKWIZ` type): the pack declares the Minecraft version, so a build for
-another version can't be what runs. packwiz servers keep their real loader as `type`, so the pack
-row is the only reliable marker. The check only runs when the override would actually apply.
+The override is refused with a 400 on packwiz servers: the pack declares the Minecraft version, so
+a build for another version can't be what runs. A packwiz server is recognised by `isPackwizServer`
+(`servers/packwiz.ts`): a `PACKWIZ_URL` in its env, or the legacy `PACKWIZ` type. There is no
+`TYPE=PACKWIZ` in the image, so a packwiz server's `type` is its real loader and the env var is the
+only marker. The same helper gates manual add/upload/import, the enable/disable toggle, the pack
+source label in the content list, and CurseForge key injection.

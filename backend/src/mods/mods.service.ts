@@ -43,7 +43,8 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
-import { serverContent, serverPacks, updateChecks } from '../db/schema';
+import { serverContent, updateChecks } from '../db/schema';
+import { isPackwizServer } from '../servers/packwiz';
 import type { Server } from '../servers/types';
 import type {
   ContentItem,
@@ -150,8 +151,8 @@ export class ModsService {
   }
 
   /** packwiz owns its server's mods outright; nothing can be added beside it. */
-  assertAcceptsManualContent(server: Pick<Server, 'type'>): void {
-    if (server.type === 'PACKWIZ') {
+  assertAcceptsManualContent(server: Pick<Server, 'type' | 'env'>): void {
+    if (isPackwizServer(server)) {
       throw new BadRequestException(
         'mods managed by packwiz can’t be added manually — edit the pack and re-apply the URL instead',
       );
@@ -240,20 +241,17 @@ export class ModsService {
     }
     // packwiz has no env var carrying the loader (PACKWIZ_URL is the only
     // install-time env it sets) — the on-disk manifest sniff is the only source.
-    if (server.type === 'PACKWIZ')
+    if (isPackwizServer(server))
       return this.detectPackLoader(server.id) || null;
     return null;
   }
 
-  isPackServer(server: Pick<Server, 'type'>): boolean {
-    return [
-      'AUTO_CURSEFORGE',
-      'MODRINTH',
-      'FTBA',
-      'CURSEFORGE',
-      'GTNH',
-      'PACKWIZ',
-    ].includes(server.type);
+  isPackServer(server: Pick<Server, 'type' | 'env'>): boolean {
+    return (
+      ['AUTO_CURSEFORGE', 'MODRINTH', 'FTBA', 'CURSEFORGE', 'GTNH'].includes(
+        server.type,
+      ) || isPackwizServer(server)
+    );
   }
 
   private async updateFor(
@@ -757,7 +755,13 @@ export class ModsService {
     };
     if (!ignoreVersion || !target.mcVersion)
       return this.resolveSource(source, target);
-    await this.assertPackDoesNotPinVersion(server);
+    // A packwiz pack.toml declares the server's Minecraft version, so a build
+    // for another version can never be what the pack runs.
+    if (isPackwizServer(server)) {
+      throw new BadRequestException(
+        'The Minecraft version of a packwiz server comes from its pack, so the version override can’t be used. Change the version in the pack and re-apply the URL instead',
+      );
+    }
     // MC-version override (upstream parity 0.10.0): the exact version stays
     // the first choice, and only when no build lists it is the newest build
     // for the loader taken instead. The loader is never relaxed.
@@ -776,25 +780,6 @@ export class ModsService {
         // one. Anything else (a blocked download, a registry error) is real.
         throw retryErr instanceof NotFoundException ? err : retryErr;
       }
-    }
-  }
-
-  /**
-   * A packwiz pack.toml declares the server's Minecraft version and loader,
-   * so a mod built for another version can never be what the pack runs.
-   * packwiz servers keep their real loader as `type`, so the pack row is the
-   * only marker.
-   */
-  private async assertPackDoesNotPinVersion(server: Server): Promise<void> {
-    const [pack] = await this.db
-      .select({ platform: serverPacks.platform })
-      .from(serverPacks)
-      .where(eq(serverPacks.serverId, server.id))
-      .limit(1);
-    if (server.type === 'PACKWIZ' || pack?.platform === 'packwiz') {
-      throw new BadRequestException(
-        'The Minecraft version of a packwiz server comes from its pack, so the version override can’t be used. Change the version in the pack and re-apply the URL instead',
-      );
     }
   }
 
@@ -1132,7 +1117,7 @@ export class ModsService {
     // MODRINTH_EXCLUDE_FILES) — there is nothing to write to env that would
     // actually stop the pack installer from re-adding the file. Reject
     // explicitly rather than silently writing a useless var.
-    if (server.type === 'PACKWIZ') {
+    if (isPackwizServer(server)) {
       throw new BadRequestException(
         'packwiz-managed mods can’t be toggled from the panel — edit the pack and re-apply the URL instead',
       );
