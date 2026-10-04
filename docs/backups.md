@@ -53,7 +53,7 @@ on which retention bucket a backup is in or whether it gets pruned.
 
 ## The panel's own database
 
-Server backups only cover world data. Your users, 2FA, schedules, pins and history live in the panel's database (`data/panel.db`), so the built-in **Database maintenance** [schedule](schedules.md) snapshots it every night at 04:15 into `data/backups/_panel/`, keeping the newest 14. Snapshots are private to the panel's user (they hold password hashes and encrypted secrets). They are not shown on this page and are not counted in the retention tables above.
+Server backups cover the whole server directory, but not the panel itself. Your users, 2FA, schedules, pins and history live in the panel's database (`data/panel.db`), so the built-in **Database maintenance** [schedule](schedules.md) snapshots it every night at 04:15 into `data/backups/_panel/`, keeping the newest 14. Snapshots are private to the panel's user (they hold password hashes and encrypted secrets). They are not shown on this page and are not counted in the retention tables above.
 
 On boot the panel runs a quick integrity check on the database. If it fails, the panel logs a clear error pointing here. To restore: stop the panel, replace `data/panel.db` with the newest good file from `data/backups/_panel/` (and delete any `panel.db-wal` and `panel.db-shm` next to it), then start the panel again.
 
