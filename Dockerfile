@@ -42,6 +42,12 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     PANEL_HOST=0.0.0.0 \
     PANEL_PORT=3000
+# pg_dump/pg_restore for the nightly panel-database snapshot when running on
+# Postgres (DB_DRIVER=postgres; see backend/src/maintenance/). A plain apk
+# package, not a Node native module. A pg_dump older than the server refuses to
+# dump it, so this tracks Alpine's current PostgreSQL major; the SQLite default
+# never touches it.
+RUN apk add --no-cache postgresql-client
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN npm --prefix backend ci --omit=dev
 COPY --from=build /app/backend/dist ./backend/dist
