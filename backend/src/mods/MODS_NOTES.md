@@ -740,3 +740,8 @@ every source that filters by MC version (Modrinth, CurseForge, Hangar), and is i
 `LATEST`/`SNAPSHOT` servers (already unfiltered). Search: `modrinth/search` hits now carry
 `gameVersions`; a client implementing the checkbox omits `mc` and flags hits whose
 `gameVersions` lack the server version. There is no frontend for this yet.
+
+The override is refused with a 400 on packwiz servers (a `server_packs` row with platform
+`packwiz`, or the legacy `PACKWIZ` type): the pack declares the Minecraft version, so a build for
+another version can't be what runs. packwiz servers keep their real loader as `type`, so the pack
+row is the only reliable marker. The check only runs when the override would actually apply.

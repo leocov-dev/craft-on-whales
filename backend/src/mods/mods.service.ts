@@ -43,7 +43,7 @@ import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
-import { serverContent, updateChecks } from '../db/schema';
+import { serverContent, serverPacks, updateChecks } from '../db/schema';
 import type { Server } from '../servers/types';
 import type {
   ContentItem,
@@ -757,6 +757,7 @@ export class ModsService {
     };
     if (!ignoreVersion || !target.mcVersion)
       return this.resolveSource(source, target);
+    await this.assertPackDoesNotPinVersion(server);
     // MC-version override (upstream parity 0.10.0): the exact version stays
     // the first choice, and only when no build lists it is the newest build
     // for the loader taken instead. The loader is never relaxed.
@@ -775,6 +776,25 @@ export class ModsService {
         // one. Anything else (a blocked download, a registry error) is real.
         throw retryErr instanceof NotFoundException ? err : retryErr;
       }
+    }
+  }
+
+  /**
+   * A packwiz pack.toml declares the server's Minecraft version and loader,
+   * so a mod built for another version can never be what the pack runs.
+   * packwiz servers keep their real loader as `type`, so the pack row is the
+   * only marker.
+   */
+  private async assertPackDoesNotPinVersion(server: Server): Promise<void> {
+    const [pack] = await this.db
+      .select({ platform: serverPacks.platform })
+      .from(serverPacks)
+      .where(eq(serverPacks.serverId, server.id))
+      .limit(1);
+    if (server.type === 'PACKWIZ' || pack?.platform === 'packwiz') {
+      throw new BadRequestException(
+        'The Minecraft version of a packwiz server comes from its pack, so the version override can’t be used. Change the version in the pack and re-apply the URL instead',
+      );
     }
   }
 
