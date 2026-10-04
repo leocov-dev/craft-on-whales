@@ -50,6 +50,8 @@ export interface ModrinthSearchHit {
   downloads: number;
   categories: string[];
   latestVersion: string;
+  /** Every MC version the project has a build for. */
+  gameVersions: string[];
 }
 
 /** A CurseForge project, normalized from the raw API response. */

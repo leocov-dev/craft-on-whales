@@ -707,3 +707,36 @@ linear progress bar and the task step. The finished report opens in the Mods tab
 `ModImportReportDialog`, unchanged; closing it navigates to the new server. The server name
 defaults to the file name. Port, disk, heap and container memory default the same way the Packwiz
 form does (suggested port, admin-configured defaults).
+
+## Quilt fallback and the MC-version override (upstream parity 0.10.0 / 0.11.0)
+
+### Quilt accepts Fabric builds, own loader first
+
+Quilt Loader runs Fabric mods and most projects only tag "fabric", so a strict loader match left
+Quilt servers a near-empty catalog. `loader-compat.ts` holds a data table (`LOADER_FALLBACKS`,
+today `quilt: ['fabric']`; Fabric does not accept Quilt-only builds) with three helpers:
+`acceptedLoaders` (own first), `loaderAccepts`, `preferOwnLoader` (stable partition).
+
+- Modrinth: search facet is one OR-group (`categories:quilt` or `categories:fabric`);
+  `getVersions` asks for both loaders, then `preferOwnLoader` puts quilt-tagged versions ahead of
+  fabric ones. So a quilt build is taken over a newer fabric build when one exists (upstream just
+  OR'd the loaders and took the newest).
+- CurseForge: search uses `modLoaderTypes=[5,4]`; the files endpoint takes one type, so `getFiles`
+  makes one request per accepted loader and concatenates own-loader files first, deduplicated by
+  file id. Callers take `[0]`, so the preference holds.
+- Zip import (`jarMisfit`) uses `loaderAccepts`.
+- Because it lives in the API clients, updates, the mod browser, blueprint/pack imports and
+  add-by-link all follow it. The solver is unaffected (it reads every build unfiltered).
+
+### MC-version override
+
+`POST /api/servers/:id/mods` takes `ignoreVersion: true` (the caller accepts the risk). Resolution
+(`ModsService.resolveForServer`) still tries the server's exact MC version first; only if that
+finds no build (`NotFoundException`) does it retry with no MC filter, taking the newest build for
+the loader (own loader first, as above). The loader is never relaxed. A pinned version URL is
+installed as given, as before. The response carries `installed.versionOverridden`, and the
+`mod-installed` event names the override and records `details.versionOverridden`. It applies to
+every source that filters by MC version (Modrinth, CurseForge, Hangar), and is ignored for
+`LATEST`/`SNAPSHOT` servers (already unfiltered). Search: `modrinth/search` hits now carry
+`gameVersions`; a client implementing the checkbox omits `mc` and flags hits whose
+`gameVersions` lack the server version. There is no frontend for this yet.

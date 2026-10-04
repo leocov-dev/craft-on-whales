@@ -33,6 +33,7 @@ import {
   type StagedPack,
 } from './pack-archive';
 import type { IdentifiedJar } from './mods.types';
+import { loaderAccepts } from './loader-compat';
 import type { Server } from '../servers/types';
 import type {
   ContentImportRemoval,
@@ -109,9 +110,7 @@ export function jarMisfit(
     };
   if (serverKind !== 'mod' || !serverLoader) return null;
   const loaders = jar.loaders.filter((l) => MOD_LOADERS.has(l));
-  const accepts =
-    serverLoader === 'quilt' ? ['quilt', 'fabric'] : [serverLoader];
-  if (loaders.length && !loaders.some((l) => accepts.includes(l)))
+  if (loaders.length && !loaderAccepts(serverLoader, loaders))
     return {
       reason: 'wrong-loader',
       detail: `built for ${loaders.join('/')}; this server runs ${serverLoader}`,

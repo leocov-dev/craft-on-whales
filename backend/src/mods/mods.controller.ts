@@ -40,6 +40,11 @@ const installSchema = z.object({
   kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
 });
 
+// Add-by-link only: the user may accept a build not listed for the server's MC version.
+const addByLinkSchema = installSchema.extend({
+  ignoreVersion: z.boolean().optional(),
+});
+
 // A blocked update's completion also names the row it replaces.
 const manualSchema = installSchema.extend({
   replaceContentId: z.string().trim().min(1).max(40).optional(),
@@ -89,10 +94,11 @@ export class ModsController {
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    const { url, kind } = parseBody(installSchema, body);
+    const { url, kind, ignoreVersion } = parseBody(addByLinkSchema, body);
     const result = await this.mods.installFromUrl(id, url, {
       actor: currentUser(req).username,
       kind,
+      ignoreVersion,
     });
     return {
       ok: true,
@@ -100,6 +106,7 @@ export class ModsController {
         name: result.library.name,
         filename: result.filename,
         version: result.library.version,
+        versionOverridden: result.versionOverridden ?? false,
       },
     };
   }

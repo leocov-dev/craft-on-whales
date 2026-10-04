@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { ZodType } from 'zod';
 import { ApiCacheService } from './api-cache.service';
+import { acceptedLoaders } from './loader-compat';
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import type {
   CurseforgeMod,
@@ -178,7 +179,13 @@ export class CurseforgeApiService {
       sortOrder: 'desc',
     };
     if (mcVersion) params.gameVersion = mcVersion;
-    if (loader) params.modLoaderType = this.loaderTypeId(loader);
+    if (loader) {
+      // The search endpoint takes an OR-list (stringified array), so a Quilt
+      // server also finds fabric builds.
+      const ids = this.loaderTypeIds(loader);
+      if (ids.length > 1) params.modLoaderTypes = JSON.stringify(ids);
+      else if (ids.length) params.modLoaderType = ids[0]!;
+    }
     const data = await this.cfFetch('/mods/search', modSearchResponseSchema, {
       search: params,
       ttlMs: 5 * 60 * 1000,
@@ -202,7 +209,12 @@ export class CurseforgeApiService {
     return data.data.length ? this.normalizeMod(data.data[0]!) : null;
   }
 
-  /** Files (versions) of a project, newest first, optionally filtered. */
+  /**
+   * Files (versions) of a project, newest first, optionally filtered. The
+   * endpoint takes one modLoaderType, so a loader with fallbacks (Quilt, which
+   * also runs Fabric builds) is one request per loader: the server's own
+   * loader's files first, then the fallbacks' (deduplicated).
+   */
   async getFiles(
     modId: number,
     {
@@ -211,15 +223,25 @@ export class CurseforgeApiService {
       pageSize = 50,
     }: { mcVersion?: string; loader?: string; pageSize?: number } = {},
   ): Promise<CurseforgeFile[]> {
-    const params: Record<string, string | number> = { pageSize };
-    if (mcVersion) params.gameVersion = mcVersion;
-    if (loader) params.modLoaderType = this.loaderTypeId(loader);
-    const data = await this.cfFetch(
-      `/mods/${modId}/files`,
-      fileListResponseSchema,
-      { search: params, ttlMs: 10 * 60 * 1000 },
+    const fetchOne = async (loaderId?: number) => {
+      const params: Record<string, string | number> = { pageSize };
+      if (mcVersion) params.gameVersion = mcVersion;
+      if (loaderId) params.modLoaderType = loaderId;
+      const data = await this.cfFetch(
+        `/mods/${modId}/files`,
+        fileListResponseSchema,
+        { search: params, ttlMs: 10 * 60 * 1000 },
+      );
+      return data.data.map((f) => this.normalizeFile(f));
+    };
+    const ids = loader ? this.loaderTypeIds(loader) : [];
+    const lists = await Promise.all(
+      (ids.length ? ids : [undefined]).map(fetchOne),
     );
-    return data.data.map((f) => this.normalizeFile(f));
+    const seen = new Set<number>();
+    return lists
+      .flat()
+      .filter((f) => !seen.has(f.fileId) && Boolean(seen.add(f.fileId)));
   }
 
   /**
@@ -390,5 +412,12 @@ export class CurseforgeApiService {
 
   private loaderTypeId(loader: string): number {
     return this.LOADER_TYPE_IDS[String(loader).toLowerCase()] || 0;
+  }
+
+  /** CurseForge type ids a `loader` server accepts, its own first. */
+  private loaderTypeIds(loader: string): number[] {
+    return acceptedLoaders(loader)
+      .map((l) => this.loaderTypeId(l))
+      .filter(Boolean);
   }
 }
