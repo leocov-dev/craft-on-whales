@@ -21,11 +21,11 @@ Take a [manual backup](backups.md) first.
 Use the world and the server's own files.
 
 1. **Stop the server** so the world is flushed.
-2. Download the world: on the server's **Worlds** tab, use the download button on the world's row.
-3. Download anything else you need from the **Files** tab (configs, `whitelist.json`, `ops.json`, plugin folders). See [Worlds & files](../worlds-and-files.md).
+2. Download the world: on the server's **World → Worlds** tab, use the download button on the world's row.
+3. Download anything else you need from the **World → Files** tab (configs, `whitelist.json`, `ops.json`, plugin folders). See [Worlds & files](../worlds-and-files.md).
 4. On the new panel, create a server with the same loader and version (see [Creating & managing servers](../servers.md)). Match the memory settings.
 5. Open the **Worlds** page, **Upload world**, then **Install…** it on the new server, replacing the current world.
-6. Upload the other files with the **Files** tab and add the same mods.
+6. Upload the other files with the **World → Files** tab and add the same mods.
 7. Start it and join before telling anyone.
 
 If you want a ready-made recipe, [Blueprints](../blueprints.md) can recreate a server's configuration, and optionally its world, on any panel. Import the blueprint file on the new panel.

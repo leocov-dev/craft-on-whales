@@ -23,7 +23,7 @@ You cannot mix the two on one server. Plugins do not run on Fabric or Forge, and
 
 ## Each option
 
-- **Vanilla**: no plugins, no mods. Simplest and always on the latest version.
+- **Vanilla**: no plugins, no mods. Simplest.
 - **Paper**: fast, widely supported, huge plugin library. The default choice for plugin servers.
 - **Purpur**: Paper plus extra gameplay settings.
 - **Fabric**: light, fast to update to new Minecraft versions. Many performance and quality-of-life mods. Most Fabric mods need the separate Fabric API mod.

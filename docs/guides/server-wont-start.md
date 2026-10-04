@@ -8,7 +8,7 @@ Work down this list. It is ordered by how often each one is the answer.
 
 Open the server's **Console** tab and scroll to the end. A Java stack trace prints the innermost cause last, so look for the final `Caused by:` line. It usually names the problem.
 
-- An exception, or a mention of a crash report, means the game failed. Crash reports are listed under the server's **History** tab; click one to read it, and see which mods it points at.
+- An exception, or a mention of a crash report, means the game failed. Crash reports are listed under the server's **Insights → History** tab; click one to read it, and see which mods it points at.
 - A log that just stops, with no error, means something killed the process. Go to point 3.
 
 ## 2. Wrong Java
@@ -22,13 +22,13 @@ Open the server's **Console** tab and scroll to the end. A Java stack trace prin
 | 1.18 to 1.20.4     | 17   |
 | 1.20.5 and later   | 21   |
 
-Newest versions use the newest Java the panel supports. This follows the version you chose, so the usual fix is correcting the Minecraft version or loader, not Java.
+Some cases differ: Paper 1.16.5 uses 16, and GTNH picks Java from its pack version. Newest versions use the newest Java the panel supports. This follows the version you chose, so the usual fix is correcting the Minecraft version or loader, not Java.
 
 ## 3. Out of memory
 
-The log stops mid-line, there is no crash report, and the server shows as crashed. That is typically an out-of-memory kill. On the **Live** tab, the **Health & stability** card shows the last exit code and out-of-memory kills.
+The log stops mid-line, there is no crash report, and the server shows as crashed. That is typically an out-of-memory kill. On the **Insights → Live** tab, the **Health & stability** card shows the last exit code and out-of-memory kills.
 
-Usually the heap was set too close to the container limit. Lower the heap or raise the limit in **Settings**. See [Server memory](server-memory.md).
+Usually the heap was set too close to the container limit. Lower the heap or raise the limit in **Settings → General**. See [Server memory](server-memory.md).
 
 ## 4. EULA and port
 
@@ -60,6 +60,6 @@ If a server is still booting after ten minutes, the panel marks it **Stalled**. 
 
 ## Asking for help
 
-Include the whole log, not the last line, plus the Minecraft version, loader, pack and version, and the heap size. Use the **Files** tab or the Console to get the log, and download the crash report if there is one.
+Include the whole log, not the last line, plus the Minecraft version, loader, pack and version, and the heap size. Use the **World → Files** tab or the Console to get the log, and download the crash report if there is one.
 
 Related: [Server memory](server-memory.md), [Console & chat](../console-and-chat.md), [Creating & managing servers](../servers.md).

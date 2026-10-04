@@ -31,7 +31,7 @@ Backups on the same disk as the server die with it. Open the server's **Backups*
 
 Once, before you need it:
 
-1. Create a new throwaway server and bring a recent backup's world over (download it, then upload it on the **Worlds** page and install it; see [Worlds & files](../worlds-and-files.md)).
+1. Create a new throwaway server and bring a recent backup's world over (download it, then upload it on the **Worlds** page and install it; see [Worlds & files](../worlds-and-files.md)). A backup is a whole-server zip; the panel finds the world inside it by its `level.dat`.
 2. Start it and join.
 3. Check that the base you care about is there.
 
