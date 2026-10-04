@@ -30,6 +30,8 @@ Then open **http://localhost:3000** and follow the first-run setup.
 The panel's database now lives in Postgres, in the named volume `pgdata`.
 World data, mods, and backups still live under `DATA_DIR_HOST` as usual.
 
+A nightly `pg_dump` of the panel database is written to `DATA_DIR_HOST/backups/_panel/` (see [the panel's own database](../../docs/backups.md#the-panels-own-database)). That folder is on the same host as `pgdata`, so copy it elsewhere if you want protection from losing the machine.
+
 ## Moving existing data over
 
 Already running the panel with SQLite and want to switch? See

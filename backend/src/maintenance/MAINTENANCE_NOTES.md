@@ -45,9 +45,13 @@ module, and AnalyticsModule -> ServersModule -> SchedulerModule would be a cycle
   taken for a good snapshot; `*.partial` never counts toward retention.
 - `data/backups/_panel/panel-<UTC stamp>.db`, newest 14 kept, mode 0600 (the file
   holds password hashes, encrypted secrets and 2FA state).
-- SQLite only; see `db/DRIZZLE_NOTES.md` for the Postgres reasoning.
+- Postgres: `pg_dump` custom-format archive (`panel-<stamp>.dump`), validated
+  with `pg_restore --list`, same `.partial`/rename/0600/retention handling.
+  Details and the reasons for shelling out are in `db/DRIZZLE_NOTES.md`.
+- Retention counts both `.db` and `.dump` files, so switching driver doesn't
+  strand old snapshots.
 
-## Boot check
+## Boot check (SQLite)
 
 `PanelDbService.onApplicationBootstrap` runs `PRAGMA quick_check` (cheaper than
 `integrity_check`, still catches page-level corruption) after `main.ts` has run

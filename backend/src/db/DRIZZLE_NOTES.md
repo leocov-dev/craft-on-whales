@@ -60,25 +60,34 @@ when `runMigrations()` reads it — confirmed by a `TypeError: Cannot read
 properties of undefined (reading 'session')` boot-test failure before this
 was added.
 
-## Panel-DB snapshots and integrity check are SQLite-only
+## Panel-DB snapshots
 
-`PanelDbService` (`backend/src/maintenance/`) snapshots the SQLite file nightly
-with `VACUUM INTO` and runs `PRAGMA quick_check` once at boot. Neither has a
-Postgres equivalent inside the app, and that is deliberate:
+`PanelDbService` (`backend/src/maintenance/`) snapshots the panel database
+nightly. The mechanism differs by driver:
 
-- A Postgres dump needs `pg_dump`, a separate binary the panel image does not
-  ship. Shelling out would add a native dependency and a version-matching problem
-  this project avoids on principle (see `docs/architecture.md`), and a
-  pure-JS dump would be a second, untested serializer for the whole schema.
-- Under Postgres the database is a separate service, usually already covered by
-  the operator's own backup and integrity tooling.
+- **SQLite**: `VACUUM INTO ?` on a second connection in a worker thread (the
+  file is WAL-mode, and a second reader sees the committed state without a
+  manual checkpoint), then a `quick_check` of the copy. The destination is a
+  bound parameter, never string-interpolated into SQL. Plus a `PRAGMA
+quick_check` of the live database once at boot.
+- **Postgres**: `pg_dump --format=custom --no-owner --no-privileges` to a
+  `.partial` file, then `pg_restore --list` on it as a validity check, then
+  rename. No boot check: the server owns its own storage integrity.
 
-So under `DB_DRIVER=postgres` the snapshot step and the boot check are no-ops,
-and `docs/backups.md` tells the operator to take their own dumps. Retention
-pruning is dialect-neutral and runs on both. If a Postgres in-app path is ever
-wanted, it needs an explicit decision about shipping `pg_dump`, not a quiet add.
+`pg_dump` is shelled out to, which is a deliberate exception to "no native
+dependencies" and to "never shell out" (that rule is about the `docker` CLI):
+a pure-JS dump would be a second, untested serializer for the whole schema.
+It is a plain `apk add postgresql-client` in the runtime image, not a Node
+native module, and SQLite installs never touch it. Rules for the call:
 
-`VACUUM INTO` takes a bound parameter for the destination (`VACUUM INTO ?`), so
-the path is never string-interpolated into SQL. It runs on a second connection in
-a worker thread (the file is WAL-mode, and a second reader sees the committed
-state without a manual checkpoint); the copy is quick-checked before it counts.
+- `execFile` with an argument array (no shell), a 10-minute timeout, and an
+  environment of only `PATH` + `PG*`. The panel's own secrets are not passed down.
+- `DATABASE_URL` is turned into `PGHOST`/`PGUSER`/`PGPASSWORD`/... (`pgEnvFromUrl`),
+  never passed as an argument: arguments are visible to every user via `ps`.
+  Only the libpq-meaningful query parameters are mapped (`sslmode`,
+  `sslrootcert`, `sslcert`, `sslkey`, `connect_timeout`, `host`).
+- A missing binary is reported plainly (`PgToolMissingError`), and the boot log
+  warns if `pg_dump` is absent, so it surfaces at startup and not at 04:15.
+- Version skew: `pg_dump` refuses a server newer than itself. The image tracks
+  Alpine's current PostgreSQL major (18 at the time of writing); an older server
+  is fine. If someone runs a newer server, they need a newer image.

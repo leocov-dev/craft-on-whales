@@ -59,7 +59,7 @@ On boot the panel runs a quick integrity check on the database. If it fails, the
 
 The same nightly task also trims things that would otherwise grow forever: player activity older than 90 days, activity history older than a year, and cached lookups older than 30 days.
 
-If you run the panel on Postgres instead of the built-in SQLite database, the panel only does the trimming. Back the database up yourself (for example with `pg_dump`), because it lives outside the panel's data folder.
+If you run the panel on Postgres instead of the built-in SQLite database, the same task writes a `pg_dump` archive (`panel-<date>.dump`) to the same folder, using the `pg_dump` that ships in the panel image. To restore one, stop the panel and run `pg_restore --clean --if-exists --no-owner -d <your database> <file>`. The dump tool must be at least as new as your Postgres server; the image's is PostgreSQL 18, so a newer server needs a newer image. If you run the panel outside the official image, install the PostgreSQL client tools (`postgresql-client`) or the snapshot will fail (the panel warns about this at startup). Postgres is not integrity-checked at startup; that is the server's job.
 
 ## Restoring
 
