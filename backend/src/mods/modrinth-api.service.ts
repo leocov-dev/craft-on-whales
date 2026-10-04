@@ -22,6 +22,7 @@ import {
   versionFilesResponseSchema,
   projectListSchema,
 } from './modrinth-api.schemas';
+import { acceptedLoaders, preferOwnLoader } from './loader-compat';
 
 const BASE = 'https://api.modrinth.com/v2';
 const UA = 'MinecraftServerManager/0.1 (self-hosted panel; contact via repo)';
@@ -119,8 +120,9 @@ export class ModrinthApiService {
         'categories:purpur',
       ]);
     else if (kind) facets.push([`project_type:${kind}`]);
+    // One OR-group: a Quilt server also matches fabric-tagged projects.
     if (loader && kind !== 'plugin')
-      facets.push([`categories:${loader.toLowerCase()}`]);
+      facets.push(acceptedLoaders(loader).map((l) => `categories:${l}`));
     if (mcVersion) facets.push([`versions:${mcVersion}`]);
     const data = await this.mrFetch('/search', searchResponseSchema, {
       search: {
@@ -141,6 +143,7 @@ export class ModrinthApiService {
       downloads: h.downloads,
       categories: h.categories,
       latestVersion: h.latest_version,
+      gameVersions: h.versions ?? [],
     }));
   }
 
@@ -152,19 +155,24 @@ export class ModrinthApiService {
     );
   }
 
-  /** Version list filtered to the server's loader + MC version. */
+  /**
+   * Version list filtered to the server's loader + MC version. A loader with
+   * fallbacks (Quilt, which also runs Fabric builds) lists those too, but
+   * builds tagged with the server's own loader come first.
+   */
   async getVersions(
     idOrSlug: string,
     { loader, mcVersion }: { loader?: string; mcVersion?: string } = {},
   ): Promise<ModrinthVersion[]> {
     const search: Record<string, string> = {};
-    if (loader) search.loaders = JSON.stringify([loader.toLowerCase()]);
+    if (loader) search.loaders = JSON.stringify(acceptedLoaders(loader));
     if (mcVersion) search.game_versions = JSON.stringify([mcVersion]);
-    return this.mrFetch(
+    const versions = await this.mrFetch(
       `/project/${encodeURIComponent(idOrSlug)}/version`,
       versionListSchema,
       { search, ttlMs: 10 * 60 * 1000 },
     );
+    return preferOwnLoader(versions, loader, (v) => v.loaders);
   }
 
   getVersion(versionId: string): Promise<ModrinthVersion> {

@@ -15,6 +15,8 @@ export const searchHitSchema = z.object({
   downloads: z.number(),
   categories: z.array(z.string()),
   latest_version: z.string(),
+  // Every MC version the project has a build for.
+  versions: z.array(z.string()).optional(),
 });
 
 export const searchResponseSchema = z.object({

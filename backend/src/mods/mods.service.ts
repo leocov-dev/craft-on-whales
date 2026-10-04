@@ -96,6 +96,8 @@ interface InstallTarget {
 interface ResolvedDownload {
   downloadUrl: string;
   meta: DownloadMeta;
+  /** Set when the MC-version override picked a build not listed for the server's version. */
+  versionOverridden?: boolean;
 }
 
 @Injectable()
@@ -530,10 +532,13 @@ export class ModsService {
       kind,
       onProgress,
       importId = null,
+      ignoreVersion = false,
     }: {
       actor?: string;
       kind?: ContentKind;
       onProgress?: (...args: unknown[]) => void;
+      /** Accept the newest build for the loader when none lists this MC version (see resolveForServer). */
+      ignoreVersion?: boolean;
       /** Keep the row attached to its zip / .mrpack import (an update of an imported jar). */
       importId?: string | null;
     } = {},
@@ -542,7 +547,8 @@ export class ModsService {
     if (!server) throw new NotFoundException('Server not found');
     this.assertAcceptsManualContent(server);
     const targetKind: ContentKind = kind || this.jarKindFor(server);
-    const { downloadUrl, meta } = await this.resolveForServer(server, input);
+    const { downloadUrl, meta, versionOverridden } =
+      await this.resolveForServer(server, input, { ignoreVersion });
     meta.category = targetKind;
 
     const lib = await this.library.downloadToLibrary(downloadUrl, meta, {
@@ -556,11 +562,15 @@ export class ModsService {
       serverId,
       actor,
       type: 'mod-installed',
-      summary: `Custom ${targetKind} installed: ${lib.name}${lib.version ? ` ${lib.version}` : ''} (overlay)`,
-      details: { libraryId: lib.id, filename },
+      summary:
+        `Custom ${targetKind} installed: ${lib.name}${lib.version ? ` ${lib.version}` : ''} (overlay)` +
+        (versionOverridden
+          ? ` - not listed for ${server.mc_version}, installed anyway (version check overridden)`
+          : ''),
+      details: { libraryId: lib.id, filename, versionOverridden },
     });
     this.scanInBackground();
-    return { library: lib, filename };
+    return { library: lib, filename, versionOverridden };
   }
 
   /**
@@ -585,7 +595,13 @@ export class ModsService {
       actor = 'system',
       kind,
       replaceContentId,
-    }: { actor?: string; kind?: ContentKind; replaceContentId?: string } = {},
+      ignoreVersion = false,
+    }: {
+      actor?: string;
+      kind?: ContentKind;
+      replaceContentId?: string;
+      ignoreVersion?: boolean;
+    } = {},
   ): Promise<{ library: LibraryFileRow; filename: string; verified: boolean }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
@@ -595,7 +611,9 @@ export class ModsService {
 
     let meta: DownloadMeta;
     try {
-      ({ meta } = await this.resolveForServer(server, input));
+      ({ meta } = await this.resolveForServer(server, input, {
+        ignoreVersion,
+      }));
     } catch (err) {
       if (!(err instanceof BlockedDownloadException)) throw err;
       meta = err.meta;
@@ -714,6 +732,7 @@ export class ModsService {
   private async resolveForServer(
     server: Server,
     input: string,
+    { ignoreVersion = false }: { ignoreVersion?: boolean } = {},
   ): Promise<ResolvedDownload> {
     const source = this.classifyModSource(input);
     if (source.kind === 'invalid') {
@@ -729,13 +748,34 @@ export class ModsService {
         `${source.kind === 'hangar' ? 'Hangar' : 'SpigotMC'} only hosts Paper/Spigot plugins, and this ${server.type} server doesn't load plugins`,
       );
     }
-    return this.resolveSource(source, {
+    const target: InstallTarget = {
       mcVersion:
         server.mc_version === 'LATEST' || server.mc_version === 'SNAPSHOT'
           ? undefined
           : server.mc_version,
       loader: this.loaderOf(server) || undefined,
-    });
+    };
+    if (!ignoreVersion || !target.mcVersion)
+      return this.resolveSource(source, target);
+    // MC-version override (upstream parity 0.10.0): the exact version stays
+    // the first choice, and only when no build lists it is the newest build
+    // for the loader taken instead. The loader is never relaxed.
+    try {
+      return await this.resolveSource(source, target);
+    } catch (err) {
+      if (!(err instanceof NotFoundException)) throw err;
+      try {
+        const resolved = await this.resolveSource(source, {
+          ...target,
+          mcVersion: undefined,
+        });
+        return { ...resolved, versionOverridden: true };
+      } catch (retryErr) {
+        // Still no build: the original "no build matches ..." is the useful
+        // one. Anything else (a blocked download, a registry error) is real.
+        throw retryErr instanceof NotFoundException ? err : retryErr;
+      }
+    }
   }
 
   private scanInBackground(): void {
