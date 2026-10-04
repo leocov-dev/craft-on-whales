@@ -26,6 +26,10 @@ A complete, self-hosted control panel for [itzg/docker-minecraft-server](https:/
 - **[Updates](updates.md)** — track new server, pack, and mod versions.
 - **[Activity log](activity.md)** — an audit trail of everything that happened.
 
+## Guides
+
+- **[Guides](guides/README.md)** — task walkthroughs: backups that restore, choosing a loader, moving a server, server memory, and a server that won't start.
+
 ## Accounts & security
 
 - **[Users & roles](users-and-roles.md)** — admin, operator, and viewer, and what each can do.
