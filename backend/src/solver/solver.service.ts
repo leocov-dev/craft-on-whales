@@ -4,18 +4,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ModrinthApiService } from '../mods/modrinth-api.service';
+import {
+  CurseforgeApiService,
+  CLASS_PLUGINS,
+} from '../mods/curseforge-api.service';
 import { JavaMatrixService } from '../servers/java-matrix.service';
-import type { ModrinthVersion } from '../mods/mods.types';
+import type { CurseforgeFile, ModrinthVersion } from '../mods/mods.types';
 import type {
   LoaderDef,
   PairMeta,
   SolveBest,
+  SolveRef,
   SolvePartial,
   SolvePerProject,
   SolveResult,
 } from './solver.types';
 
 const MAX_PROJECTS = 25;
+const PLUGIN_LOADER = 'paper';
+const PLATFORM_LABEL = { modrinth: 'Modrinth', curseforge: 'CurseForge' };
 
 // Panel loader buckets, in preference order (used as the tiebreaker after
 // "newest MC version wins"). Each bucket lists the Modrinth loader tags that
@@ -39,6 +46,9 @@ const LOADER_RANK = new Map(LOADERS.map((l, i) => [l.id, i]));
 type LoaderMap = Map<string, Set<string>>;
 
 interface SolveProject {
+  platform: SolveRef['platform'];
+  /** `platform:slug` */
+  key: string;
   ref: string;
   slug: string;
   title: string;
@@ -46,8 +56,8 @@ interface SolveProject {
   loaderMap: LoaderMap;
 }
 
-/** Compatibility Solver — "pick mods first". Given a list of Modrinth project
- *  slugs/ids, fetch every project's version list (cached client, sequential
+/** Compatibility Solver — "pick mods first". Given a list of Modrinth and/or
+ *  CurseForge projects, fetch every project's version list (cached client, sequential
  *  — never hammers the API), build a loader → supported-MC-versions map per
  *  project, and find the newest (loader, MC version) pair that EVERY project
  *  supports. When no pair covers all projects, return the best partial pair
@@ -59,6 +69,7 @@ export class SolverService {
 
   constructor(
     private readonly modrinth: ModrinthApiService,
+    private readonly curseforge: CurseforgeApiService,
     private readonly javaMatrix: JavaMatrixService,
   ) {}
 
@@ -91,6 +102,40 @@ export class SolverService {
     return map;
   }
 
+  /**
+   * loader id → Set of release-style MC versions, from a CurseForge project's
+   * file history. CurseForge mixes MC versions and loader names ("Fabric",
+   * "NeoForge") in one `gameVersions` list. Bukkit Plugins files carry no
+   * loader tag at all, so a plugin project counts as Paper.
+   */
+  buildCurseforgeLoaderMap(
+    files: CurseforgeFile[],
+    classId: number,
+  ): LoaderMap {
+    const map: LoaderMap = new Map(
+      LOADERS.map((l) => [l.id, new Set<string>()]),
+    );
+    const isPlugin = classId === CLASS_PLUGINS;
+    for (const f of files) {
+      if (f.releaseType === 'alpha') continue; // same policy as Modrinth
+      const mcVersions: string[] = [];
+      const tags: string[] = [];
+      for (const gv of f.gameVersions) {
+        if (/^\d+\.\d+(\.\d+)?$/.test(gv) && this.javaMatrix.parseVersion(gv))
+          mcVersions.push(gv);
+        else tags.push(gv.toLowerCase());
+      }
+      const buckets = LOADERS.filter((l) =>
+        isPlugin
+          ? l.id === PLUGIN_LOADER
+          : l.id !== PLUGIN_LOADER && l.tags.some((t) => tags.includes(t)),
+      );
+      for (const b of buckets)
+        for (const gv of mcVersions) map.get(b.id)?.add(gv);
+    }
+    return map;
+  }
+
   pairMeta(loaderId: string, mcVersion: string): PairMeta {
     const loader = LOADERS.find((l) => l.id === loaderId);
     if (!loader) throw new Error(`Unknown loader id: ${loaderId}`);
@@ -110,42 +155,73 @@ export class SolverService {
     );
   }
 
-  /**
-   * Solve compatibility for a set of Modrinth projects.
-   * @param projectRefs slugs or project ids (1..25)
-   */
-  async solve(projectRefs: string[]): Promise<SolveResult> {
-    const refs = [
-      ...new Set(
-        (projectRefs || []).map((r) => String(r).trim()).filter(Boolean),
-      ),
-    ];
-    if (!refs.length)
-      throw new BadRequestException('Pick at least one mod to solve for');
-    if (refs.length > MAX_PROJECTS)
-      throw new BadRequestException(`At most ${MAX_PROJECTS} mods per solve`);
-
-    // Sequential fetches through the cached Modrinth client (2 calls/project max).
-    const projects: SolveProject[] = [];
-    for (const ref of refs) {
-      let meta;
-      let versions;
-      try {
-        meta = await this.modrinth.getProject(ref);
-        versions = await this.modrinth.getVersions(ref); // ALL versions, unfiltered
-      } catch (err: unknown) {
-        if ((err as { status?: number }).status === 404)
-          throw new NotFoundException(`"${ref}" was not found on Modrinth`);
-        throw err;
+  /** Fetch one project's metadata + version history and map loader -> MC versions. */
+  private async loadProject({
+    platform,
+    ref,
+  }: SolveRef): Promise<SolveProject> {
+    try {
+      if (platform === 'curseforge') {
+        const mod = await this.curseforge.resolveUrl(ref);
+        const files = await this.curseforge.getAllFiles(mod.modId);
+        return {
+          platform,
+          key: `${platform}:${mod.slug}`,
+          ref,
+          slug: mod.slug,
+          title: mod.name,
+          iconUrl: mod.iconUrl,
+          loaderMap: this.buildCurseforgeLoaderMap(files, mod.classId),
+        };
       }
-      projects.push({
+      const meta = await this.modrinth.getProject(ref);
+      const versions = await this.modrinth.getVersions(ref); // ALL versions, unfiltered
+      return {
+        platform,
+        key: `${platform}:${meta.slug}`,
         ref,
         slug: meta.slug,
         title: meta.title,
         iconUrl: meta.icon_url || null,
         loaderMap: this.buildLoaderMap(versions),
-      });
+      };
+    } catch (err: unknown) {
+      if (
+        err instanceof NotFoundException ||
+        (err as { status?: number }).status === 404
+      )
+        throw new NotFoundException(
+          `"${ref}" was not found on ${PLATFORM_LABEL[platform]}`,
+        );
+      throw err;
     }
+  }
+
+  /**
+   * Solve compatibility for a set of projects.
+   * @param projectRefs 1..25 projects; a bare string means a Modrinth slug/id
+   */
+  async solve(projectRefs: (string | SolveRef)[]): Promise<SolveResult> {
+    const seen = new Set<string>();
+    const refs: SolveRef[] = [];
+    for (const r of projectRefs || []) {
+      const entry: SolveRef =
+        typeof r === 'string' ? { platform: 'modrinth', ref: r } : r;
+      const ref = String(entry.ref).trim();
+      if (!ref) continue;
+      const key = `${entry.platform}:${ref}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      refs.push({ platform: entry.platform, ref });
+    }
+    if (!refs.length)
+      throw new BadRequestException('Pick at least one mod to solve for');
+    if (refs.length > MAX_PROJECTS)
+      throw new BadRequestException(`At most ${MAX_PROJECTS} mods per solve`);
+
+    // Sequential fetches through the cached clients — never hammers the APIs.
+    const projects: SolveProject[] = [];
+    for (const ref of refs) projects.push(await this.loadProject(ref));
 
     // Full-coverage candidates: for each loader, intersect every project's
     // supported MC versions on that loader.
@@ -193,7 +269,7 @@ export class SolverService {
         }
       }
       if (bestPartial) {
-        const coveredSet = new Set(bestPartial.covered.map((p) => p.slug));
+        const coveredSet = new Set(bestPartial.covered.map((p) => p.key));
         partial = {
           loader: bestPartial.loader,
           loaderLabel: bestPartial.loaderLabel,
@@ -201,10 +277,12 @@ export class SolverService {
           mcVersion: bestPartial.mcVersion,
           coveredCount: bestPartial.covered.length,
           total: projects.length,
-          coveredSlugs: [...coveredSet],
+          coveredKeys: [...coveredSet],
           dropped: projects
-            .filter((p) => !coveredSet.has(p.slug))
+
+            .filter((p) => !coveredSet.has(p.key))
             .map((p) => ({
+              platform: p.platform,
               ref: p.ref,
               slug: p.slug,
               title: p.title,
@@ -224,6 +302,8 @@ export class SolverService {
     // best pair (or the partial pair when nothing covers everything).
     const judged: PairMeta | null = best || partial;
     const perProject: SolvePerProject[] = projects.map((p) => ({
+      platform: p.platform,
+      key: p.key,
       ref: p.ref,
       slug: p.slug,
       title: p.title,

@@ -48,7 +48,7 @@ const BASE = 'https://api.curseforge.com/v1';
 const GAME_MINECRAFT = 432;
 const CLASS_MODS = 6;
 const CLASS_MODPACKS = 4471;
-const CLASS_PLUGINS = 5;
+export const CLASS_PLUGINS = 5;
 
 /** The curseforge.com page for a project, or for one of its files. */
 export function curseforgePageUrl(
@@ -66,6 +66,7 @@ export function curseforgePageUrl(
 }
 // Fingerprints / mod ids per bulk POST, to keep a big pack's bodies bounded.
 const BULK_CHUNK = 200;
+const FILE_PAGE_SIZE = 50;
 
 interface CfFetchOptions {
   search?: Record<string, string | number>;
@@ -219,6 +220,32 @@ export class CurseforgeApiService {
       { search: params, ttlMs: 10 * 60 * 1000 },
     );
     return data.data.map((f) => this.normalizeFile(f));
+  }
+
+  /**
+   * A project's full file history, paginated (50/page, capped at `maxPages`).
+   * `getFiles` only returns one page; the compatibility solver needs every
+   * build to map loader -> supported MC versions.
+   */
+  async getAllFiles(
+    modId: number,
+    { maxPages = 10 }: { maxPages?: number } = {},
+  ): Promise<CurseforgeFile[]> {
+    const files: CurseforgeFile[] = [];
+    for (let page = 0; page < maxPages; page++) {
+      const data = await this.cfFetch(
+        `/mods/${modId}/files`,
+        fileListResponseSchema,
+        {
+          search: { pageSize: FILE_PAGE_SIZE, index: page * FILE_PAGE_SIZE },
+          ttlMs: 30 * 60 * 1000,
+        },
+      );
+      files.push(...data.data.map((f) => this.normalizeFile(f)));
+      const total = data.pagination?.totalCount ?? 0;
+      if (!data.data.length || (page + 1) * FILE_PAGE_SIZE >= total) break;
+    }
+    return files;
   }
 
   async getFile(modId: number, fileId: number): Promise<CurseforgeFile> {
