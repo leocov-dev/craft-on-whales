@@ -238,10 +238,10 @@ export class CurseforgeApiService {
     const lists = await Promise.all(
       (ids.length ? ids : [undefined]).map(fetchOne),
     );
-    const seen = new Set<number>();
-    return lists
-      .flat()
-      .filter((f) => !seen.has(f.fileId) && Boolean(seen.add(f.fileId)));
+    const byId = new Map<number, CurseforgeFile>();
+    for (const f of lists.flat())
+      if (!byId.has(f.fileId)) byId.set(f.fileId, f);
+    return [...byId.values()];
   }
 
   /**

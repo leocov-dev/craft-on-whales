@@ -40,13 +40,18 @@ const installSchema = z.object({
   kind: z.enum(['mod', 'plugin', 'datapack', 'resourcepack']).optional(),
 });
 
-// Add-by-link only: the user may accept a build not listed for the server's MC version.
+// The user may accept a build not listed for the server's MC version.
 const addByLinkSchema = installSchema.extend({
   ignoreVersion: z.boolean().optional(),
 });
 
-// A blocked update's completion also names the row it replaces.
+// A blocked update's completion also names the row it replaces. Multipart, so
+// ignoreVersion arrives as a string; the upload re-resolves with the same override.
 const manualSchema = installSchema.extend({
+  ignoreVersion: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
   replaceContentId: z.string().trim().min(1).max(40).optional(),
 });
 
@@ -390,7 +395,7 @@ export class ModsController {
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     try {
-      const { url, kind, replaceContentId } = parseBody(
+      const { url, kind, replaceContentId, ignoreVersion } = parseBody(
         manualSchema,
         body ?? {},
       );
@@ -399,7 +404,12 @@ export class ModsController {
         file.path,
         file.originalname,
         url,
-        { actor: currentUser(req).username, kind, replaceContentId },
+        {
+          actor: currentUser(req).username,
+          kind,
+          replaceContentId,
+          ignoreVersion,
+        },
       );
       return {
         ok: true,

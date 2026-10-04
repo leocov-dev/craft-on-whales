@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { BlockedDownloadException } from './blocked-download.exception';
 import { ModsService } from './mods.service';
 import { ModrinthApiService } from './modrinth-api.service';
 import type { ApiCacheService } from './api-cache.service';
@@ -168,5 +169,46 @@ describe('ModsService MC-version override', () => {
     const result = await install();
     expect(downloads[0]!.fileId).toBe('quilt-1.21.2');
     expect(result.versionOverridden).toBeFalsy();
+  });
+
+  type Resolver = {
+    resolveSource: (source: unknown, target: unknown) => Promise<unknown>;
+    resolveForServer: (...args: unknown[]) => Promise<unknown>;
+  };
+
+  it('with the override, a blocked no-MC-filter build surfaces as blocked, not as "no build"', async () => {
+    const blocked = new BlockedDownloadException(
+      {
+        source: 'curseforge',
+        reason: 'distribution-disabled',
+        name: 'Sodium',
+        version: 'x',
+        filename: 'x.jar',
+        pageUrl: 'https://example.com',
+        externalUrl: null,
+        verifiable: false,
+      },
+      {},
+    );
+    jest
+      .spyOn(mods as unknown as Resolver, 'resolveSource')
+      .mockRejectedValueOnce(new NotFoundException('no exact build'))
+      .mockRejectedValueOnce(blocked);
+    await expect(install(true)).rejects.toBe(blocked);
+  });
+
+  it('a manual upload re-resolves with the override', async () => {
+    const sentinel = new Error('stop after resolve');
+    const spy = jest
+      .spyOn(mods as unknown as Resolver, 'resolveForServer')
+      .mockRejectedValue(sentinel);
+    await expect(
+      mods.installManualUpload('srv1', '/x', 'a.jar', 'sodium', {
+        ignoreVersion: true,
+      }),
+    ).rejects.toBe(sentinel);
+    expect(spy).toHaveBeenCalledWith(server, 'sodium', {
+      ignoreVersion: true,
+    });
   });
 });

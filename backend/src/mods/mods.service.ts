@@ -537,11 +537,7 @@ export class ModsService {
       actor?: string;
       kind?: ContentKind;
       onProgress?: (...args: unknown[]) => void;
-      /**
-       * The caller accepted the risk of a build not listed for this server's
-       * MC version: if none is, take the newest one for the loader instead
-       * (see resolveForServer).
-       */
+      /** Accept the newest build for the loader when none lists this MC version (see resolveForServer). */
       ignoreVersion?: boolean;
       /** Keep the row attached to its zip / .mrpack import (an update of an imported jar). */
       importId?: string | null;
@@ -599,7 +595,13 @@ export class ModsService {
       actor = 'system',
       kind,
       replaceContentId,
-    }: { actor?: string; kind?: ContentKind; replaceContentId?: string } = {},
+      ignoreVersion = false,
+    }: {
+      actor?: string;
+      kind?: ContentKind;
+      replaceContentId?: string;
+      ignoreVersion?: boolean;
+    } = {},
   ): Promise<{ library: LibraryFileRow; filename: string; verified: boolean }> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
@@ -609,7 +611,9 @@ export class ModsService {
 
     let meta: DownloadMeta;
     try {
-      ({ meta } = await this.resolveForServer(server, input));
+      ({ meta } = await this.resolveForServer(server, input, {
+        ignoreVersion,
+      }));
     } catch (err) {
       if (!(err instanceof BlockedDownloadException)) throw err;
       meta = err.meta;
@@ -760,13 +764,17 @@ export class ModsService {
       return await this.resolveSource(source, target);
     } catch (err) {
       if (!(err instanceof NotFoundException)) throw err;
-      const resolved = await this.resolveSource(source, {
-        ...target,
-        mcVersion: undefined,
-      }).catch(() => {
-        throw err; // the original "no build matches ..." is the useful one
-      });
-      return { ...resolved, versionOverridden: true };
+      try {
+        const resolved = await this.resolveSource(source, {
+          ...target,
+          mcVersion: undefined,
+        });
+        return { ...resolved, versionOverridden: true };
+      } catch (retryErr) {
+        // Still no build: the original "no build matches ..." is the useful
+        // one. Anything else (a blocked download, a registry error) is real.
+        throw retryErr instanceof NotFoundException ? err : retryErr;
+      }
     }
   }
 
