@@ -17,12 +17,14 @@ import { ModBrowserService } from './mod-browser.service';
 import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { ModsService } from './mods.service';
+import { DatapacksService } from './datapacks.service';
 import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
 import { ContentImportService } from './content-import.service';
 import { PackOverridesService } from './pack-overrides.service';
 import { ServerFromZipService } from './server-from-zip.service';
 import { ModsController } from './mods.controller';
 import { ModBrowserController } from './mod-browser.controller';
+import { DatapacksController } from './datapacks.controller';
 
 // forwardRef: ModsModule sits on the ServersModule -> SchedulerModule ->
 // UpdatesModule -> ModsModule -> ServersModule cycle created once
@@ -34,7 +36,7 @@ import { ModBrowserController } from './mod-browser.controller';
     LibraryModule,
     ApiKeysModule,
   ],
-  controllers: [ModsController, ModBrowserController],
+  controllers: [ModsController, ModBrowserController, DatapacksController],
   providers: [
     ApiCacheService,
     ModrinthApiService,
@@ -49,6 +51,7 @@ import { ModBrowserController } from './mod-browser.controller';
     ModBrowserService,
     ModManifestService,
     PendingModDownloadsService,
+    DatapacksService,
     ModsService,
     ModBrowserOrchestratorService,
     PackOverridesService,

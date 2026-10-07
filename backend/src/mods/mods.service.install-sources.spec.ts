@@ -287,6 +287,7 @@ describe('ModsService — Hangar / Spiget / GitHub sources', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never, // datapacks
     );
   });
 

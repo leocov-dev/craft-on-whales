@@ -181,6 +181,7 @@ describe('ContentImportService', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never, // datapacks
     );
 
     knownModrinth = new Map();
