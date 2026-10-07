@@ -18,6 +18,8 @@ import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { ModsService } from './mods.service';
 import { DatapacksService } from './datapacks.service';
+import { DatapackIconService } from './datapack-icon.service';
+import { DatapackAdoptionService } from './datapack-adoption.service';
 import { ModBrowserOrchestratorService } from './mod-browser-orchestrator.service';
 import { ContentImportService } from './content-import.service';
 import { PackOverridesService } from './pack-overrides.service';
@@ -51,7 +53,9 @@ import { DatapacksController } from './datapacks.controller';
     ModBrowserService,
     ModManifestService,
     PendingModDownloadsService,
+    DatapackIconService,
     DatapacksService,
+    DatapackAdoptionService,
     ModsService,
     ModBrowserOrchestratorService,
     PackOverridesService,

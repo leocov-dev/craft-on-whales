@@ -451,11 +451,19 @@ export class LibraryService {
    * `localPath` is read directly with no path-guard validation — it must come
    * from a trusted/internal source (e.g. a multer-generated temp file path),
    * never a raw user-supplied path.
+   *
+   * `hardlink` stores the library copy as a hard link to `localPath` instead
+   * of writing a second copy (datapack adoption: the file is already in a
+   * server dir and must not be stored twice); it falls back to a copy when
+   * linking is unsupported.
    */
   async importFile(
     localPath: string,
     meta: DownloadMeta,
-    { actor = 'system' }: { actor?: string } = {},
+    {
+      actor = 'system',
+      hardlink = false,
+    }: { actor?: string; hardlink?: boolean } = {},
   ): Promise<LibraryFileRow> {
     const category = meta.category || 'mod';
     const buf = await fsp.readFile(localPath);
@@ -480,7 +488,13 @@ export class LibraryService {
     await fsp.mkdir(path.dirname(this.pathGuard.dataPath(relPath)), {
       recursive: true,
     });
-    await fsp.writeFile(this.pathGuard.dataPath(relPath), buf);
+    const dest = this.pathGuard.dataPath(relPath);
+    if (hardlink) {
+      await fsp.rm(dest, { force: true });
+      await fsp.link(localPath, dest).catch(() => fsp.writeFile(dest, buf));
+    } else {
+      await fsp.writeFile(dest, buf);
+    }
     const id = `lib_${nanoid(8)}`;
     await this.db
       .insert(libraryFiles)

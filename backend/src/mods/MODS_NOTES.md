@@ -815,3 +815,48 @@ dedicated datapacks route is the supported one until orphan adoption (phase 2).
 
 Possible follow-up: cache `pack.mcmeta` metadata per pack (mtime + size key) so listing doesn't
 reopen every zip; not needed yet.
+
+### Adoption and repair (phase 2)
+
+`POST /api/servers/:id/datapacks/adopt` (`content` permission) runs `DatapackAdoptionService`. It
+adopts every **orphan** (a zip, or a directory holding `pack.mcmeta`, in `datapacks/` or
+`datapacks.disabled/`, with no `kind: 'datapack'` row) and repairs incomplete overlay rows. It returns
+`{ adopted, repaired, skipped, failed, details }` and records one `datapacks-adopted` event. The list
+stays read-only: nothing adopts silently.
+
+- **The file is never moved or rewritten.** An orphan becomes a `managedBy: 'overlay'` row whose
+  `enabled` follows the dir it sits in (a legacy `x.zip.disabled` is a disabled `x.zip`). From then
+  on it toggles, removes and (when library-linked) reapplies through the phase 1 paths. A pack in
+  both dirs is adopted once, from the enabled copy; the other is reported `skipped`. Symlinks are
+  never scanned, and a zip is re-checked as a regular file before it is read.
+- **No quota charge.** Adoption adds no bytes to the server dir.
+- **`libraryId`: linked only for registry matches, by hard link.** Update checks and provenance live
+  on the `library_files` row (`projectId`), so a Modrinth/CurseForge match needs one to behave like an
+  add-by-link install. `LibraryService.importFile(..., { hardlink: true })` stores the library copy as
+  a hard link to the pack in the server dir (copy only if linking fails), so the bytes are not
+  duplicated; library dedupe is by sha256 as usual. Unmatched zips and directory packs get
+  `libraryId: null`: there is no provenance to carry, and a directory cannot be linked. Such rows are
+  skipped by `reapplyOverlay` (as any row without a library link is): the pack stays where it is.
+  A failed library link does not fail adoption.
+- **Identification reuses `JarIdentifierService.identifyMany`**, not a fork. Its Modrinth sha1 and
+  CurseForge fingerprint layers are file-agnostic; only a registry match (`platform` set) is used.
+  Its manifest layer (`fabric.mod.json` etc.) is ignored for datapacks. Zips go in batches of 8 (one
+  request per registry per batch) and are read whole, so a zip over 64 MB is adopted by file name
+  only. Registry errors and a missing CurseForge key are already swallowed by the identifier, and a
+  disk read failure only skips that batch: adoption always completes.
+- **`pack.mcmeta` is the fallback, but has no name or version.** Without a registry match the row
+  name is the prettified file name (what the list already showed) and `version` stays null.
+  `description` / `packFormat` are not copied into the DB: the list reads them live from disk.
+- **Icons.** A registry match stores its `iconUrl` on the row (as `addLibraryContent` does). Otherwise
+  `pack.png` is read (zip entry or directory file; a symlinked `pack.png` is ignored), must be a PNG
+  (signature, `IHDR`, at most 1024x1024) and at most 512 KB, and is written through
+  `PathGuardService` to `library/icons/mods/lib_dp_<rowId>.png`, with the path in
+  `server_content.icon_rel_path`. That name matches `GET /api/icons/library/:file`, so no new route,
+  and cannot equal a library icon (`lib_` + 8 chars). `removeDatapack` deletes only icons of that
+  shape.
+- **Repair is fill-only and idempotent.** A row is a repair candidate when it lacks a version, an
+  icon (own, URL or library), or still has the file-name fallback as its name. Only the missing
+  fields are written; a set name, version or icon is never overwritten. Complete rows cause no
+  network calls and no writes, so a second run reports nothing. A candidate nothing can improve is
+  reported `skipped` and is looked up again on the next run (no negative cache; the action is
+  explicit). Pack-managed rows are left alone.

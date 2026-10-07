@@ -11,6 +11,7 @@ import {
 import type { ConfigService } from '../config/config.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { buildZipFixture } from '../utils/zip-fixture.test-helpers';
+import { DatapackIconService } from './datapack-icon.service';
 import { DatapacksService, parsePackMeta } from './datapacks.service';
 
 const SERVER = 'srv1';
@@ -134,6 +135,7 @@ describe('DatapacksService', () => {
         usageCount: () => Promise.resolve(0),
       } as never,
       { recordEvent: () => undefined } as never,
+      new DatapackIconService(pathGuard),
     );
   });
 

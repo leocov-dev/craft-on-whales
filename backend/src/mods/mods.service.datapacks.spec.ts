@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ConfigService } from '../config/config.service';
 import { PathGuardService } from '../storage/path-guard.service';
+import { DatapackIconService } from './datapack-icon.service';
 import { DatapacksService } from './datapacks.service';
 import { ModsService } from './mods.service';
 
@@ -68,6 +69,7 @@ describe('ModsService datapack handling', () => {
       query as never,
       {} as never,
       {} as never,
+      new DatapackIconService(pathGuard),
     );
     const select = () => ({
       from: () => ({
