@@ -779,6 +779,7 @@ describe('update checks for Hangar / SpigotMC / GitHub content', () => {
         {} as never,
         {} as never,
         {} as never,
+        {} as never, // datapacks
       );
     });
 
@@ -1125,6 +1126,7 @@ describe('installManualUpload replacing an installed build (blocked update)', ()
       {} as never,
       {} as never,
       {} as never,
+      {} as never, // datapacks
     );
     setEnabled = jest
       .spyOn(mods, 'setEnabled')

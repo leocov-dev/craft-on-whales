@@ -41,6 +41,7 @@ import {
 } from './github-releases-api.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
+import { DatapacksService } from './datapacks.service';
 import { ModManifestService } from './mod-manifest.service';
 import { PendingModDownloadsService } from './pending-mod-downloads.service';
 import { serverContent, updateChecks } from '../db/schema';
@@ -120,6 +121,7 @@ export class ModsService {
     private readonly lifecycle: ServerLifecycleService,
     private readonly manifest: ModManifestService,
     private readonly pendingDownloadsSvc: PendingModDownloadsService,
+    private readonly datapacks: DatapacksService,
   ) {}
 
   private get db() {
@@ -138,9 +140,12 @@ export class ModsService {
     return name;
   }
 
-  /** Overlay content dir for a given server type + content kind (e.g. `mods`, `plugins`). Public: also used by BlueprintsModule's overlay installer. */
-  contentDir(server: Pick<Server, 'type'>, kind: ContentKind): string {
-    if (kind === 'datapack') return 'world/datapacks';
+  /** Overlay content dir for a given server + content kind (e.g. `mods`, `plugins`, the active world's `datapacks`). Public: also used by BlueprintsModule's overlay installer. */
+  contentDir(
+    server: Pick<Server, 'id' | 'type' | 'env'>,
+    kind: ContentKind,
+  ): string {
+    if (kind === 'datapack') return this.datapacks.activeDirRel(server);
     if (kind === 'resourcepack') return 'resourcepacks';
     return PLUGIN_TYPES.has(server.type) ? 'plugins' : 'mods';
   }
@@ -1083,6 +1088,8 @@ export class ModsService {
         ),
       )
       .limit(1);
+    if (row?.kind === 'datapack')
+      return this.datapacks.setEnabled(serverId, file, enabled, { actor });
     const managedBy = row
       ? row.managedBy
       : this.isPackServer(server)
@@ -1180,6 +1187,8 @@ export class ModsService {
       throw new ConflictException(
         'Pack-managed content is excluded, not deleted — use Disable',
       );
+    if (row?.kind === 'datapack')
+      return this.datapacks.removeDatapack(serverId, file, { actor });
     const dirRel = this.contentDir(
       server,
       (row ? row.kind : 'mod') as ContentKind,
@@ -1224,12 +1233,13 @@ export class ModsService {
       );
     const rows = allRows.filter((r) => r.libraryId != null);
     let restored = 0;
-    const serverType = (await this.query.mustGet(serverId)).type;
+    const server = await this.query.mustGet(serverId);
     for (const row of rows) {
-      const dirRel = this.contentDir(
-        { type: serverType },
-        row.kind as ContentKind,
-      );
+      if (row.kind === 'datapack') {
+        if (await this.reapplyDatapack(server, row)) restored += 1;
+        continue;
+      }
+      const dirRel = this.contentDir(server, row.kind as ContentKind);
       const target = this.pathGuard.dataPath(
         'servers',
         serverId,
@@ -1257,6 +1267,31 @@ export class ModsService {
       });
     }
     return { restored };
+  }
+
+  /** Put one overlay datapack back in the dir its `enabled` flag says (no `.disabled` rename: see MODS_NOTES.md, "Datapacks"). */
+  private async reapplyDatapack(
+    server: Server,
+    row: typeof serverContent.$inferSelect,
+  ): Promise<boolean> {
+    const dirs = [
+      this.datapacks.activeDirRel(server),
+      this.datapacks.disabledDirRel(server),
+    ];
+    for (const dir of dirs)
+      if (
+        fs.existsSync(
+          this.pathGuard.dataPath('servers', server.id, dir, row.filename),
+        )
+      )
+        return false;
+    await this.library.installToServer(
+      row.libraryId!,
+      server.id,
+      row.enabled ? dirs[0]! : dirs[1]!,
+      { filename: row.filename },
+    );
+    return true;
   }
 
   private prettifyJarName(file: string): string {

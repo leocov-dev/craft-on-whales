@@ -122,6 +122,7 @@ describe('ModsService MC-version override', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never, // datapacks
     );
   });
   afterEach(() => fetchMock.mockRestore());

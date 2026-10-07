@@ -17,6 +17,12 @@ export interface ContentItem {
   updateAvailable?: string | null;
   /** The zip / .mrpack import that installed this row (see ContentImportSummary), if any. */
   importId?: string | null;
+  /** Datapacks only: `pack.mcmeta` `pack.description` as plain text, when readable. */
+  description?: string | null;
+  /** Datapacks only: `pack.mcmeta` `pack.pack_format`, when readable. */
+  packFormat?: number | null;
+  /** Datapacks only: an unpacked directory rather than a .zip. */
+  isDirectory?: boolean;
 }
 
 /** What kind of archive a Mods-tab import was. */
