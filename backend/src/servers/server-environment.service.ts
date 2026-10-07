@@ -17,6 +17,7 @@ import {
   MAP_SERVICE_CONTRACT,
   type MapServiceContract,
 } from './map-service.contract';
+import { isPackwizServer } from './packwiz';
 import type { Server } from './types';
 
 interface ResolveImageOptions {
@@ -112,7 +113,7 @@ export class ServerEnvironmentService {
     // same tradeoff the image itself makes.
     const usesCurseforge =
       server.type === 'AUTO_CURSEFORGE' ||
-      server.type === 'PACKWIZ' ||
+      isPackwizServer(server) ||
       env.CF_SLUG ||
       env.CF_FILE_ID ||
       env.CF_PAGE_URL ||
