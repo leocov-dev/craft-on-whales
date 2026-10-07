@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { SQLiteDialect } from 'drizzle-orm/sqlite-core';
+import type { SQL } from 'drizzle-orm';
 import {
   BadRequestException,
   ConflictException,
@@ -12,9 +14,38 @@ import { buildZipFixture } from '../utils/zip-fixture.test-helpers';
 import { DatapacksService, parsePackMeta } from './datapacks.service';
 
 const SERVER = 'srv1';
+const dialect = new SQLiteDialect();
+
+/**
+ * Evaluate a drizzle `and(eq(..), inArray(..))` condition against a row, so
+ * the fake DB only touches rows the real query would. Renders the condition to
+ * SQL and reads the `"col" = ?` / `"col" in (?, ?)` clauses back out.
+ */
+function matches(row: Row, where: SQL): boolean {
+  const { sql, params } = dialect.sqlToQuery(where);
+  const snake: Record<string, keyof Row> = {
+    server_id: 'serverId',
+    kind: 'kind',
+    filename: 'filename',
+  };
+  let next = 0;
+  const clauses = [
+    ...sql.matchAll(/"(\w+)"\s*(=|in)\s*(\?|\((?:\?,?\s*)+\))/g),
+  ];
+  if (clauses.length === 0) throw new Error(`unparsed where: ${sql}`);
+  return clauses.every(([, col, op, rhs]) => {
+    const key = snake[col!];
+    if (!key) throw new Error(`unknown column ${col} in: ${sql}`);
+    const n = op === '=' ? 1 : (rhs!.match(/\?/g) ?? []).length;
+    const values = params.slice(next, next + n);
+    next += n;
+    return values.includes(row[key]);
+  });
+}
 
 interface Row {
   id: string;
+  serverId: string;
   filename: string;
   kind: string;
   managedBy: string;
@@ -25,12 +56,25 @@ interface Row {
   enabled: boolean;
 }
 
+const row = (over: Partial<Row>): Row => ({
+  id: 'sc_1',
+  serverId: SERVER,
+  filename: 'a.zip',
+  kind: 'datapack',
+  managedBy: 'overlay',
+  name: 'A',
+  version: null,
+  iconUrl: null,
+  libraryId: null,
+  enabled: true,
+  ...over,
+});
+
 describe('DatapacksService', () => {
   let root: string;
   let props: Map<string, string>;
   let env: Record<string, string>;
   let rows: Row[];
-  let updates: unknown[];
   let svc: DatapacksService;
 
   const serverDir = () => path.join(root, 'servers', SERVER);
@@ -53,22 +97,26 @@ describe('DatapacksService', () => {
     props = new Map();
     env = {};
     rows = [];
-    updates = [];
     const pathGuard = new PathGuardService({ dataDir: root } as ConfigService);
     const db = {
-      select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) }),
+      select: () => ({
+        from: () => ({
+          where: (w: SQL) => Promise.resolve(rows.filter((r) => matches(r, w))),
+        }),
+      }),
       update: () => ({
-        set: (v: unknown) => ({
-          where: () => {
-            updates.push(v);
+        set: (v: Partial<Row>) => ({
+          where: (w: SQL) => {
+            for (const r of rows) if (matches(r, w)) Object.assign(r, v);
             return Promise.resolve();
           },
         }),
       }),
       delete: () => ({
-        where: () => ({
+        where: (w: SQL) => ({
           returning: () => {
-            const gone = rows.splice(0, rows.length);
+            const gone = rows.filter((r) => matches(r, w));
+            rows = rows.filter((r) => !gone.includes(r));
             return Promise.resolve(gone.map((r) => ({ id: r.id })));
           },
         }),
@@ -221,17 +269,7 @@ describe('DatapacksService', () => {
     });
 
     it('surfaces rows whose pack is gone as missing', async () => {
-      rows.push({
-        id: 'sc_1',
-        filename: 'gone.zip',
-        kind: 'datapack',
-        managedBy: 'overlay',
-        name: 'Gone',
-        version: null,
-        iconUrl: null,
-        libraryId: null,
-        enabled: true,
-      });
+      rows.push(row({ filename: 'gone.zip', name: 'Gone', enabled: true }));
       const [item] = await svc.listDatapacks(SERVER);
       expect(item).toMatchObject({ file: 'gone.zip', missing: true });
     });
@@ -240,12 +278,21 @@ describe('DatapacksService', () => {
   describe('setEnabled', () => {
     it('moves a pack out to datapacks.disabled and back, creating the dir', async () => {
       put('world/datapacks/a.zip');
+      const other = row({ id: 'o1', filename: 'b.zip' });
+      const otherServer = row({ id: 'o2', serverId: 'srv2' });
+      const otherKind = row({ id: 'o3', kind: 'mod' });
+      rows.push(row({ enabled: true }), other, otherServer, otherKind);
       await expect(svc.setEnabled(SERVER, 'a.zip', false)).resolves.toEqual({
         applied: 'on-restart',
       });
       expect(exists('world/datapacks/a.zip')).toBe(false);
       expect(exists('world/datapacks.disabled/a.zip')).toBe(true);
-      expect(updates).toEqual([{ enabled: false }]);
+      expect(rows.map((r) => [r.id, r.enabled])).toEqual([
+        ['sc_1', false],
+        ['o1', true],
+        ['o2', true],
+        ['o3', true],
+      ]);
       await svc.setEnabled(SERVER, 'a.zip', true);
       expect(exists('world/datapacks/a.zip')).toBe(true);
       expect(exists('world/datapacks.disabled/a.zip')).toBe(false);
@@ -279,6 +326,33 @@ describe('DatapacksService', () => {
       expect(exists('world/datapacks/a.zip')).toBe(true);
     });
 
+    it('409s on a directory too, and keeps both', async () => {
+      put('world/datapacks/d/pack.mcmeta', 'one');
+      put('world/datapacks.disabled/d/pack.mcmeta', 'two');
+      await expect(svc.setEnabled(SERVER, 'd', false)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(exists('world/datapacks/d/pack.mcmeta')).toBe(true);
+      expect(exists('world/datapacks.disabled/d/pack.mcmeta')).toBe(true);
+    });
+
+    it('keeps the link-and-unlink move working when linking fails', async () => {
+      put('world/datapacks/a.zip', 'x');
+      const link = jest
+        .spyOn(fs.promises, 'link')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('xdev'), { code: 'EXDEV' }),
+        );
+      try {
+        await svc.setEnabled(SERVER, 'a.zip', false);
+        expect(link).toHaveBeenCalled();
+        expect(exists('world/datapacks.disabled/a.zip')).toBe(true);
+        expect(exists('world/datapacks/a.zip')).toBe(false);
+      } finally {
+        link.mockRestore();
+      }
+    });
+
     it('re-enables a legacy .disabled zip in place', async () => {
       put('world/datapacks/old.zip.disabled');
       await svc.setEnabled(SERVER, 'old.zip', true);
@@ -303,24 +377,52 @@ describe('DatapacksService', () => {
     });
   });
 
+  describe('clearDisabledCopy', () => {
+    it('removes disabled and legacy copies but leaves the enabled one', async () => {
+      put('world/datapacks/a.zip', 'new');
+      put('world/datapacks.disabled/a.zip');
+      put('world/datapacks/a.zip.disabled');
+      await svc.clearDisabledCopy({ id: SERVER, env } as never, 'a.zip');
+      expect(exists('world/datapacks/a.zip')).toBe(true);
+      expect(exists('world/datapacks.disabled/a.zip')).toBe(false);
+      expect(exists('world/datapacks/a.zip.disabled')).toBe(false);
+    });
+  });
+
   describe('removeDatapack', () => {
     it('removes a file from either dir and drops its row', async () => {
       put('world/datapacks.disabled/a.zip', '12345');
-      rows.push({
-        id: 'sc_1',
-        filename: 'a.zip',
-        kind: 'datapack',
-        managedBy: 'overlay',
-        name: 'A',
-        version: null,
-        iconUrl: null,
-        libraryId: null,
-        enabled: false,
-      });
+      rows.push(row({ filename: 'a.zip', name: 'A', enabled: false }));
       await expect(svc.removeDatapack(SERVER, 'a.zip')).resolves.toEqual({
         freedBytes: 5,
       });
       expect(exists('world/datapacks.disabled/a.zip')).toBe(false);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('only drops the matching row, not other files, servers or kinds', async () => {
+      put('world/datapacks/a.zip');
+      rows.push(
+        row({ id: 'keep1', filename: 'b.zip' }),
+        row({ id: 'keep2', serverId: 'srv2' }),
+        row({ id: 'keep3', kind: 'mod' }),
+        row({ id: 'gone' }),
+      );
+      await svc.removeDatapack(SERVER, 'a.zip');
+      expect(rows.map((r) => r.id)).toEqual(['keep1', 'keep2', 'keep3']);
+    });
+
+    it('removes every copy of a pack present in both dirs', async () => {
+      put('world/datapacks/a.zip', '123');
+      put('world/datapacks.disabled/a.zip', '45');
+      put('world/datapacks/a.zip.disabled', '6');
+      rows.push(row({}));
+      await expect(svc.removeDatapack(SERVER, 'a.zip')).resolves.toEqual({
+        freedBytes: 6,
+      });
+      expect(exists('world/datapacks/a.zip')).toBe(false);
+      expect(exists('world/datapacks.disabled/a.zip')).toBe(false);
+      expect(exists('world/datapacks/a.zip.disabled')).toBe(false);
       expect(rows).toHaveLength(0);
     });
 

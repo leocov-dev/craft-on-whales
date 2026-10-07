@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import { PathGuardService } from '../storage/path-guard.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ServerPropertiesService } from '../servers/server-properties.service';
+import { resolveActiveLevel } from '../servers/active-level';
 import type { Server } from '../servers/types';
 import { DIM_SUFFIXES } from './world-archive.service';
 import {
@@ -29,10 +30,8 @@ export class WorldPropsService {
 
   /** Active level name: LEVEL env wins, then server.properties, then 'world'. */
   activeLevelName(server: Server): string {
-    return (
-      (server.env && server.env.LEVEL) ||
-      this.readProps(server.id).get('level-name') ||
-      'world'
+    return resolveActiveLevel(server.env, (key) =>
+      this.readProps(server.id).get(key),
     );
   }
 

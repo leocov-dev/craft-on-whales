@@ -184,6 +184,10 @@ export class ModsService {
       server.id,
       this.contentDir(server, kind),
     );
+    // A fresh install is enabled: drop a disabled copy of the same pack so it
+    // cannot linger beside it (and reset `enabled` below).
+    if (kind === 'datapack')
+      await this.datapacks.clearDisabledCopy(server, filename);
     const id = `sc_${nanoid(8)}`;
     await this.db
       .insert(serverContent)
@@ -201,7 +205,12 @@ export class ModsService {
       })
       .onConflictDoUpdate({
         target: [serverContent.serverId, serverContent.filename],
-        set: { libraryId: lib.id, version: lib.version, importId },
+        set: {
+          libraryId: lib.id,
+          version: lib.version,
+          importId,
+          ...(kind === 'datapack' ? { enabled: true } : {}),
+        },
       });
     return { id, filename };
   }
@@ -1236,7 +1245,14 @@ export class ModsService {
     const server = await this.query.mustGet(serverId);
     for (const row of rows) {
       if (row.kind === 'datapack') {
-        if (await this.reapplyDatapack(server, row)) restored += 1;
+        // A bad level name (400) or a failed install must not stop the other rows.
+        try {
+          if (await this.reapplyDatapack(server, row)) restored += 1;
+        } catch (err) {
+          this.logger.warn(
+            `Skipping datapack ${row.filename} on ${serverId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         continue;
       }
       const dirRel = this.contentDir(server, row.kind as ContentKind);
@@ -1278,11 +1294,15 @@ export class ModsService {
       this.datapacks.activeDirRel(server),
       this.datapacks.disabledDirRel(server),
     ];
-    for (const dir of dirs)
+    // `x.zip.disabled` in the active dir is the legacy disabled form: still present.
+    const present = [
+      [dirs[0]!, row.filename],
+      [dirs[0]!, `${row.filename}.disabled`],
+      [dirs[1]!, row.filename],
+    ] as const;
+    for (const [dir, name] of present)
       if (
-        fs.existsSync(
-          this.pathGuard.dataPath('servers', server.id, dir, row.filename),
-        )
+        fs.existsSync(this.pathGuard.dataPath('servers', server.id, dir, name))
       )
         return false;
     await this.library.installToServer(

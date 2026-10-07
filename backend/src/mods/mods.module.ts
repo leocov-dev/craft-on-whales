@@ -59,7 +59,6 @@ import { DatapacksController } from './datapacks.controller';
     ServerFromZipService,
   ],
   exports: [
-    DatapacksService,
     ApiCacheService,
     ModrinthApiService,
     CurseforgeApiService,

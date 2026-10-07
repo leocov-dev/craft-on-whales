@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { serverContent } from '../db/schema';
 import { EventsService } from '../events/events.service';
 import { LibraryService } from '../library/library.service';
+import { resolveActiveLevel } from '../servers/active-level';
 import { ServerPropertiesService } from '../servers/server-properties.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import type { Server } from '../servers/types';
@@ -24,6 +25,16 @@ const MAX_MCMETA_BYTES = 1024 * 1024;
 /** Directory datapacks are summed for size; a tree this large stops counting. */
 const MAX_SIZE_WALK_ENTRIES = 50_000;
 const LEGACY_SUFFIX = '.disabled';
+
+/** `readdir` that treats a missing dir as empty; any other error (EACCES, ENOTDIR...) surfaces. */
+async function readdirIfExists(dir: string) {
+  try {
+    return await fsp.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+}
 
 interface PackMeta {
   description: string | null;
@@ -111,10 +122,9 @@ export class DatapacksService {
 
   /** Active level name: LEVEL env, then server.properties `level-name`, then `world`. */
   activeLevelName(server: Pick<Server, 'id' | 'env'>): string {
-    const level =
-      server.env?.LEVEL ||
-      this.properties.get(server.id, 'level-name') ||
-      'world';
+    const level = resolveActiveLevel(server.env, (key) =>
+      this.properties.get(server.id, key),
+    );
     return this.assertBareName(level, 'level name');
   }
 
@@ -139,9 +149,7 @@ export class DatapacksService {
     const stack = [dir];
     while (stack.length && seen < MAX_SIZE_WALK_ENTRIES) {
       const cur = stack.pop()!;
-      const entries = await fsp
-        .readdir(cur, { withFileTypes: true })
-        .catch(() => []);
+      const entries = await readdirIfExists(cur);
       for (const e of entries) {
         seen += 1;
         const full = path.join(cur, e.name);
@@ -182,9 +190,7 @@ export class DatapacksService {
 
   /** Datapacks in one dir. Zips, and directories that hold a pack.mcmeta; symlinks are skipped. */
   private async scan(dirAbs: string, enabled: boolean): Promise<DiskPack[]> {
-    const entries = await fsp
-      .readdir(dirAbs, { withFileTypes: true })
-      .catch(() => []);
+    const entries = await readdirIfExists(dirAbs);
     const out: DiskPack[] = [];
     for (const entry of entries) {
       const abs = path.join(dirAbs, entry.name);
@@ -243,14 +249,24 @@ export class DatapacksService {
         )
     ).map((r) => ({ ...r, base: r.filename.replace(/\.disabled$/, '') }));
     const byFile = new Map(rows.map((r) => [r.base, r]));
+    const libs = await Promise.all(
+      packs.map(async (pack) => {
+        const libraryId = byFile.get(pack.file)?.libraryId;
+        const lib = libraryId
+          ? await this.library.getLibraryFile(libraryId)
+          : undefined;
+        return {
+          lib,
+          sharedWith: lib ? await this.library.usageCount(lib.id) : null,
+        };
+      }),
+    );
     const seen = new Set<string>();
     const items: ContentItem[] = [];
-    for (const pack of packs) {
+    packs.forEach((pack, i) => {
       seen.add(pack.file);
       const row = byFile.get(pack.file);
-      const lib = row?.libraryId
-        ? await this.library.getLibraryFile(row.libraryId)
-        : undefined;
+      const { lib, sharedWith } = libs[i]!;
       items.push({
         id: row ? row.id : null,
         name: row ? row.name : this.prettify(pack.file),
@@ -260,7 +276,7 @@ export class DatapacksService {
         version: row ? row.version : null,
         size: pack.size,
         enabled: pack.enabled,
-        sharedWith: lib ? await this.library.usageCount(lib.id) : null,
+        sharedWith,
         iconUrl:
           (lib && lib.iconRelPath
             ? `/api/icons/library/${path.basename(lib.iconRelPath)}`
@@ -269,7 +285,7 @@ export class DatapacksService {
         packFormat: pack.meta.packFormat,
         isDirectory: pack.isDirectory,
       });
-    }
+    });
     // Rows whose pack vanished from disk (deleted by hand, or the active world changed).
     for (const row of rows) {
       if (seen.has(row.base)) continue;
@@ -299,11 +315,11 @@ export class DatapacksService {
     );
   }
 
-  /** The pack's current on-disk spot, or null. Entries that are neither a file nor a directory (symlinks) don't count. */
-  private async locate(
+  /** Every on-disk spot the pack occupies (it can be in both dirs). Entries that are neither a file nor a directory (symlinks) don't count. */
+  private async locateAll(
     server: Server,
     file: string,
-  ): Promise<{ abs: string; enabled: boolean; legacy: boolean } | null> {
+  ): Promise<{ abs: string; enabled: boolean; legacy: boolean }[]> {
     const candidates = [
       {
         dir: this.activeDirRel(server),
@@ -324,15 +340,61 @@ export class DatapacksService {
         legacy: false,
       },
     ];
+    const found: { abs: string; enabled: boolean; legacy: boolean }[] = [];
     for (const c of candidates) {
       // A legacy suffix only ever applied to zip files; a `.disabled` directory is its own pack.
       if (c.legacy && !file.endsWith('.zip')) continue;
       const abs = this.abs(server.id, c.dir, c.name);
       const st = await fsp.lstat(abs).catch(() => null);
       if (st && (st.isFile() || st.isDirectory()))
-        return { abs, enabled: c.enabled, legacy: c.legacy };
+        found.push({ abs, enabled: c.enabled, legacy: c.legacy });
     }
-    return null;
+    return found;
+  }
+
+  /** Row filter for a pack: its name, or the legacy `.disabled` form a row may carry. */
+  private rowFilter(serverId: string, file: string) {
+    return and(
+      eq(serverContent.serverId, serverId),
+      eq(serverContent.kind, 'datapack'),
+      inArray(serverContent.filename, [file, `${file}${LEGACY_SUFFIX}`]),
+    );
+  }
+
+  /**
+   * Move without ever replacing the destination. Returns false when something
+   * already sits there. Files use a hard link, whose EEXIST is atomic, then drop
+   * the source; if linking is unsupported (EXDEV, EPERM...) it falls back to
+   * check-then-rename. Directories cannot be hard-linked, so they only get the
+   * check-then-rename (a residual race, see MODS_NOTES.md, "Datapacks").
+   */
+  private async moveNoClobber(src: string, dest: string): Promise<boolean> {
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    if ((await fsp.lstat(src)).isFile()) {
+      try {
+        await fsp.link(src, dest);
+        await fsp.unlink(src);
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+        // Not linkable here: fall through to the check + rename below.
+      }
+    }
+    if (await fsp.lstat(dest).catch(() => null)) return false;
+    await fsp.rename(src, dest);
+    return true;
+  }
+
+  /**
+   * Drop a disabled copy of a pack that an install is about to replace: the one
+   * in `datapacks.disabled/` and a legacy `x.zip.disabled`. The enabled copy is
+   * the installer's to overwrite.
+   */
+  async clearDisabledCopy(server: Server, file: string): Promise<void> {
+    this.assertBareName(file, 'datapack filename');
+    for (const found of await this.locateAll(server, file))
+      if (!found.enabled)
+        await fsp.rm(found.abs, { recursive: true, force: true });
   }
 
   /**
@@ -350,7 +412,7 @@ export class DatapacksService {
     this.assertBareName(file, 'datapack filename');
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const found = await this.locate(server, file);
+    const [found] = await this.locateAll(server, file);
     if (!found) throw new NotFoundException('Datapack not found');
 
     // A legacy `.zip.disabled` is already inert but still sits in datapacks/: disabling it migrates it.
@@ -359,23 +421,15 @@ export class DatapacksService {
         ? this.activeDirRel(server)
         : this.disabledDirRel(server);
       const dest = this.abs(serverId, destDirRel, file);
-      if (await fsp.lstat(dest).catch(() => null))
+      if (!(await this.moveNoClobber(found.abs, dest)))
         throw new ConflictException(
           `A datapack named ${file} already exists in the ${enabled ? 'enabled' : 'disabled'} list`,
         );
-      await fsp.mkdir(path.dirname(dest), { recursive: true });
-      await fsp.rename(found.abs, dest);
     }
     await this.db
       .update(serverContent)
       .set({ enabled })
-      .where(
-        and(
-          eq(serverContent.serverId, serverId),
-          eq(serverContent.kind, 'datapack'),
-          eq(serverContent.filename, file),
-        ),
-      );
+      .where(this.rowFilter(serverId, file));
     this.events.recordEvent({
       serverId,
       actor,
@@ -385,7 +439,7 @@ export class DatapacksService {
     return { applied: 'on-restart' };
   }
 
-  /** Delete a datapack (file or directory tree) and its row, from whichever dir holds it. */
+  /** Delete a datapack (file or directory tree) and its row, from every dir that holds a copy. */
   async removeDatapack(
     serverId: string,
     file: string,
@@ -394,25 +448,19 @@ export class DatapacksService {
     this.assertBareName(file, 'datapack filename');
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const found = await this.locate(server, file);
+    const found = await this.locateAll(server, file);
     let freed = 0;
-    if (found) {
-      const st = await fsp.lstat(found.abs);
-      freed = st.isDirectory() ? await this.dirSize(found.abs) : st.size;
+    for (const spot of found) {
+      const st = await fsp.lstat(spot.abs);
+      freed += st.isDirectory() ? await this.dirSize(spot.abs) : st.size;
       // rm unlinks symlinks inside a tree instead of following them.
-      await fsp.rm(found.abs, { recursive: true, force: true });
+      await fsp.rm(spot.abs, { recursive: true, force: true });
     }
     const removed = await this.db
       .delete(serverContent)
-      .where(
-        and(
-          eq(serverContent.serverId, serverId),
-          eq(serverContent.kind, 'datapack'),
-          eq(serverContent.filename, file),
-        ),
-      )
+      .where(this.rowFilter(serverId, file))
       .returning({ id: serverContent.id });
-    if (!found && removed.length === 0)
+    if (found.length === 0 && removed.length === 0)
       throw new NotFoundException('Datapack not found');
     this.events.recordEvent({
       serverId,

@@ -759,7 +759,8 @@ datapacks dir, and `reapplyOverlay` restores datapack rows into the right dir.
 
 A datapack belongs to one world. The panel manages `<level>/datapacks` for the **active** level
 only: `LEVEL` env, then `server.properties` `level-name`, then `world` (the same order as
-`WorldPropsService.activeLevelName`). Packs in other worlds are not listed, toggled or removed.
+`WorldPropsService.activeLevelName`, which now share `resolveActiveLevel` in
+`servers/active-level.ts`). Packs in other worlds are not listed, toggled or removed.
 Switching the active world therefore makes the old world's rows show as `missing`; nothing moves
 packs between worlds.
 
@@ -770,10 +771,11 @@ segment, 400 otherwise) before any path is built, and every path still goes thro
 ### Why not `WorldPropsService`
 
 `WorldsModule` imports `MapModule`, which sits in the `ServersModule` cycle. Pulling
-`WorldPropsService` into `ModsModule` would add another module edge to that cycle. The level lookup
-is three lines on top of `ServerPropertiesService.get()` (already exported by `ServersModule`, which
-`ModsModule` imports), so `DatapacksService` does it directly. If the precedence in
-`WorldPropsService.activeLevelName` changes, change it here too.
+`WorldPropsService` into `ModsModule` would add another module edge to that cycle. So
+`DatapacksService` reads the level through `ServerPropertiesService.get()` (already exported by
+`ServersModule`, which `ModsModule` imports) and applies the shared pure helper
+`resolveActiveLevel(env, getProp)` from `servers/active-level.ts`, which `WorldPropsService` uses
+too. The precedence lives only there.
 
 ### Disabling moves, it does not rename
 
@@ -781,7 +783,10 @@ Disabled packs live in `<level>/datapacks.disabled/`, a **sibling** of `datapack
 appended `.disabled` to the name, which only works for zips: a directory datapack renamed
 `x.disabled` still has its `pack.mcmeta` and Minecraft still loads it. Moving out of `datapacks/`
 works for both. The disabled dir is created on demand. A same-named pack already at the destination
-is a 409; nothing is ever overwritten. Toggling reports `applied: 'on-restart'` (a running server
+is a 409; nothing is ever overwritten. For files the move is `link` (atomic `EEXIST`, mapped to the 409) then `unlink` of the source, falling back to lstat-check + `rename` when linking is unsupported
+(`EXDEV`, `EPERM`). Directories cannot be hard-linked, so they only get the lstat check before
+`rename`: a pack dropped at the destination between the check and the rename can be replaced (an
+empty dir on Linux). Residual race, accepted: it needs a concurrent writer inside the server dir. Toggling reports `applied: 'on-restart'` (a running server
 picks it up on `/reload` or restart); no RCON is sent.
 
 ### Legacy `.zip.disabled`
@@ -800,3 +805,13 @@ a `pack.mcmeta`. `description` / `packFormat` come from `pack.mcmeta` (zip entry
 `pickZipEntries`, directory file read with a 1 MB cap); bad metadata is just absent. Symlinks are
 skipped in listings, never counted in a directory's size, and `fs.rm` unlinks (not follows) any
 inside a tree being removed.
+
+A pack can sit in both dirs at once (hand-copied); remove deletes every copy, and a fresh install
+(`addLibraryContent`) clears a disabled copy and resets the row to `enabled`. Rows and moves match
+`file` or `file.disabled`, the legacy form.
+
+`POST mods/toggle` on an orphan datapack (no DB row) falls into the mod `.disabled` path; the
+dedicated datapacks route is the supported one until orphan adoption (phase 2).
+
+Possible follow-up: cache `pack.mcmeta` metadata per pack (mtime + size key) so listing doesn't
+reopen every zip; not needed yet.
