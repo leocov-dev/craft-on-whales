@@ -25,6 +25,29 @@ export interface ContentItem {
   isDirectory?: boolean;
 }
 
+export type DatapackAdoptionOutcome = 'adopted' | 'repaired' | 'skipped' | 'failed';
+
+/** One datapack `POST /api/servers/:id/datapacks/adopt` acted on (or could not). */
+export interface DatapackAdoptionDetail {
+  file: string;
+  outcome: DatapackAdoptionOutcome;
+  /** Where the identity came from: a registry hash match, or `pack.mcmeta` / the file name only. */
+  source?: 'modrinth' | 'curseforge' | 'metadata';
+  /** Row fields this run filled in (`name`, `version`, `icon`, `library`). */
+  fields?: string[];
+  /** Why a pack was skipped or failed. */
+  reason?: string;
+}
+
+/** `POST /api/servers/:id/datapacks/adopt` response (minus `ok`). */
+export interface DatapackAdoptionReport {
+  adopted: number;
+  repaired: number;
+  skipped: number;
+  failed: number;
+  details: DatapackAdoptionDetail[];
+}
+
 /** What kind of archive a Mods-tab import was. */
 export type ContentImportFormat = 'mrpack' | 'jars';
 

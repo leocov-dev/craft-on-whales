@@ -11,6 +11,7 @@ import { DbService } from '../db/db.service';
 import { serverContent } from '../db/schema';
 import { EventsService } from '../events/events.service';
 import { LibraryService } from '../library/library.service';
+import { DatapackIconService } from './datapack-icon.service';
 import { resolveActiveLevel } from '../servers/active-level';
 import { ServerPropertiesService } from '../servers/server-properties.service';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -36,15 +37,17 @@ async function readdirIfExists(dir: string) {
   }
 }
 
-interface PackMeta {
+export interface PackMeta {
   description: string | null;
   packFormat: number | null;
 }
 
 /** One datapack found on disk, before it is joined with its DB row. */
-interface DiskPack {
+export interface DiskPack {
   /** Name as stored on disk. */
   diskName: string;
+  /** Absolute path of the entry as stored on disk. */
+  abs: string;
   /** Name without the legacy `.disabled` file suffix: what the API and DB call it. */
   file: string;
   enabled: boolean;
@@ -102,6 +105,7 @@ export class DatapacksService {
     private readonly query: ServerQueryService,
     private readonly library: LibraryService,
     private readonly events: EventsService,
+    private readonly icons: DatapackIconService,
   ) {}
 
   private get db() {
@@ -200,6 +204,7 @@ export class DatapacksService {
         if (!(await this.hasMcmeta(abs))) continue;
         out.push({
           diskName: entry.name,
+          abs,
           file: entry.name,
           enabled,
           isDirectory: true,
@@ -215,6 +220,7 @@ export class DatapacksService {
         if (!file.endsWith('.zip')) continue;
         out.push({
           diskName: entry.name,
+          abs,
           file,
           enabled: enabled && !legacy,
           isDirectory: false,
@@ -226,17 +232,35 @@ export class DatapacksService {
     return out;
   }
 
+  /** Datapacks on disk in the active world, enabled dir first. Symlinks never appear. */
+  async diskPacks(server: Server): Promise<DiskPack[]> {
+    return [
+      ...(await this.scan(
+        this.abs(server.id, this.activeDirRel(server)),
+        true,
+      )),
+      ...(await this.scan(
+        this.abs(server.id, this.disabledDirRel(server)),
+        false,
+      )),
+    ];
+  }
+
+  /** Display name for a pack that has no DB row (or whose row has no better name). */
+  prettify(file: string): string {
+    return (
+      file
+        .replace(/\.zip$/, '')
+        .replace(/[-_]+/g, ' ')
+        .trim() || file
+    );
+  }
+
   /** Installed datapacks of the active world: enabled and disabled, joined with their DB rows. */
   async listDatapacks(serverId: string): Promise<ContentItem[]> {
     const server = await this.query.getServer(serverId);
     if (!server) throw new NotFoundException('Server not found');
-    const packs = [
-      ...(await this.scan(this.abs(serverId, this.activeDirRel(server)), true)),
-      ...(await this.scan(
-        this.abs(serverId, this.disabledDirRel(server)),
-        false,
-      )),
-    ];
+    const packs = await this.diskPacks(server);
     const rows = (
       await this.db
         .select()
@@ -280,7 +304,7 @@ export class DatapacksService {
         iconUrl:
           (lib && lib.iconRelPath
             ? `/api/icons/library/${path.basename(lib.iconRelPath)}`
-            : (lib && lib.iconUrl) || (row && row.iconUrl)) || null,
+            : (lib && lib.iconUrl) || this.rowIcon(row)) || null,
         description: pack.meta.description,
         packFormat: pack.meta.packFormat,
         isDirectory: pack.isDirectory,
@@ -300,19 +324,20 @@ export class DatapacksService {
         enabled: false,
         missing: true,
         sharedWith: null,
-        iconUrl: row.iconUrl,
+        iconUrl: this.rowIcon(row),
       });
     }
     return items.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private prettify(file: string): string {
-    return (
-      file
-        .replace(/\.zip$/, '')
-        .replace(/[-_]+/g, ' ')
-        .trim() || file
-    );
+  /** A row's own icon: the extracted `pack.png`, else its registry icon URL. */
+  private rowIcon(
+    row: { iconRelPath: string | null; iconUrl: string | null } | undefined,
+  ): string | null {
+    if (!row) return null;
+    return row.iconRelPath
+      ? `/api/icons/library/${path.basename(row.iconRelPath)}`
+      : row.iconUrl;
   }
 
   /** Every on-disk spot the pack occupies (it can be in both dirs). Entries that are neither a file nor a directory (symlinks) don't count. */
@@ -452,14 +477,20 @@ export class DatapacksService {
     let freed = 0;
     for (const spot of found) {
       const st = await fsp.lstat(spot.abs);
-      freed += st.isDirectory() ? await this.dirSize(spot.abs) : st.size;
+      // A file with another hard link (a library-linked pack) keeps its bytes on disk: nothing is freed.
+      if (st.isDirectory()) freed += await this.dirSize(spot.abs);
+      else if (st.nlink <= 1) freed += st.size;
       // rm unlinks symlinks inside a tree instead of following them.
       await fsp.rm(spot.abs, { recursive: true, force: true });
     }
     const removed = await this.db
       .delete(serverContent)
       .where(this.rowFilter(serverId, file))
-      .returning({ id: serverContent.id });
+      .returning({
+        id: serverContent.id,
+        iconRelPath: serverContent.iconRelPath,
+      });
+    for (const r of removed) await this.icons.remove(r.iconRelPath);
     if (found.length === 0 && removed.length === 0)
       throw new NotFoundException('Datapack not found');
     this.events.recordEvent({

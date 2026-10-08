@@ -14,13 +14,17 @@ import { currentUser } from '../auth/current-user';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { parseBody } from '../utils/parse-body';
+import { DatapackAdoptionService } from './datapack-adoption.service';
 import { DatapacksService } from './datapacks.service';
 
 /** Datapacks of a server's active world. Install goes through the shared `POST mods` add-by-link with `kind: 'datapack'`. */
 @Controller('api/servers/:id')
 @UseGuards(ServerPermissionGuard)
 export class DatapacksController {
-  constructor(private readonly datapacks: DatapacksService) {}
+  constructor(
+    private readonly datapacks: DatapacksService,
+    private readonly adoption: DatapackAdoptionService,
+  ) {}
 
   @RequireServerPermission('view')
   @Get('datapacks')
@@ -42,6 +46,18 @@ export class DatapacksController {
     return {
       ok: true,
       ...(await this.datapacks.setEnabled(id, file, enabled, {
+        actor: currentUser(req).username,
+      })),
+    };
+  }
+
+  /** Adopt datapacks found on disk without a row, and fill missing name/version/icon on existing rows. */
+  @RequireServerPermission('content')
+  @Post('datapacks/adopt')
+  async adopt(@Req() req: Request, @Param('id') id: string) {
+    return {
+      ok: true,
+      ...(await this.adoption.adoptAndRepair(id, {
         actor: currentUser(req).username,
       })),
     };
