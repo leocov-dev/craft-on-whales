@@ -477,7 +477,9 @@ export class DatapacksService {
     let freed = 0;
     for (const spot of found) {
       const st = await fsp.lstat(spot.abs);
-      freed += st.isDirectory() ? await this.dirSize(spot.abs) : st.size;
+      // A file with another hard link (a library-linked pack) keeps its bytes on disk: nothing is freed.
+      if (st.isDirectory()) freed += await this.dirSize(spot.abs);
+      else if (st.nlink <= 1) freed += st.size;
       // rm unlinks symlinks inside a tree instead of following them.
       await fsp.rm(spot.abs, { recursive: true, force: true });
     }

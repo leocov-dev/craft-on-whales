@@ -402,6 +402,20 @@ describe('DatapacksService', () => {
       expect(rows).toHaveLength(0);
     });
 
+    it('counts no freed bytes for a hard-linked pack (the library copy keeps them)', async () => {
+      put('world/datapacks/a.zip', '12345');
+      fs.linkSync(
+        path.join(serverDir(), 'world/datapacks/a.zip'),
+        path.join(serverDir(), 'library-copy.zip'),
+      );
+      rows.push(row({ libraryId: 'lib_1' }));
+      await expect(svc.removeDatapack(SERVER, 'a.zip')).resolves.toEqual({
+        freedBytes: 0,
+      });
+      expect(exists('world/datapacks/a.zip')).toBe(false);
+      expect(exists('library-copy.zip')).toBe(true);
+    });
+
     it('only drops the matching row, not other files, servers or kinds', async () => {
       put('world/datapacks/a.zip');
       rows.push(

@@ -8,7 +8,11 @@ import type { ConfigService } from '../config/config.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { buildZipFixture } from '../utils/zip-fixture.test-helpers';
 import { DatapackAdoptionService } from './datapack-adoption.service';
-import { DatapackIconService, MAX_ICON_BYTES } from './datapack-icon.service';
+import {
+  DatapackIconService,
+  MAX_ICON_BYTES,
+  MAX_SCANNED_ENTRIES,
+} from './datapack-icon.service';
 import { DatapacksService } from './datapacks.service';
 import type { IdentifiedJar, JarInput } from './mods.types';
 
@@ -74,6 +78,8 @@ describe('DatapackAdoptionService', () => {
   let identify: jest.Mock<Promise<IdentifiedJar[]>, [JarInput[]]>;
   let registry: Record<string, Partial<IdentifiedJar>>;
   let importFile: jest.Mock;
+  let getLibraryFiles: jest.Mock;
+  let failInsert: boolean;
   let svc: DatapackAdoptionService;
   let packs: DatapacksService;
 
@@ -107,6 +113,7 @@ describe('DatapackAdoptionService', () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'dp-adopt-'));
     fs.mkdirSync(serverDir(), { recursive: true });
     rows = [];
+    failInsert = false;
     env = {};
     registry = {};
     const pathGuard = new PathGuardService({ dataDir: root } as ConfigService);
@@ -120,6 +127,7 @@ describe('DatapackAdoptionService', () => {
         values: (v: Row) => ({
           onConflictDoNothing: () => ({
             returning: () => {
+              if (failInsert) return Promise.reject(new Error('db down'));
               if (
                 rows.some(
                   (r) => r.serverId === v.serverId && r.filename === v.filename,
@@ -181,15 +189,22 @@ describe('DatapackAdoptionService', () => {
       ),
     );
     importFile = jest.fn(() => Promise.resolve({ id: 'lib_1' }));
+    getLibraryFiles = jest.fn((ids: string[]) =>
+      Promise.resolve(
+        new Map(
+          ids
+            .filter((id) => id === 'lib_1')
+            .map((id) => [
+              id,
+              { id, projectId: 'P', iconUrl: 'https://x/i.png' },
+            ]),
+        ),
+      ),
+    );
     const library = {
       importFile,
+      getLibraryFiles,
       fillMissingProvenance: () => Promise.resolve({ id: 'lib_1' }),
-      getLibraryFile: (id: string) =>
-        Promise.resolve(
-          id === 'lib_1'
-            ? { id, projectId: 'P', iconUrl: 'https://x/i.png' }
-            : undefined,
-        ),
     };
     svc = new DatapackAdoptionService(
       { db } as never,
@@ -271,7 +286,7 @@ describe('DatapackAdoptionService', () => {
     expect(importFile).toHaveBeenCalledWith(
       path.join(serverDir(), 'world/datapacks/a.zip'),
       expect.objectContaining({ category: 'datapack' }),
-      { hardlink: true },
+      { hardlink: true, actor: 'system' },
     );
   });
 
@@ -366,6 +381,96 @@ describe('DatapackAdoptionService', () => {
     expect(identify).not.toHaveBeenCalled();
   });
 
+  it('attributes the library import to the acting user', async () => {
+    put('world/datapacks/a.zip', zip({ 'pack.mcmeta': mcmeta('a') }));
+    registry['a.zip'] = hit();
+    await svc.adoptAndRepair(SERVER, { actor: 'alice' });
+    expect(importFile).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      { hardlink: true, actor: 'alice' },
+    );
+  });
+
+  it('identifies zips in batches of at most 4', async () => {
+    for (let i = 0; i < 6; i++)
+      put(`world/datapacks/p${i}.zip`, zip({ 'pack.mcmeta': mcmeta('a') }));
+    await svc.adoptAndRepair(SERVER);
+    expect(identify.mock.calls.map(([jars]) => jars.length)).toEqual([4, 2]);
+  });
+
+  it('looks library rows up in one query, not one per row', async () => {
+    for (let i = 0; i < 3; i++) {
+      put(`world/datapacks/p${i}.zip`, zip({ 'pack.mcmeta': mcmeta('a') }));
+      rows.push(
+        row({
+          id: `sc_${i}`,
+          filename: `p${i}.zip`,
+          libraryId: 'lib_1',
+          iconUrl: null,
+        }),
+      );
+    }
+    await svc.adoptAndRepair(SERVER);
+    expect(getLibraryFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-examine a directory pack that has an icon but no version', async () => {
+    put('world/datapacks/d/pack.mcmeta', mcmeta('d'));
+    rows.push(row({ filename: 'd', version: null }));
+    const report = await svc.adoptAndRepair(SERVER);
+    expect(report.details).toEqual([]);
+  });
+
+  it('does not re-examine a zip whose library row already has provenance', async () => {
+    put('world/datapacks/a.zip', zip({ 'pack.mcmeta': mcmeta('a') }));
+    rows.push(row({ version: null, libraryId: 'lib_1', iconUrl: null }));
+    const report = await svc.adoptAndRepair(SERVER);
+    expect(report.details).toEqual([]);
+    expect(identify).not.toHaveBeenCalled();
+  });
+
+  it('reports a pack swapped for a symlink after the scan as failed, reading nothing', async () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'outside-'));
+    try {
+      fs.writeFileSync(path.join(outside, 'e.zip'), 'secret');
+      const link = path.join(serverDir(), 'world/datapacks/a.zip');
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(path.join(outside, 'e.zip'), link);
+      jest.spyOn(packs, 'diskPacks').mockResolvedValue([
+        {
+          file: 'a.zip',
+          diskName: 'a.zip',
+          abs: link,
+          isDirectory: false,
+          enabled: true,
+          size: 6,
+        },
+      ] as never);
+      registry['a.zip'] = hit();
+
+      const report = await svc.adoptAndRepair(SERVER);
+
+      expect(report).toMatchObject({ adopted: 0, failed: 1 });
+      expect(importFile).not.toHaveBeenCalled();
+      expect(rows).toEqual([]);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the extracted icon when the row insert throws', async () => {
+    put(
+      'world/datapacks/a.zip',
+      zip({ 'pack.mcmeta': mcmeta('a'), 'pack.png': png() }),
+    );
+    failInsert = true;
+    const report = await svc.adoptAndRepair(SERVER);
+    expect(report).toMatchObject({ adopted: 0, failed: 1 });
+    const dir = path.join(root, 'library/icons/mods');
+    expect(fs.existsSync(dir) ? fs.readdirSync(dir) : []).toEqual([]);
+  });
+
   describe('pack.png', () => {
     it('extracts a valid icon from a dir and from a zip', async () => {
       put('world/datapacks/d/pack.mcmeta', mcmeta('d'));
@@ -407,6 +512,24 @@ describe('DatapackAdoptionService', () => {
 
       expect(rows).toHaveLength(4);
       expect(rows.every((r) => r.iconRelPath === null)).toBe(true);
+    });
+
+    it('rejects an IHDR chunk whose length is not 13', async () => {
+      const bad = png();
+      bad.writeUInt32BE(14, 8);
+      put('world/datapacks/bad/pack.mcmeta', mcmeta('d'));
+      put('world/datapacks/bad/pack.png', bad);
+      await svc.adoptAndRepair(SERVER);
+      expect(rows[0]!.iconRelPath).toBeNull();
+    });
+
+    it('ignores pack.png in a zip with too many entries', async () => {
+      const entries: Record<string, string | Buffer> = {};
+      for (let i = 0; i < MAX_SCANNED_ENTRIES; i++) entries[`f${i}`] = '';
+      entries['pack.png'] = png(); // past the cap
+      put('world/datapacks/many.zip', zip(entries));
+      await svc.adoptAndRepair(SERVER);
+      expect(rows[0]!.iconRelPath).toBeNull();
     });
 
     it('does not follow a symlinked pack.png', async () => {

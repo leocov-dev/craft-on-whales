@@ -9,6 +9,8 @@ const PACK_PNG = 'pack.png';
 /** Real pack icons are a few KB (64x64 or 128x128); anything past this is not an icon. */
 export const MAX_ICON_BYTES = 512 * 1024;
 const MAX_ICON_DIMENSION = 1024;
+/** A pack zip with more central-directory entries than this is not scanned for pack.png. */
+export const MAX_SCANNED_ENTRIES = 10_000;
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
@@ -20,6 +22,7 @@ const OWNED_ICON_RE = /^lib_dp_sc_[\w-]+\.png$/;
 export function isValidPackIcon(buf: Buffer): boolean {
   if (buf.length < 33 || buf.length > MAX_ICON_BYTES) return false;
   if (!buf.subarray(0, 8).equals(PNG_SIGNATURE)) return false;
+  if (buf.readUInt32BE(8) !== 13) return false; // IHDR is always 13 bytes
   if (buf.toString('latin1', 12, 16) !== 'IHDR') return false;
   const width = buf.readUInt32BE(16);
   const height = buf.readUInt32BE(20);
@@ -69,7 +72,9 @@ export class DatapackIconService {
       };
       zip.on('error', () => done(null));
       zip.on('end', () => done(null));
+      let scanned = 0;
       zip.on('entry', (entry: yauzl.Entry) => {
+        if (++scanned > MAX_SCANNED_ENTRIES) return done(null);
         if (entry.fileName !== PACK_PNG) return zip.readEntry();
         // The header size is checked first; readZipEntry's cap covers a header that lies.
         if (entry.uncompressedSize > MAX_ICON_BYTES) return done(null);

@@ -5,7 +5,10 @@ import { nanoid } from 'nanoid';
 import { DbService } from '../db/db.service';
 import { serverContent } from '../db/schema';
 import { EventsService } from '../events/events.service';
-import { LibraryService } from '../library/library.service';
+import {
+  LibraryService,
+  type LibraryFileRow,
+} from '../library/library.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import type { Server } from '../servers/types';
 import type {
@@ -17,12 +20,17 @@ import { DatapacksService, type DiskPack } from './datapacks.service';
 import { JarIdentifierService } from './jar-identifier.service';
 import type { IdentifiedJar } from './mods.types';
 
-/** Zips are hashed in memory, a batch at a time: this bounds both memory and registry request size. */
-const IDENTIFY_BATCH = 8;
+/**
+ * Zips are hashed in memory, a batch at a time. Peak memory is at most
+ * IDENTIFY_BATCH x MAX_IDENTIFY_BYTES (64 MB); keep MODS_NOTES.md in step.
+ */
+const IDENTIFY_BATCH = 4;
 /** A datapack zip bigger than this is adopted by file name only (not read into memory to hash). */
-const MAX_IDENTIFY_BYTES = 64 * 1024 * 1024;
+const MAX_IDENTIFY_BYTES = 16 * 1024 * 1024;
 
 type ContentRow = typeof serverContent.$inferSelect;
+/** Library rows of this run's content rows, fetched once (one query) and read synchronously. */
+type LibraryRows = Map<string, LibraryFileRow>;
 type RegistryMatch = IdentifiedJar & { platform: 'modrinth' | 'curseforge' };
 
 function isRegistryMatch(jar: IdentifiedJar | undefined): jar is RegistryMatch {
@@ -80,6 +88,9 @@ export class DatapackAdoptionService {
           eq(serverContent.kind, 'datapack'),
         ),
       );
+    const libs = await this.library.getLibraryFiles([
+      ...new Set(rows.flatMap((r) => (r.libraryId ? [r.libraryId] : []))),
+    ]);
     const byFile = new Map(
       rows.map((r) => [r.filename.replace(/\.disabled$/, ''), r]),
     );
@@ -113,16 +124,16 @@ export class DatapackAdoptionService {
       if (!row) targets.push({ pack, row });
       else if (row.managedBy !== 'overlay')
         continue; // pack-managed rows belong to the pack installer
-      else if (await this.needsRepair(row)) targets.push({ pack, row });
+      else if (this.needsRepair(row, pack, libs)) targets.push({ pack, row });
     }
 
-    await this.identifyZips(targets);
+    await this.identifyZips(targets, libs);
     for (const target of targets) {
       try {
         note(
           target.row
-            ? await this.repair(target.row, target)
-            : await this.adopt(server, target),
+            ? await this.repair(target.row, target, libs, actor)
+            : await this.adopt(server, target, actor),
         );
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -143,10 +154,23 @@ export class DatapackAdoptionService {
     return report;
   }
 
-  /** Missing a version, a real name, or any icon (own, registry URL or library). */
-  private async needsRepair(row: ContentRow): Promise<boolean> {
-    if (!row.version || this.hasDefaultName(row)) return true;
-    return !(await this.hasIcon(row));
+  /**
+   * Missing an icon (own, registry URL or library), or, for a zip with no
+   * registry provenance yet, a version or a real name (the only fields a
+   * registry match can fill). A directory pack can only ever gain an icon.
+   */
+  private needsRepair(
+    row: ContentRow,
+    pack: DiskPack,
+    libs: LibraryRows,
+  ): boolean {
+    if (!this.hasIcon(row, libs)) return true;
+    if (pack.isDirectory || this.hasProvenance(row, libs)) return false;
+    return !row.version || this.hasDefaultName(row);
+  }
+
+  private hasProvenance(row: ContentRow, libs: LibraryRows): boolean {
+    return !!row.libraryId && !!libs.get(row.libraryId)?.projectId;
   }
 
   /** A name still equal to the file-name fallback was never set by anyone. */
@@ -155,22 +179,21 @@ export class DatapackAdoptionService {
     return !row.name.trim() || row.name === this.datapacks.prettify(file);
   }
 
-  private async hasIcon(row: ContentRow): Promise<boolean> {
+  private hasIcon(row: ContentRow, libs: LibraryRows): boolean {
     if (row.iconRelPath || row.iconUrl) return true;
-    if (!row.libraryId) return false;
-    const lib = await this.library.getLibraryFile(row.libraryId);
+    const lib = row.libraryId ? libs.get(row.libraryId) : undefined;
     return !!(lib?.iconRelPath || lib?.iconUrl);
   }
 
   /** Registry lookup for the zip targets that have no library provenance yet, in bounded batches. Fails soft. */
-  private async identifyZips(targets: Target[]): Promise<void> {
+  private async identifyZips(
+    targets: Target[],
+    libs: LibraryRows,
+  ): Promise<void> {
     const zips: Target[] = [];
     for (const t of targets) {
       if (t.pack.isDirectory || t.pack.size > MAX_IDENTIFY_BYTES) continue;
-      if (t.row?.libraryId) {
-        const lib = await this.library.getLibraryFile(t.row.libraryId);
-        if (lib?.projectId) continue; // already has provenance
-      }
+      if (t.row && this.hasProvenance(t.row, libs)) continue;
       zips.push(t);
     }
     for (let i = 0; i < zips.length; i += IDENTIFY_BATCH) {
@@ -193,6 +216,12 @@ export class DatapackAdoptionService {
     }
   }
 
+  /** A zip pack must still be a regular file right before it is read or linked (not swapped for a symlink since the scan). */
+  private async assertRegularZip(pack: DiskPack): Promise<void> {
+    if (!pack.isDirectory && !(await fsp.lstat(pack.abs)).isFile())
+      throw new Error('Not a regular file');
+  }
+
   /** Read a regular file only; a symlink swapped in after the scan is refused. */
   private async readPlainFile(abs: string): Promise<Buffer> {
     if (!(await fsp.lstat(abs)).isFile()) throw new Error('Not a regular file');
@@ -200,7 +229,11 @@ export class DatapackAdoptionService {
   }
 
   /** Link the pack's file into the library (hard link, no second copy) so the row carries registry provenance. */
-  private async linkLibrary(target: Target, match: RegistryMatch) {
+  private async linkLibrary(
+    target: Target,
+    match: RegistryMatch,
+    actor: string,
+  ) {
     const lib = await this.library.importFile(
       target.pack.abs,
       {
@@ -209,7 +242,7 @@ export class DatapackAdoptionService {
         name: match.name,
         version: match.version,
       },
-      { hardlink: true },
+      { hardlink: true, actor },
     );
     return this.library.fillMissingProvenance(lib.id, {
       platform: match.platform,
@@ -226,12 +259,14 @@ export class DatapackAdoptionService {
   private async adopt(
     server: Server,
     target: Target,
+    actor: string,
   ): Promise<DatapackAdoptionDetail> {
     const { pack, match } = target;
+    await this.assertRegularZip(pack);
     const id = `sc_${nanoid(8)}`;
     const fields: string[] = [];
     const lib = match
-      ? await this.linkLibrary(target, match).catch((err: unknown) => {
+      ? await this.linkLibrary(target, match, actor).catch((err: unknown) => {
           this.logger.warn(
             `Datapack ${pack.file}: library link failed: ${String(err)}`,
           );
@@ -260,7 +295,12 @@ export class DatapackAdoptionService {
       .onConflictDoNothing({
         target: [serverContent.serverId, serverContent.filename],
       })
-      .returning({ id: serverContent.id });
+      .returning({ id: serverContent.id })
+      .catch(async (err: unknown) => {
+        // The row never landed: drop the icon written for it.
+        await this.icons.remove(iconRelPath);
+        throw err;
+      });
     if (inserted.length === 0) {
       // A concurrent adopt won: drop the icon written for the row that never landed.
       await this.icons.remove(iconRelPath);
@@ -282,8 +322,12 @@ export class DatapackAdoptionService {
   private async repair(
     row: ContentRow,
     target: Target,
+    libs: LibraryRows,
+    actor: string,
   ): Promise<DatapackAdoptionDetail> {
     const { pack, match } = target;
+    await this.assertRegularZip(pack);
+    const hasIcon = this.hasIcon(row, libs);
     const set: Partial<typeof serverContent.$inferInsert> = {};
     const fields: string[] = [];
     if (match) {
@@ -296,7 +340,7 @@ export class DatapackAdoptionService {
         fields.push('version');
       }
       if (!row.libraryId) {
-        const lib = await this.linkLibrary(target, match).catch(
+        const lib = await this.linkLibrary(target, match, actor).catch(
           (err: unknown) => {
             this.logger.warn(
               `Datapack ${pack.file}: library link failed: ${String(err)}`,
@@ -309,12 +353,12 @@ export class DatapackAdoptionService {
           fields.push('library');
         }
       }
-      if (!(await this.hasIcon(row)) && match.iconUrl) {
+      if (!hasIcon && match.iconUrl) {
         set.iconUrl = match.iconUrl;
         fields.push('icon');
       }
     }
-    if (!fields.includes('icon') && !(await this.hasIcon(row))) {
+    if (!fields.includes('icon') && !hasIcon) {
       const rel = await this.extractIcon(row.id, pack);
       if (rel) {
         set.iconRelPath = rel;

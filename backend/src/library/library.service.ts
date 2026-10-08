@@ -13,7 +13,7 @@ import * as crypto from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { nanoid } from 'nanoid';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import { PathGuardService } from '../storage/path-guard.service';
 import { EventsService } from '../events/events.service';
@@ -92,6 +92,18 @@ export class LibraryService {
       .where(eq(libraryFiles.id, libraryId))
       .limit(1);
     return row;
+  }
+
+  /** Several library rows in one query, by id. Unknown ids are absent from the map. */
+  async getLibraryFiles(
+    libraryIds: string[],
+  ): Promise<Map<string, LibraryFileRow>> {
+    if (libraryIds.length === 0) return new Map();
+    const rows = await this.db
+      .select()
+      .from(libraryFiles)
+      .where(inArray(libraryFiles.id, libraryIds));
+    return new Map(rows.map((r) => [r.id, r]));
   }
 
   async usageCount(libraryId: string): Promise<number> {
@@ -455,7 +467,9 @@ export class LibraryService {
    * `hardlink` stores the library copy as a hard link to `localPath` instead
    * of writing a second copy (datapack adoption: the file is already in a
    * server dir and must not be stored twice); it falls back to a copy when
-   * linking is unsupported.
+   * linking is unsupported (EXDEV, EPERM, ...). Only a regular file is
+   * linked, and the link is kept only if it still holds the bytes that were
+   * hashed; otherwise the hashed bytes are written as a copy instead.
    */
   async importFile(
     localPath: string,
@@ -466,6 +480,10 @@ export class LibraryService {
     }: { actor?: string; hardlink?: boolean } = {},
   ): Promise<LibraryFileRow> {
     const category = meta.category || 'mod';
+    // lstat, not stat: a symlink swapped in for a regular file is never read or linked.
+    const source = hardlink ? await fsp.lstat(localPath) : undefined;
+    if (source && !source.isFile())
+      throw new ConflictException('Not a regular file');
     const buf = await fsp.readFile(localPath);
     if (buf.length > MAX_DOWNLOAD_BYTES)
       throw new PayloadTooLargeException('File is too large');
@@ -489,9 +507,8 @@ export class LibraryService {
       recursive: true,
     });
     const dest = this.pathGuard.dataPath(relPath);
-    if (hardlink) {
-      await fsp.rm(dest, { force: true });
-      await fsp.link(localPath, dest).catch(() => fsp.writeFile(dest, buf));
+    if (source) {
+      await this.placeLinked(localPath, dest, buf, source);
     } else {
       await fsp.writeFile(dest, buf);
     }
@@ -540,6 +557,68 @@ export class LibraryService {
     }
     return row!;
   }
+
+  /**
+   * Make `dest` a hard link to `localPath`, or a copy of `buf` (the bytes that
+   * were hashed) when linking is unsupported. A pre-existing `dest` is a stale
+   * leftover (no library row owns it): it is replaced atomically by renaming a
+   * fresh link over it, never removed first. Any other link error is rethrown.
+   * After linking, the file must still be the inode, size and mtime that was
+   * read; if the source changed in between, the hashed bytes are copied
+   * instead. Residual race: a write to the source after this check changes the
+   * library copy too (they share an inode); see MODS_NOTES.md.
+   */
+  private async placeLinked(
+    localPath: string,
+    dest: string,
+    buf: Buffer,
+    source: fs.Stats,
+  ): Promise<void> {
+    try {
+      try {
+        await fsp.link(localPath, dest);
+      } catch (err) {
+        if (errCode(err) !== 'EEXIST') throw err;
+        const existing = await fsp.lstat(dest);
+        if (existing.ino !== source.ino || existing.dev !== source.dev) {
+          const tmp = `${dest}.${nanoid(6)}.tmp`;
+          try {
+            await fsp.link(localPath, tmp);
+            await fsp.rename(tmp, dest);
+          } finally {
+            await fsp.rm(tmp, { force: true });
+          }
+        }
+      }
+    } catch (err) {
+      if (!LINK_UNSUPPORTED.has(errCode(err) ?? '')) throw err;
+      await fsp.writeFile(dest, buf);
+      return;
+    }
+    const linked = await fsp.lstat(dest);
+    if (
+      linked.ino !== source.ino ||
+      linked.size !== buf.length ||
+      linked.mtimeMs !== source.mtimeMs
+    ) {
+      // Unlink only the library name, then store the exact bytes that were hashed.
+      await fsp.rm(dest, { force: true });
+      await fsp.writeFile(dest, buf);
+    }
+  }
+}
+
+/** Errors where a hard link is impossible here (other volume, no link support), so a copy is right. */
+const LINK_UNSUPPORTED = new Set([
+  'EXDEV',
+  'EPERM',
+  'ENOTSUP',
+  'EOPNOTSUPP',
+  'EMLINK',
+]);
+
+function errCode(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException | undefined)?.code;
 }
 
 export function humanBytes(n: number): string {

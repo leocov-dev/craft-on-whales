@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
@@ -13,6 +14,19 @@ import { StorageIndexService } from '../storage/storage-index.service';
 import { EventsService } from '../events/events.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
 import { LibraryService } from './library.service';
+
+// fs/promises is a pass-through whose `link` the hardlink specs can intercept
+// (the namespace export itself cannot be spied on).
+jest.mock('node:fs/promises', () => {
+  const actual =
+    jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises');
+  return { ...actual, link: jest.fn(actual.link) };
+});
+const linkMock = fsp.link as jest.MockedFunction<typeof fsp.link>;
+const realLink =
+  jest.requireActual<typeof import('node:fs/promises')>(
+    'node:fs/promises',
+  ).link;
 
 // Real in-memory SQLite built from the checked-in migrations (so dedupe
 // inserts run against the actual schema), a real PathGuardService pointed
@@ -166,5 +180,161 @@ describe('LibraryService — checksum verification', () => {
 
     expect(warnSpy).toHaveBeenCalled();
     expect(fs.existsSync(path.join(root, row.relPath))).toBe(true);
+  });
+});
+
+describe('LibraryService.importFile hardlink', () => {
+  let sqlite: DatabaseSync;
+  let root: string;
+  let src: string;
+  let service: LibraryService;
+  let record: jest.Mock;
+
+  beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'cow-library-hl-'));
+    src = path.join(root, 'server-dir');
+    fs.mkdirSync(src, { recursive: true });
+    sqlite = new DatabaseSync(':memory:');
+    for (const file of migrationFiles())
+      for (const stmt of fs
+        .readFileSync(file, 'utf8')
+        .split('--> statement-breakpoint'))
+        if (stmt.trim()) sqlite.exec(stmt);
+    record = jest.fn();
+    linkMock.mockReset();
+    linkMock.mockImplementation(realLink);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        LibraryService,
+        { provide: DbService, useValue: { db: drizzle({ client: sqlite }) } },
+        {
+          provide: PathGuardService,
+          useValue: {
+            dataPath: (...parts: string[]) => path.join(root, ...parts),
+          },
+        },
+        { provide: EventsService, useValue: { recordEvent: record } },
+        { provide: StorageIndexService, useValue: {} },
+        { provide: ServerEnvironmentService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(LibraryService);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    sqlite.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const write = (name: string, content: string): string => {
+    const p = path.join(src, name);
+    fs.writeFileSync(p, content);
+    return p;
+  };
+  const meta = { category: 'datapack' as const, filename: 'a.zip' };
+  const linkError = (code: string) => Object.assign(new Error(code), { code });
+
+  it('stores the library copy as a hard link to the source', async () => {
+    const p = write('a.zip', 'pack bytes');
+    const row = await service.importFile(p, meta, { hardlink: true });
+    const dest = path.join(root, row.relPath);
+    expect(fs.statSync(dest).ino).toBe(fs.statSync(p).ino);
+    expect(fs.readFileSync(dest, 'utf8')).toBe('pack bytes');
+  });
+
+  it('attributes the library-added event to the actor', async () => {
+    await service.importFile(write('a.zip', 'x'), meta, {
+      hardlink: true,
+      actor: 'alice',
+    });
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ actor: 'alice', type: 'library-added' }),
+    );
+  });
+
+  it.each(['EXDEV', 'EPERM', 'ENOTSUP', 'EMLINK'])(
+    'falls back to a copy when linking fails with %s',
+    async (code) => {
+      const p = write('a.zip', 'pack bytes');
+      linkMock.mockRejectedValue(linkError(code));
+      const row = await service.importFile(p, meta, { hardlink: true });
+      const dest = path.join(root, row.relPath);
+      expect(fs.statSync(dest).ino).not.toBe(fs.statSync(p).ino);
+      expect(fs.readFileSync(dest, 'utf8')).toBe('pack bytes');
+    },
+  );
+
+  it('rethrows other link errors', async () => {
+    const p = write('a.zip', 'pack bytes');
+    linkMock.mockRejectedValue(linkError('EACCES'));
+    await expect(
+      service.importFile(p, meta, { hardlink: true }),
+    ).rejects.toThrow('EACCES');
+    expect(sqlite.prepare('SELECT * FROM library_files').all()).toEqual([]);
+  });
+
+  it('replaces a stale leftover at the destination with a link, atomically', async () => {
+    const p = write('a.zip', 'pack bytes');
+    const sha = crypto.createHash('sha256').update('pack bytes').digest('hex');
+    const probe = await service.importFile(write('probe.zip', 'p'), meta, {
+      hardlink: true,
+    });
+    const dir = path.dirname(path.join(root, probe.relPath));
+    const stale = path.join(dir, `${sha.slice(0, 8)}-a.zip`);
+    fs.writeFileSync(stale, 'stale junk');
+    const row = await service.importFile(p, meta, { hardlink: true });
+    expect(path.join(root, row.relPath)).toBe(stale);
+    expect(fs.statSync(stale).ino).toBe(fs.statSync(p).ino);
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('keeps a destination that is already a link to the source', async () => {
+    const p = write('a.zip', 'pack bytes');
+    const sha = crypto.createHash('sha256').update('pack bytes').digest('hex');
+    const probe = await service.importFile(write('probe.zip', 'p'), meta, {
+      hardlink: true,
+    });
+    const dir = path.dirname(path.join(root, probe.relPath));
+    const existing = path.join(dir, `${sha.slice(0, 8)}-a.zip`);
+    fs.linkSync(p, existing);
+    const row = await service.importFile(p, meta, { hardlink: true });
+    expect(fs.statSync(path.join(root, row.relPath)).ino).toBe(
+      fs.statSync(p).ino,
+    );
+  });
+
+  it('copies the hashed bytes if the source changed after hashing', async () => {
+    const p = write('a.zip', 'pack bytes');
+    linkMock.mockImplementation(async (from, to) => {
+      await realLink(from, to);
+      fs.writeFileSync(p, 'tampered!!!'); // same inode, different bytes
+    });
+    const row = await service.importFile(p, meta, { hardlink: true });
+    const dest = path.join(root, row.relPath);
+    expect(fs.readFileSync(dest, 'utf8')).toBe('pack bytes');
+    expect(fs.statSync(dest).ino).not.toBe(fs.statSync(p).ino);
+  });
+
+  it('refuses a symlink source', async () => {
+    const real = write('real.zip', 'secret');
+    const link = path.join(src, 'a.zip');
+    fs.symlinkSync(real, link);
+    await expect(
+      service.importFile(link, meta, { hardlink: true }),
+    ).rejects.toThrow(/regular file/);
+  });
+
+  it('does not link when the sha256 already has a row (dedupe early return)', async () => {
+    const first = write('a.zip', 'same bytes');
+    const row1 = await service.importFile(first, meta); // plain copy
+    const second = write('b.zip', 'same bytes');
+    linkMock.mockClear();
+    const row2 = await service.importFile(second, meta, { hardlink: true });
+    expect(row2.id).toBe(row1.id);
+    expect(linkMock).not.toHaveBeenCalled();
+    expect(fs.statSync(path.join(root, row2.relPath)).ino).not.toBe(
+      fs.statSync(second).ino,
+    );
   });
 });
