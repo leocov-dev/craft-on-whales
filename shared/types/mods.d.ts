@@ -172,6 +172,23 @@ export interface ZipServerTarget {
   loaderVersion: string | null;
 }
 
+/** `POST /api/servers/from-zip/preview` result: what the archive would create, before anything exists. */
+export interface ServerFromZipPreview {
+  archiveName: string;
+  format: 'mrpack' | 'jars';
+  /** The .mrpack index's own name and version. */
+  packName: string | null;
+  packVersion: string | null;
+  /** Null when the loader or Minecraft version couldn't be determined; see `targetError`. */
+  target: ZipServerTarget | null;
+  targetError: string | null;
+  /** `name`/`version`/`kind` are set only when the jars were identified (no pack index and an auto target). */
+  jars: { filename: string; name?: string; version?: string | null; kind?: string | null }[];
+  /** .mrpack index files the panel downloads at create time. */
+  indexFiles: number;
+  overrideRoots: string[];
+}
+
 /** `POST /api/servers/from-zip` task result. */
 export interface ServerFromZipResult {
   serverId: string;

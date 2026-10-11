@@ -676,11 +676,30 @@ The task runs:
 - A failed start is _not_ rolled back: the server is complete and the report says what's on it.
   The error goes in `startError`, the task still succeeds, and the UI shows it as a warning.
 
+### Preview, upload tokens and the sweep
+
+The Modpacks page previews every source before creating, so the zip tab has a preview step too:
+
+- `POST /api/servers/from-zip/preview` (multipart `file`, or `uploadToken`, plus `loader` /
+  `mcVersion`) stages the archive, infers the target and returns a `ServerFromZipPreview`. It
+  creates nothing. A target it can't determine comes back as `target: null` + `targetError` (not
+  a 400) so the UI can ask for the loader or version and preview again.
+- The upload is parked in `os.tmpdir()` as `zipup-<id>.zip`; the response's `uploadToken` is that
+  basename (the same trick as blueprint `import-preview`). A re-preview or `POST .../from-zip`
+  with `uploadToken` (+ display-only `archiveName`) reuses it, so the file is sent once. The
+  token is regex-validated and resolved against `os.tmpdir()` only (`zipUploadPath`).
+- `DELETE /api/servers/from-zip/preview/:token` removes it (the UI calls it when the file changes
+  or the page closes). The create task removes it when it ends. `ServerFromZipService` also sweeps
+  `zipup-*.zip` older than 1h so abandoned previews don't fill the disk.
+- Only the _upload_ is kept. Create stages and identifies again; caching identification would be
+  server-side state to keep in sync, and the lookups are one registry round per archive. The
+  preview itself only identifies jars when the target depends on them (no pack index and loader or
+  version on auto), so a `.mrpack` or an explicit pick previews without any lookups.
+
 ### Loader and version detection
 
-Upstream pre-fills the wizard from a separate preview request. Here there's no preview; detection
-runs at create time and the form offers **Auto-detect** or an explicit choice for each. An
-explicit choice always wins.
+Detection runs in the preview and again at create time; the form offers **Auto-detect** or an
+explicit choice for each. An explicit choice always wins.
 
 - **`.mrpack`**: the index's `dependencies` (`minecraft`, `fabric-loader`, `quilt-loader`,
   `forge`, `neoforge`), as `parseMrpackIndex` already reads them. The pack's loader build is used

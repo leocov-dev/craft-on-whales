@@ -58,14 +58,6 @@
 
       <q-card-actions align="right">
         <q-btn flat label="Close" @click="emit('update:modelValue', false)" />
-        <q-btn
-          v-if="showCreate"
-          color="primary"
-          label="Create server"
-          :loading="creating"
-          :disable="loading || !!error"
-          @click="emit('create')"
-        />
       </q-card-actions>
     </q-card>
   </q-dialog>
@@ -82,13 +74,10 @@ const props = defineProps<{
   platform?: PackPlatform | undefined;
   packRef?: string | undefined;
   serverId?: string | undefined;
-  showCreate?: boolean | undefined;
-  creating?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{
   'update:modelValue': [boolean];
-  create: [];
 }>();
 
 const loading = ref(false);
