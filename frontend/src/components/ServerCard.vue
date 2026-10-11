@@ -130,8 +130,8 @@
           <q-tooltip>Restart</q-tooltip>
         </q-btn>
       </template>
-      <q-btn flat dense round icon="open_in_new" :to="`/servers/${server.id}`" @click.stop>
-        <q-tooltip>Open</q-tooltip>
+      <q-btn flat dense round icon="edit" :to="`/servers/${server.id}`" @click.stop>
+        <q-tooltip>Manage</q-tooltip>
       </q-btn>
     </q-card-actions>
   </q-card>
