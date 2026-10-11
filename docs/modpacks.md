@@ -17,6 +17,17 @@ The **Modpacks** page (and the **From modpack** tab in the [creation wizard](ser
 - **FTB** — Feed The Beast packs.
 - **GT New Horizons** — the 1.7.10 expert pack, installed from GTNH's own release index. GTNH picks its Java runtime per pack version (2.8.0+ runs on **Java 25** via bundled lwjgl3ify patches, older releases on Java 21 or 17), and the wizard raises the server's RAM and disk to sensible minimums for it.
 
+## Creating a server on the Modpacks page
+
+The three tabs under **New modpack server** (**Packwiz URL**, **Browse packs**, **Upload zip**) only
+choose where the pack comes from. Once you've entered a URL, selected a pack or picked a file, the
+same **Server settings** appear below: name, game port, disk quota, Java heap and container memory.
+Then **Preview** shows what would be created (the pack, its mods or jars, and your settings) and
+**Create & start** makes the server. Nothing exists until you confirm.
+
+Browse packs installs the pack's latest version. Packs with a hard-to-fetch file (for example
+CurseForge packs whose authors turned off third-party downloads) can fail on first boot.
+
 ## Creating a server from a zip
 
 The **Upload zip** tab creates a new server from a file on your computer: a Modrinth pack
@@ -24,7 +35,8 @@ The **Upload zip** tab creates a new server from a file on your computer: a Modr
 
 - Leave **Loader** and **Minecraft version** on **Auto-detect** and the panel reads them from the
   `.mrpack`, or works them out from what most of the jars in a zip were built for. A zip of mostly
-  plugins becomes a Paper server. If it can't tell, it asks you to pick, and nothing is created.
+  plugins becomes a Paper server. If it can't tell, the preview says so and you pick a loader or
+  version, then preview again. Nothing is created until you confirm.
 - Each jar is identified and installed as normal tracked content before the server's first start.
   Jars recognized on Modrinth or CurseForge get update checks like a mod you added by link. The
   `.mrpack`'s own downloads are checked against the pack's hashes.

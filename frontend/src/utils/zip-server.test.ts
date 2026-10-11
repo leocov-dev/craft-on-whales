@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeZipTarget, serverNameFromArchive } from './zip-server.ts';
+import { describeZipTarget, serverNameFromArchive, zipPreviewToModel } from './zip-server.ts';
 
 void test('serverNameFromArchive drops the extension and tidies separators', () => {
   assert.equal(serverNameFromArchive('Cozy Pack 1.2.mrpack'), 'Cozy Pack 1.2');
@@ -19,4 +19,25 @@ void test('describeZipTarget names the loader build only when there is one', () 
     describeZipTarget({ loader: 'paper', mcVersion: 'LATEST', loaderVersion: null }),
     'Paper · Minecraft LATEST',
   );
+});
+
+void test('zipPreviewToModel flags an undetermined target and names identified jars', () => {
+  const m = zipPreviewToModel({
+    archiveName: 'a.zip',
+    format: 'jars',
+    packName: null,
+    packVersion: null,
+    target: null,
+    targetError: 'Pick a loader.',
+    jars: [
+      { filename: 's.jar', name: 'Sodium', version: '1.0', kind: 'mod' },
+      { filename: 'x.jar' },
+    ],
+    indexFiles: 0,
+    overrideRoots: [],
+  });
+  assert.equal(m.name, 'a.zip');
+  assert.deepEqual(m.warnings, ['Pick a loader.']);
+  assert.equal(m.items[0]?.name, 'Sodium');
+  assert.equal(m.items[1]?.name, 'x.jar');
 });

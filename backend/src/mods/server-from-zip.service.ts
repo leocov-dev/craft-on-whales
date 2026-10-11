@@ -1,5 +1,13 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { z } from 'zod';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { TasksService } from '../tasks/tasks.service';
@@ -13,6 +21,7 @@ import type { IdentifiedJar } from './mods.types';
 import type { StagedPack } from './pack-archive';
 import type {
   ContentImportReport,
+  ServerFromZipPreview,
   ServerFromZipResult,
   ZipServerLoader,
   ZipServerTarget,
@@ -54,6 +63,10 @@ export const fromZipSchema = z
       z.coerce.number().min(0).max(16384).optional(),
     ),
     portGame: optionalInt(1024, 65535),
+    // Create from a previewed upload instead of re-sending the file.
+    uploadToken: z.preprocess(blankToUndefined, z.string().max(64).optional()),
+    // Display name for the task label/report when a token stands in for the file.
+    archiveName: z.preprocess(blankToUndefined, z.string().max(200).optional()),
   })
   .refine(
     (v) => !v.containerMemoryMb || !v.heapMb || v.containerMemoryMb > v.heapMb,
@@ -64,6 +77,30 @@ export const fromZipSchema = z
   );
 
 export type FromZipInput = z.infer<typeof fromZipSchema>;
+
+export const previewZipSchema = z.object({
+  loader: z.preprocess(
+    blankToUndefined,
+    z.enum([...ZIP_SERVER_LOADERS, 'auto']).default('auto'),
+  ),
+  mcVersion: z.preprocess(
+    blankToUndefined,
+    z.string().trim().min(1).max(32).optional(),
+  ),
+  uploadToken: z.preprocess(blankToUndefined, z.string().max(64).optional()),
+});
+
+/** Preview uploads wait in os.tmpdir() under this name until created from, deleted or swept. */
+export const ZIP_UPLOAD_TOKEN_RE = /^zipup-[A-Za-z0-9_-]{10}\.zip$/;
+const ABANDONED_UPLOAD_TTL_MS = 60 * 60 * 1000;
+const ABANDONED_UPLOAD_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+
+/** Absolute path of a preview upload; throws 400 for anything but a well-formed token. */
+export function zipUploadPath(token: string): string {
+  if (!ZIP_UPLOAD_TOKEN_RE.test(token))
+    throw new BadRequestException('Invalid upload token');
+  return path.join(os.tmpdir(), token);
+}
 
 const RELEASE_RE = /^\d+(\.\d+)+$/;
 
@@ -176,8 +213,9 @@ export function inferZipTarget(
  * See MODS_NOTES.md, "Create a server from a zip".
  */
 @Injectable()
-export class ServerFromZipService {
+export class ServerFromZipService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ServerFromZipService.name);
+  private sweepTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly imports: ContentImportService,
@@ -185,6 +223,87 @@ export class ServerFromZipService {
     private readonly loaderVersions: LoaderVersionsService,
     private readonly tasks: TasksService,
   ) {}
+
+  onModuleInit(): void {
+    this.sweepTimer = setInterval(() => {
+      this.sweepAbandonedUploads().catch((err: unknown) =>
+        this.logger.warn(`zip upload sweep failed: ${String(err)}`),
+      );
+    }, ABANDONED_UPLOAD_SWEEP_INTERVAL_MS);
+    this.sweepTimer.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
+  }
+
+  /** Deletes preview uploads that were never created from or discarded. */
+  async sweepAbandonedUploads(): Promise<void> {
+    const dir = os.tmpdir();
+    const entries = await fsp.readdir(dir).catch(() => [] as string[]);
+    const cutoff = Date.now() - ABANDONED_UPLOAD_TTL_MS;
+    for (const name of entries) {
+      if (!ZIP_UPLOAD_TOKEN_RE.test(name)) continue;
+      const abs = path.join(dir, name);
+      const st = await fsp.stat(abs).catch(() => null);
+      if (!st || st.mtimeMs >= cutoff) continue;
+      await fsp.rm(abs, { force: true }).catch(() => {});
+    }
+  }
+
+  /**
+   * What an archive would create, without creating anything. Jars are only
+   * identified when the target depends on them (same condition as `target`).
+   * A target that can't be determined is reported, not thrown, so the UI can
+   * ask for the loader or version.
+   */
+  async previewZip(
+    archivePath: string,
+    originalName: string,
+    chosen: Pick<FromZipInput, 'loader' | 'mcVersion'>,
+  ): Promise<ServerFromZipPreview> {
+    const staged = await this.imports.stage(archivePath);
+    try {
+      const needsJars =
+        !staged.pack.index && (chosen.loader === 'auto' || !chosen.mcVersion);
+      const identified = needsJars
+        ? await this.imports.identifyBundled(staged)
+        : [];
+      let target: ZipServerTarget | null = null;
+      let targetError: string | null = null;
+      try {
+        target = inferZipTarget(staged.pack, identified, chosen);
+      } catch (err) {
+        if (!(err instanceof BadRequestException)) throw err;
+        targetError = err.message;
+      }
+      const index = staged.pack.index;
+      return {
+        archiveName: originalName,
+        format: staged.pack.format,
+        packName: index?.name ?? null,
+        packVersion: index?.version ?? null,
+        target,
+        targetError,
+        jars: staged.pack.jars.map((j, i) => {
+          const id = needsJars ? identified[i] : undefined;
+          return id
+            ? {
+                filename: j.filename,
+                name: id.name,
+                version: id.version,
+                kind: id.kind,
+              }
+            : { filename: j.filename };
+        }),
+        indexFiles: index?.files.length ?? 0,
+        overrideRoots: staged.pack.overrideRoots,
+      };
+    } finally {
+      await this.imports.discard(staged);
+    }
+  }
 
   /**
    * Queue the task and return its id. `archivePath` is the multer temp file;
