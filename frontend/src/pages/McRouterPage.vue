@@ -75,6 +75,7 @@
             label="Save"
             class="q-mt-md"
             :loading="savingConfig"
+            :disable="!dirty"
             @click="saveConfig"
           />
         </q-card>
@@ -118,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { mcRouterApi, type McRouterConfig, type RouterRoute } from '@/api/mcRouter';
 import PageHeader from '@/components/PageHeader.vue';
@@ -137,6 +138,9 @@ const config = ref<McRouterConfig>({
 });
 const routes = ref<RouterRoute[]>([]);
 const savingConfig = ref(false);
+// Last config the server returned; Save stays disabled until the form differs.
+const savedConfig = ref('');
+const dirty = computed(() => JSON.stringify(config.value) !== savedConfig.value);
 
 function autoScaleLabel(mode: 'on' | 'off' | null): string {
   if (mode === 'on') return 'On';
@@ -147,6 +151,7 @@ function autoScaleLabel(mode: 'on' | 'off' | null): string {
 async function load() {
   const res = await mcRouterApi.get();
   config.value = res.config;
+  savedConfig.value = JSON.stringify(res.config);
   routes.value = res.routes;
 }
 
@@ -155,6 +160,7 @@ async function saveConfig() {
   try {
     const res = await mcRouterApi.save(config.value);
     config.value = res.config;
+    savedConfig.value = JSON.stringify(res.config);
     routes.value = res.routes;
     const live = res.routedServers?.pending ?? 0;
     $q.notify({
