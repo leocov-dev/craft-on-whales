@@ -30,6 +30,7 @@ import { UpdatesController } from './updates.controller';
 import { BackupsController } from './backups.controller';
 import { UsersController } from './users.controller';
 import { PacksController } from './packs.controller';
+import { McRouterController } from './mc-router.controller';
 
 /**
  * Cross-cutting controller module mirroring legacy `src/web/routes/api.ts`
@@ -84,6 +85,7 @@ import { PacksController } from './packs.controller';
     BackupsController,
     UsersController,
     PacksController,
+    McRouterController,
   ],
   providers: [ServerViewModelService],
 })

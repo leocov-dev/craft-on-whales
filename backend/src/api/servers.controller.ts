@@ -371,11 +371,20 @@ export class ServersController {
         { previousExtraPorts: before.extraPorts },
       );
     }
-    const { server, needsRecreate } = await this.lifecycle.updateServer(
-      id,
-      changes,
-      { actor: currentUser(req).username },
-    );
+    const actor = currentUser(req).username;
+    const updated = await this.lifecycle.updateServer(id, changes, { actor });
+    let { server, needsRecreate } = updated;
+    // Routing labels only change on a recreate; a server with no live
+    // container can take that now, so mc-router never starts it stale.
+    if (
+      needsRecreate &&
+      (changes.routerHostname !== undefined ||
+        changes.routerAutoScale !== undefined) &&
+      (await this.lifecycle.applyRoutingChange(id, { actor }))
+    ) {
+      needsRecreate = false;
+      server = (await this.query.getServer(id)) ?? server;
+    }
     return { ok: true, needsRecreate, server: publicServer(server) };
   }
 

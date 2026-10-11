@@ -163,7 +163,13 @@
     </div>
 
     <div class="col-12">
-      <q-btn color="primary" label="Save changes" :loading="saving" @click="save" />
+      <q-btn
+        color="primary"
+        label="Save changes"
+        :loading="saving"
+        :disable="!dirty"
+        @click="save"
+      />
     </div>
   </div>
 </template>
@@ -225,6 +231,13 @@ async function applyPick() {
 const form = ref<ServerPatch>({});
 const tagsText = ref('');
 const saving = ref(false);
+// Form as last loaded from the server; Save stays disabled until it differs.
+const savedForm = ref('');
+const dirty = computed(() => formSnapshot() !== savedForm.value);
+
+function formSnapshot(): string {
+  return JSON.stringify([form.value, tagsText.value]);
+}
 
 const routerEnabled = ref(false);
 const routerBaseDomain = ref('');
@@ -264,6 +277,7 @@ function loadForm() {
     routerAutoScale: server.value.routerAutoScale,
   };
   tagsText.value = server.value.tags.join(', ');
+  savedForm.value = formSnapshot();
 }
 watch(server, loadForm, { immediate: true });
 

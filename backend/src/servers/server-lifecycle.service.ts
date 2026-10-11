@@ -9,7 +9,7 @@ import {
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { nanoid } from 'nanoid';
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, isNotNull, sql, type SQL } from 'drizzle-orm';
 import { DbService } from '../db/db.service';
 import {
   servers,
@@ -693,6 +693,60 @@ export class ServerLifecycleService implements OnModuleInit {
         summary: 'Container recreated with current configuration',
       });
     if (wasRunning) await this.startServerImpl(id, { actor });
+  }
+
+  /**
+   * Routing labels are baked into the container at create time, so a changed
+   * hostname or auto-scale mode only applies on a recreate. A server with no
+   * live container can take it now with no downtime — and should, because
+   * mc-router can start a stopped container itself, bypassing
+   * `startServerImpl`'s `pendingRecreate` check. A live server stays flagged
+   * until its next restart. Returns whether the container was recreated.
+   */
+  applyRoutingChange(
+    id: string,
+    { actor = 'system' }: { actor?: string } = {},
+  ): Promise<boolean> {
+    return this.locks.guard(id, 'recreate', async () => {
+      const info = await this.containers.inspectStatus(id);
+      if (['running', 'starting', 'unhealthy'].includes(info.status))
+        return false;
+      await this.recreateServerImpl(id, { actor });
+      return true;
+    });
+  }
+
+  /**
+   * The router's base domain feeds every routed server's `mc-router.host`
+   * label, so changing it stales them all. Flag each routed server, then apply
+   * at once to those with no live container. A failure on one server (it stays
+   * flagged) doesn't stop the rest.
+   */
+  async refreshRoutedServers({
+    actor = 'system',
+  }: { actor?: string } = {}): Promise<{ recreated: number; pending: number }> {
+    const routed = await this.db
+      .select({ id: servers.id })
+      .from(servers)
+      .where(and(isNotNull(servers.routerHostname), isNull(servers.deletedAt)));
+    let recreated = 0;
+    let pending = 0;
+    for (const { id } of routed) {
+      await this.db
+        .update(servers)
+        .set({ pendingRecreate: true })
+        .where(eq(servers.id, id));
+      try {
+        if (await this.applyRoutingChange(id, { actor })) recreated++;
+        else pending++;
+      } catch (err: unknown) {
+        this.logger.error(
+          `apply routing change ${id}: ${(err as Error).message}`,
+        );
+        pending++;
+      }
+    }
+    return { recreated, pending };
   }
 
   /** Update config fields; computes a diff event and flags recreate needs. */
