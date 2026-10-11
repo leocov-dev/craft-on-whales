@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { McRouterService } from './mc-router.service';
+import { currentUser } from '../auth/current-user';
+import { McRouterService } from '../mc-router/mc-router.service';
+import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 
 // A dot-separated run of DNS labels (1-63 chars each, alnum + hyphen, no
 // leading/trailing hyphen) — a real domain, not a bare word, since it's
@@ -44,7 +47,10 @@ const configSchema = z.object({
 @UseGuards(RolesGuard)
 @Roles('admin')
 export class McRouterController {
-  constructor(private readonly mcRouter: McRouterService) {}
+  constructor(
+    private readonly mcRouter: McRouterService,
+    private readonly lifecycle: ServerLifecycleService,
+  ) {}
 
   @Get()
   async get() {
@@ -56,11 +62,25 @@ export class McRouterController {
   }
 
   @Post()
-  async set(@Body() body: unknown) {
+  async set(@Body() body: unknown, @Req() req: Request) {
     const input = configSchema.parse(body);
+    const before = await this.mcRouter.getConfig();
     const cfg = await this.mcRouter.setConfig(input);
     if (cfg.enabled) await this.mcRouter.activate();
     else await this.mcRouter.deactivate();
-    return { ok: true, config: cfg, routes: await this.mcRouter.listRoutes() };
+    // Server containers carry the composed hostname as a label, so a new base
+    // domain only reaches them via a recreate (see refreshRoutedServers).
+    const routedServers =
+      before.baseDomain !== cfg.baseDomain
+        ? await this.lifecycle.refreshRoutedServers({
+            actor: currentUser(req).username,
+          })
+        : undefined;
+    return {
+      ok: true,
+      config: cfg,
+      routes: await this.mcRouter.listRoutes(),
+      routedServers,
+    };
   }
 }

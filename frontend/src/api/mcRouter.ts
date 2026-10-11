@@ -12,6 +12,8 @@ interface McRouterResponse {
   ok: true;
   config: McRouterConfig;
   routes: RouterRoute[];
+  /** Set when a base-domain change re-labelled routed servers: idle ones were recreated, live ones wait for a restart. */
+  routedServers?: { recreated: number; pending: number };
 }
 
 export const mcRouterApi = {

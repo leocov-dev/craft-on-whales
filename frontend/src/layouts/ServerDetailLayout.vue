@@ -52,6 +52,20 @@
         </q-btn>
       </div>
 
+      <q-banner v-if="server.pendingRecreate" dense rounded class="bg-warning text-dark q-mb-md">
+        Configuration changes are waiting to be applied. They take effect when the server
+        {{ stopped ? 'is started' : 'is restarted' }}.
+        <template #action>
+          <q-btn
+            flat
+            no-caps
+            :label="stopped ? 'Start now' : 'Restart now'"
+            :loading="actionBusy"
+            @click="run(stopped ? 'start' : 'restart')"
+          />
+        </template>
+      </q-banner>
+
       <q-tabs
         v-model="activeGroup"
         dense
@@ -235,6 +249,10 @@ onUnmounted(() => {
   statusSocket?.close();
   stopStatusWatch?.();
 });
+
+const stopped = computed(
+  () => server.value?.status === 'stopped' || server.value?.status === 'crashed',
+);
 
 async function run(action: LifecycleAction) {
   actionBusy.value = true;

@@ -106,9 +106,10 @@
           </q-list>
           <q-item-label caption class="q-mt-md" style="max-width: 60ch">
             Each server's subdomain and auto-scale mode are set on that server's own Settings tab,
-            under mc-route — click a row to jump there. Changing either recreates that server's
-            container to apply the new routing labels, automatically next start or immediately if
-            it's already running.
+            under mc-route — click a row to jump there. Routing labels are set when a server's
+            container is created, so a change applies at once to a stopped server and on the next
+            restart of a running one. Changing the base domain does the same for every routed
+            server.
           </q-item-label>
         </q-card>
       </div>
@@ -155,7 +156,13 @@ async function saveConfig() {
     const res = await mcRouterApi.save(config.value);
     config.value = res.config;
     routes.value = res.routes;
-    $q.notify({ type: 'positive', message: 'Router settings saved.' });
+    const live = res.routedServers?.pending ?? 0;
+    $q.notify({
+      type: 'positive',
+      message: live
+        ? `Router settings saved. Restart ${live} running ${live === 1 ? 'server' : 'servers'} to apply the new base domain.`
+        : 'Router settings saved.',
+    });
   } catch (err) {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
   } finally {

@@ -12,7 +12,7 @@ Optionally set a **Base domain** (e.g. `example.com`). Once set, each server's s
 
 ## Routes
 
-Each server gets its subdomain and auto-scale mode from its own **Settings** tab, under **mc-route** (shown there once mc-router is enabled). The field defaults to a URL-safe version of the server's name — lowercase, spaces and other unsafe characters replaced with hyphens, capped at 30 characters — which you can accept or override. Setting or clearing it takes effect the next time the server starts, or immediately if it's already running. The Router page's Routes list is a read-only overview; click a row to jump to that server's settings.
+Each server gets its subdomain and auto-scale mode from its own **Settings** tab, under **mc-route** (shown there once mc-router is enabled). The field defaults to a URL-safe version of the server's name — lowercase, spaces and other unsafe characters replaced with hyphens, capped at 30 characters — which you can accept or override. Routing labels are set when a server's container is created, so a change applies at once to a stopped server, and on the next restart of a running one (the server page shows a banner until then). Changing the **Base domain** does the same for every routed server. The Router page's Routes list is a read-only overview; click a row to jump to that server's settings.
 
 ## Auto-scale
 
