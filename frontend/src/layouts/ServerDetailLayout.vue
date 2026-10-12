@@ -116,6 +116,7 @@ import {
   type ServerDetail,
   type ServerStatus,
 } from '@/api/servers';
+import { ApiError } from '@/api/http';
 import { statusMeta, iconSrc } from '@/composables/useServerStatus';
 import { serverDetailKey } from '@/composables/useServerDetail';
 import { useStatusSocket } from '@/composables/useStatusSocket';
@@ -199,6 +200,9 @@ const meta = computed(() => statusMeta(server.value?.status ?? 'stopped'));
 // refetches back to back, and a slow older response landing last would
 // otherwise roll the header/status chip back to a stale status.
 let refreshSeq = 0;
+// Set while this page is deleting the server itself, so its own deletion push
+// doesn't also trigger the "deleted elsewhere" redirect and toast.
+let deletingSelf = false;
 async function refresh() {
   const seq = ++refreshSeq;
   loading.value = true;
@@ -208,6 +212,12 @@ async function refresh() {
     server.value = res.server;
   } catch (err) {
     if (seq !== refreshSeq) return;
+    // Deleted (or hidden from this user) since the page loaded.
+    if (err instanceof ApiError && err.status === 404 && !deletingSelf) {
+      $q.notify({ type: 'warning', message: 'This server no longer exists.' });
+      void router.replace('/');
+      return;
+    }
     $q.notify({
       type: 'negative',
       message: err instanceof Error ? err.message : 'Could not load this server.',
@@ -263,6 +273,13 @@ function openStatusSocket() {
     stopContainer();
   };
 }
+// Another user/tab deleted this server: refetching 404s into the redirect above.
+watch(
+  () => serversStore.lastRemoved,
+  (removed) => {
+    if (removed?.id === serverId.value && !deletingSelf) void refresh();
+  },
+);
 watch(serverId, openStatusSocket);
 onMounted(openStatusSocket);
 onUnmounted(() => {
@@ -301,7 +318,13 @@ function removeServer() {
       return;
     }
     void (async () => {
-      await serversApi.remove(serverId.value);
+      deletingSelf = true;
+      try {
+        await serversApi.remove(serverId.value);
+      } catch (err) {
+        deletingSelf = false;
+        throw err;
+      }
       await serversStore.fetchServers();
       await router.push('/');
     })();

@@ -158,7 +158,9 @@ event, `server-list-changed`, emitted by `ServerLifecycleService`).
 - **Detail page**: `useStatusSocket` exposes a `reconnects` counter;
   `ServerDetailLayout` resyncs on it, applies a pushed status to the header
   immediately (the HTTP refetch fills in the rest), and only lets the newest
-  refetch write `server`.
+  refetch write `server`. A pushed `deleted` for the open server (surfaced
+  via the store's `lastRemoved`) triggers a refetch, and a 404 there redirects
+  to the list; the page's own delete sets `deletingSelf` to skip that.
 
 ## Backpressure
 
