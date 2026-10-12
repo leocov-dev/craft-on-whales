@@ -41,25 +41,25 @@
         <q-banner v-else-if="map && !cells.length" dense class="absolute-top z-top">
           No generated chunks in this dimension.
         </q-banner>
-        <q-btn
-          round
-          dense
-          unelevated
-          color="primary"
-          :icon="showHelp ? 'close' : 'help_outline'"
-          class="absolute-top-right q-ma-sm z-top"
-          @click="showHelp = !showHelp"
-        >
-          <q-tooltip>{{ showHelp ? 'Hide controls' : 'Show controls' }}</q-tooltip>
-        </q-btn>
         <q-card
-          v-if="showHelp"
           flat
           bordered
           class="absolute-top-left q-ma-sm z-top"
-          style="pointer-events: none; opacity: 0.93"
+          style="opacity: 0.93; pointer-events: none"
         >
-          <q-list dense>
+          <div class="row items-center no-wrap q-pl-md q-pr-xs" style="pointer-events: auto">
+            <div class="col text-subtitle2">Controls</div>
+            <q-btn
+              flat
+              round
+              dense
+              :icon="showHelp ? 'expand_less' : 'expand_more'"
+              @click="showHelp = !showHelp"
+            >
+              <q-tooltip>{{ showHelp ? 'Hide controls' : 'Show controls' }}</q-tooltip>
+            </q-btn>
+          </div>
+          <q-list v-if="showHelp" dense>
             <q-item v-for="hint in HINTS" :key="hint.action">
               <q-item-section avatar style="min-width: 32px">
                 <q-icon :name="hint.icon" size="sm" />
