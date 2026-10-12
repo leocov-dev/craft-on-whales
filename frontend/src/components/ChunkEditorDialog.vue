@@ -143,7 +143,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { useQuasar } from 'quasar';
+import { copyToClipboard, useQuasar } from 'quasar';
 import { serverWorldsApi, type WorldChunkMap } from '@/api/serverWorlds';
 import {
   HEAT_STEPS,
@@ -323,10 +323,38 @@ async function loadHeat(regions: Region[], gen: number) {
   }
 }
 
+/** Persistent warning (never auto-dismisses) with the full details one click from the clipboard. */
+function notifySkipped(skipped: Array<{ file: string; reason: string }>) {
+  const details = [
+    `Chunk delete skipped ${skipped.length} region file(s) in "${props.world}" (${dimension.value}). They were left untouched; their selected chunks were not deleted.`,
+    ...skipped.map((s) => `- ${s.file}: ${s.reason}`),
+  ].join('\n');
+  $q.notify({
+    type: 'warning',
+    timeout: 0,
+    message: `${skipped.length} region file(s) could not be changed and were left untouched.`,
+    caption: skipped.map((s) => s.file).join(', '),
+    actions: [
+      {
+        label: 'Copy details',
+        color: 'white',
+        noDismiss: true,
+        handler: () => {
+          copyToClipboard(details).then(
+            () => $q.notify({ type: 'positive', message: 'Details copied.', timeout: 1500 }),
+            () => $q.notify({ type: 'negative', message: 'Could not copy to the clipboard.' }),
+          );
+        },
+      },
+      { label: 'Dismiss', color: 'white' },
+    ],
+  });
+}
+
 async function deleteSelected() {
   busy.value = true;
   let removed = 0;
-  let skipped = 0;
+  const skippedRegions: Array<{ file: string; reason: string }> = [];
   try {
     const chunks = [...selected.value].map((k) => {
       const c = cellByKey.get(k)!;
@@ -341,18 +369,14 @@ async function deleteSelected() {
         backup: backup.value && i === 0,
       });
       removed += res.result.chunksRemoved;
-      skipped += res.result.regionsSkipped;
+      skippedRegions.push(...res.result.skippedRegions);
     }
     confirming.value = false;
     $q.notify({
       type: 'positive',
       message: `Deleted ${removed} chunk${removed === 1 ? '' : 's'}.`,
     });
-    if (skipped)
-      $q.notify({
-        type: 'warning',
-        message: `${skipped} damaged region file(s) were left untouched.`,
-      });
+    if (skippedRegions.length) notifySkipped(skippedRegions);
   } catch (err) {
     $q.notify({
       type: 'negative',

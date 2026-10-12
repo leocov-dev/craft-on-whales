@@ -56,5 +56,7 @@ export interface DeleteChunksResult {
   regionsChanged: number;
   /** Selected regions whose file couldn't be repacked safely and was left untouched. */
   regionsSkipped: number;
+  /** Why each skipped region file was left alone (file is relative to the dimension folder). */
+  skippedRegions: Array<{ file: string; reason: string }>;
   backedUp: boolean;
 }
