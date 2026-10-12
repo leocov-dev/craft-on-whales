@@ -3,6 +3,26 @@ import * as os from 'node:os';
 
 const MB = 1024 * 1024;
 
+/**
+ * Auto-sized Java heap for a new server: a modest share of host RAM, bounded.
+ * The panel is meant to run many servers side by side, and every server gets
+ * its own heap and a container limit above it, so the share is deliberately
+ * small. A 32 GB host gets 4 GB per server, a 16 GB host 2 GB, an 8 GB host 1 GB.
+ * Use DEFAULT_HEAP_MB to pick a different starting point.
+ */
+export const AUTO_HEAP_HOST_FRACTION = 0.125;
+export const AUTO_HEAP_MIN_MB = 1024;
+export const AUTO_HEAP_MAX_MB = 4096;
+
+/** The container memory limit is the heap plus this much headroom (a ratio). */
+export const CONTAINER_MEMORY_RATIO = 1.5;
+
+/** Heap, in MB, for a host with `hostMb` of RAM; rounded to 512 MB steps. */
+export function autoHeapMb(hostMb: number): number {
+  const share = Math.round((hostMb * AUTO_HEAP_HOST_FRACTION) / 512) * 512;
+  return Math.min(AUTO_HEAP_MAX_MB, Math.max(AUTO_HEAP_MIN_MB, share));
+}
+
 export interface ResourceDefaults {
   heapMb: number;
   containerMemoryMb: number;
@@ -49,13 +69,9 @@ export class ResourceDefaultsResolver {
       max: 1024 * 1024,
     });
     const hostMb = os.totalmem() / MB;
-    const autoHeap = Math.min(
-      8192,
-      Math.max(1024, Math.round((hostMb * 0.25) / 512) * 512),
-    );
-    const heapMb = envHeap || autoHeap;
+    const heapMb = envHeap || autoHeapMb(hostMb);
     const containerMemoryMb =
-      envContainer || Math.round((heapMb * 1.5) / 512) * 512;
+      envContainer || Math.round((heapMb * CONTAINER_MEMORY_RATIO) / 512) * 512;
     return {
       heapMb,
       containerMemoryMb,
