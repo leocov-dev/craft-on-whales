@@ -6,7 +6,9 @@
         <q-select
           v-if="map && map.dimensions.length > 1"
           v-model="dimension"
-          :options="map.dimensions.map((d) => d.label)"
+          :options="map.dimensions.map((d) => ({ label: dimensionName(d.label), value: d.label }))"
+          emit-value
+          map-options
           dense
           outlined
           label="Dimension"
@@ -39,6 +41,36 @@
         <q-banner v-else-if="map && !cells.length" dense class="absolute-top z-top">
           No generated chunks in this dimension.
         </q-banner>
+        <q-btn
+          round
+          dense
+          unelevated
+          color="primary"
+          :icon="showHelp ? 'close' : 'help_outline'"
+          class="absolute-top-right q-ma-sm z-top"
+          @click="showHelp = !showHelp"
+        >
+          <q-tooltip>{{ showHelp ? 'Hide controls' : 'Show controls' }}</q-tooltip>
+        </q-btn>
+        <q-card
+          v-if="showHelp"
+          flat
+          bordered
+          class="absolute-top-left q-ma-sm z-top"
+          style="pointer-events: none; opacity: 0.93"
+        >
+          <q-list dense>
+            <q-item v-for="hint in HINTS" :key="hint.action">
+              <q-item-section avatar style="min-width: 32px">
+                <q-icon :name="hint.icon" size="sm" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ hint.action }}</q-item-label>
+                <q-item-label caption>{{ hint.keys }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card>
         <canvas
           ref="canvas"
           :style="{ touchAction: 'none', cursor: dragging ? 'grabbing' : 'grab' }"
@@ -61,10 +93,7 @@
             }}, {{ hover.cz * 16 }}…{{ hover.cz * 16 + 15 }}
             <template v-if="hoverTime"> · {{ hoverTime }}</template>
           </template>
-          <template v-else>
-            {{ cells.length }} chunks · drag to pan, scroll or double-click to zoom, click to toggle
-            a chunk, shift-drag to select an area, alt-drag to deselect
-          </template>
+          <template v-else> {{ cells.length }} chunks </template>
         </div>
         <div class="row items-center q-gutter-x-sm text-caption">
           <span v-for="(step, i) in HEAT_STEPS" :key="step.label" class="row items-center">
@@ -119,6 +148,7 @@ import { serverWorldsApi, type WorldChunkMap } from '@/api/serverWorlds';
 import {
   HEAT_STEPS,
   cellsInRect,
+  dimensionName,
   chunkKey,
   heatColor,
   slotToChunk,
@@ -135,6 +165,14 @@ const DELETE_BATCH = 4096;
 const MIN_SCALE = 1;
 const MAX_SCALE = 48;
 const HEAT_CONCURRENCY = 3;
+
+const HINTS = [
+  { icon: 'pan_tool', action: 'Pan', keys: 'Drag' },
+  { icon: 'zoom_in', action: 'Zoom', keys: 'Scroll, pinch or double-click (shift to zoom out)' },
+  { icon: 'touch_app', action: 'Select or deselect one chunk', keys: 'Click' },
+  { icon: 'highlight_alt', action: 'Select an area', keys: 'Shift + drag' },
+  { icon: 'deselect', action: 'Deselect an area', keys: 'Alt, Ctrl or Cmd + drag' },
+];
 const HEAT_REFRESH_ROUNDS = 5;
 const HEAT_REFRESH_DELAY_MS = 2000;
 
@@ -159,6 +197,7 @@ const error = ref<string | null>(null);
 const map = ref<WorldChunkMap | null>(null);
 const dimension = ref('');
 const dragging = ref(false);
+const showHelp = ref(true);
 const cells = shallowRef<Cell[]>([]);
 const cellByKey = new Map<string, Cell>();
 const selected = shallowRef<Set<string>>(new Set());

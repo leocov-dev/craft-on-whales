@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cellsInRect, chunkToSlot, heatStep, slotToChunk } from './chunk-map.ts';
+import { cellsInRect, chunkToSlot, dimensionName, heatStep, slotToChunk } from './chunk-map.ts';
 
 void test('slotToChunk and chunkToSlot round-trip, including negative chunks', () => {
   for (const [cx, cz] of [
@@ -36,4 +36,17 @@ void test('heatStep buckets InhabitedTime and flags unknown', () => {
   assert.equal(heatStep(600), 1);
   assert.equal(heatStep(20 * 60 * 20), 2);
   assert.equal(heatStep(10_000_000), 3);
+});
+
+void test('dimensionName gives vanilla and custom dimensions readable names', () => {
+  assert.equal(dimensionName('.'), 'Overworld');
+  assert.equal(dimensionName('DIM-1'), 'Nether');
+  assert.equal(dimensionName('DIM1'), 'The End');
+  assert.equal(dimensionName('dimensions/minecraft/the_nether'), 'Nether');
+  assert.equal(
+    dimensionName('dimensions/twilightforest/twilight_forest'),
+    'Twilight Forest (twilightforest)',
+  );
+  assert.equal(dimensionName('world_nether/DIM-1'), 'world_nether · Nether');
+  assert.equal(dimensionName('world_nether'), 'world_nether');
 });
