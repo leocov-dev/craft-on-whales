@@ -379,6 +379,7 @@ export class ServerLifecycleService implements OnModuleInit {
       extraBindsJson: JSON.stringify(input.extraBinds || []),
     });
 
+    this.statusBus.emitServerListChanged({ serverId: id, change: 'created' });
     const server = (await this.query.getServer(id))!;
 
     try {
@@ -1027,6 +1028,7 @@ export class ServerLifecycleService implements OnModuleInit {
           .run();
       });
     }
+    this.statusBus.emitServerListChanged({ serverId: id, change: 'deleted' });
     this.events.recordEvent({
       serverId: id,
       actor,

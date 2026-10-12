@@ -65,7 +65,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useServersStore, type SortKey } from '@/stores/servers';
 import ServerCard from '@/components/ServerCard.vue';
 import PageHeader from '@/components/PageHeader.vue';
@@ -86,14 +86,6 @@ watch(sort, (v) => {
   store.sort = v;
 });
 
-let pollHandle: ReturnType<typeof setInterval> | undefined;
-
-onMounted(async () => {
-  await store.fetchServers();
-  pollHandle = setInterval(() => void store.refreshLive(), 5000);
-});
-
-onUnmounted(() => {
-  if (pollHandle) clearInterval(pollHandle);
-});
+// Live updates come from the store's /ws/servers socket (started in MainLayout).
+onMounted(() => store.fetchServers());
 </script>

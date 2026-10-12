@@ -109,12 +109,14 @@ import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useWorldUploadStore } from '@/stores/world-upload';
+import { useServersStore } from '@/stores/servers';
 import { currentTheme, setTheme } from '@/boot/theme';
 import WorldTransferIndicator from '@/components/WorldTransferIndicator.vue';
 
 const router = useRouter();
 const auth = useAuthStore();
 const uploadStore = useWorldUploadStore();
+const serversStore = useServersStore();
 
 function onBeforeUnload(e: BeforeUnloadEvent) {
   if (uploadStore.isActive) {
@@ -125,10 +127,12 @@ function onBeforeUnload(e: BeforeUnloadEvent) {
 
 onMounted(() => {
   window.addEventListener('beforeunload', onBeforeUnload);
+  serversStore.startLive();
 });
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', onBeforeUnload);
+  serversStore.stopLive();
 });
 
 const userInitials = computed(() => {

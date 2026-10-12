@@ -24,6 +24,9 @@ export interface StatusSocket {
   /** Bumped when a recreate replaced the container, so anything holding a
    *  handle on the old one (the console tab's log follower) must reconnect. */
   containerVersion: Ref<number>;
+  /** Bumped on every RECONNECT (not the first connect): pushes sent while the
+   *  socket was down are gone, so the owner must resync over HTTP. */
+  reconnects: Ref<number>;
   connected: Ref<boolean>;
   close: () => void;
 }
@@ -34,7 +37,9 @@ export function useStatusSocket(serverId: string): StatusSocket {
   const status = ref<string | null>(null);
   const version = ref(0);
   const containerVersion = ref(0);
+  const reconnects = ref(0);
   const connected = ref(false);
+  let hasConnected = false;
 
   const socket: Socket = io('/ws/status', {
     query: { serverId },
@@ -43,6 +48,8 @@ export function useStatusSocket(serverId: string): StatusSocket {
 
   socket.on('connect', () => {
     connected.value = true;
+    if (hasConnected) reconnects.value += 1;
+    hasConnected = true;
   });
   socket.on('disconnect', () => {
     connected.value = false;
@@ -61,5 +68,5 @@ export function useStatusSocket(serverId: string): StatusSocket {
     socket.disconnect();
   }
 
-  return { status, version, containerVersion, connected, close };
+  return { status, version, containerVersion, reconnects, connected, close };
 }

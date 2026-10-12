@@ -131,6 +131,35 @@ promotion (`ServerLifecycleService.refreshStatuses()`, `SERVERS_NOTES.md`'s
   its own `onUnmounted(close)` — it gets recreated on `serverId` change, not
   once per component, so `ServerDetailLayout.vue` owns closing it explicitly.
 
+## `/ws/servers` — live server list
+
+The list pages had no push path: `DashboardPage` polled `GET /servers/live`
+every 5s and `ServersPage` never refreshed after its first load.
+`ServersGateway` (`servers.gateway.ts`) is the fleet-wide counterpart of
+`/ws/status`: no `serverId` query, session-only auth
+(`authenticateGatewaySession()`), and it forwards every `StatusBusService`
+status change as `{kind:'status', serverId, status}` plus
+`{kind:'list-changed', serverId, change}` for create/delete (a third bus
+event, `server-list-changed`, emitted by `ServerLifecycleService`).
+
+- **Visibility is checked per event**, not once at connect:
+  `PermissionsService.can(user, serverId, 'view')` runs before each emit, so a
+  server hidden from the user never leaks its status, and a grant change takes
+  effect on the next event. The user is the session snapshot taken at connect.
+- **List changes carry no payload beyond the id** — the client refetches
+  `GET /servers`, which is already permission-filtered and builds the full
+  view model. A status push for an id the store doesn't know is treated the
+  same way (a server created since the last fetch).
+- **Frontend**: `useServersStore.startLive()` (called from `MainLayout`) owns
+  the one connection. It resyncs over HTTP on every (re)connect, since pushes
+  sent while disconnected are lost, and keeps a 30s `refreshLive()` poll as a
+  backstop. `refreshLive()` drops its status writes if a push landed while the
+  request was in flight; `fetchServers()` ignores out-of-order responses.
+- **Detail page**: `useStatusSocket` exposes a `reconnects` counter;
+  `ServerDetailLayout` resyncs on it, applies a pushed status to the header
+  immediately (the HTTP refetch fills in the rest), and only lets the newest
+  refetch write `server`.
+
 ## Backpressure
 
 Ported exactly: pause the docker log stream when the socket's outbound
