@@ -1,19 +1,6 @@
 <template>
   <q-page class="q-pa-md">
-    <PageHeader title="Dashboard" icon="home">
-      <template #action>
-        <q-btn-toggle
-          v-model="sort"
-          dense
-          no-caps
-          unelevated
-          toggle-color="primary"
-          color="grey-9"
-          padding="xs md"
-          :options="sortOptions"
-        />
-      </template>
-    </PageHeader>
+    <PageHeader title="Dashboard" icon="home" />
 
     <div class="row q-col-gutter-md q-mb-md">
       <div class="col-6 col-sm-3">
@@ -65,26 +52,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
-import { useServersStore, type SortKey } from '@/stores/servers';
+import { onMounted } from 'vue';
+import { useServersStore } from '@/stores/servers';
 import ServerCard from '@/components/ServerCard.vue';
 import PageHeader from '@/components/PageHeader.vue';
 import ResourceOverview from '@/components/ResourceOverview.vue';
 
 const store = useServersStore();
-
-const sortOptions: { value: SortKey; label: string }[] = [
-  { value: 'status', label: 'Status' },
-  { value: 'name', label: 'Name' },
-  { value: 'size', label: 'Size' },
-  { value: 'started', label: 'Started' },
-  { value: 'created', label: 'Created' },
-];
-
-const sort = ref<SortKey>(store.sort);
-watch(sort, (v) => {
-  store.sort = v;
-});
 
 // Live updates come from the store's /ws/servers socket (started in MainLayout).
 onMounted(() => store.fetchServers());
