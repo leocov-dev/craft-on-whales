@@ -9,7 +9,7 @@ import { io, type Socket } from 'socket.io-client';
 export interface ServersSocketHandlers {
   onStatus: (serverId: string, status: string) => void;
   /** A server was created or deleted. */
-  onListChanged: () => void;
+  onListChanged: (serverId: string, change: 'created' | 'deleted') => void;
   /** Fires on every (re)connect: events pushed while disconnected were lost, so resync. */
   onConnect: () => void;
 }
@@ -24,7 +24,7 @@ export function useServersSocket(handlers: ServersSocketHandlers): { close: () =
   socket.on('connect', handlers.onConnect);
   socket.on('message', (msg: WireMessage) => {
     if (msg.kind === 'status') handlers.onStatus(msg.serverId, msg.status);
-    else if (msg.kind === 'list-changed') handlers.onListChanged();
+    else if (msg.kind === 'list-changed') handlers.onListChanged(msg.serverId, msg.change);
   });
 
   return { close: () => socket.disconnect() };

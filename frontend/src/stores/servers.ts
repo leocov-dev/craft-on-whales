@@ -48,6 +48,8 @@ interface State {
   loading: boolean;
   loaded: boolean;
   sort: SortKey;
+  /** Replaced (new object) on every pushed deletion, so watchers fire even for a repeated id. */
+  lastRemoved: { id: string } | null;
 }
 
 export const useServersStore = defineStore('servers', {
@@ -56,6 +58,7 @@ export const useServersStore = defineStore('servers', {
     loading: false,
     loaded: false,
     sort: 'status',
+    lastRemoved: null,
   }),
 
   getters: {
@@ -126,7 +129,10 @@ export const useServersStore = defineStore('servers', {
           // Unknown id = created since we last fetched.
           if (!this.applyStatus(id, status)) resync();
         },
-        onListChanged: resync,
+        onListChanged: (id, change) => {
+          if (change === 'deleted') this.lastRemoved = { id };
+          resync();
+        },
         onConnect: resync,
       });
       livePoll = setInterval(() => {
