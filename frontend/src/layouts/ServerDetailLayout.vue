@@ -323,9 +323,15 @@ function removeServer() {
         await serversApi.remove(serverId.value);
       } catch (err) {
         deletingSelf = false;
-        throw err;
+        $q.notify({
+          type: 'negative',
+          message: err instanceof Error ? err.message : 'Could not delete this server.',
+        });
+        return;
       }
-      await serversStore.fetchServers();
+      // The server is gone either way; a failed list refresh must not strand
+      // the user on a dead page.
+      await serversStore.fetchServers().catch(() => undefined);
       await router.push('/');
     })();
   });
