@@ -7,6 +7,7 @@ import { MojangService } from '../players/mojang.service';
 import { ModsService } from '../mods/mods.service';
 import { PlayerRosterService } from '../players/player-roster.service';
 import { JvmMemoryService } from '../servers/jvm-memory.service';
+import { gcPresetOf } from '../servers/jvm-gc';
 import {
   crashReports,
   serverPacks,
@@ -104,6 +105,7 @@ export class ServerViewModelService {
         initialHeapMb: heap.initMb,
         heapGrowsOnDemand: heap.growsOnDemand,
         heapNote: heap.note,
+        gc: gcPresetOf(s.env),
       },
       stats: { cpuPct: 0, memUsedMb: 0, uptime: null },
       players: { online: 0, max: Number(s.env.MAX_PLAYERS) || 20, names: [] },

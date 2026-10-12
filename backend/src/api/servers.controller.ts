@@ -20,6 +20,7 @@ import { servers } from '../db/schema';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
+import { GC_PRESETS } from '../servers/jvm-gc';
 import { PortsService } from '../servers/ports.service';
 import { DockerSpecService } from '../servers/docker-spec.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
@@ -122,6 +123,7 @@ const patchSchema = z
     autoStart: z.coerce.boolean().optional(),
     autoRestart: z.coerce.boolean().optional(),
     env: z.record(z.string(), z.string()).optional(),
+    gc: z.enum(GC_PRESETS).optional(),
     // A URL-safe subdomain label (see McRouterService.composeHostname): lowercase
     // alnum + hyphens, no leading/trailing hyphen, 1-30 chars. Capped short of
     // DNS's 63-char label limit to keep generated hostnames readable.

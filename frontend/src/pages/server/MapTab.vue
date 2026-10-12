@@ -81,5 +81,6 @@ onMounted(load);
   height: 640px;
   border: 1px solid var(--color-line);
   border-radius: 4px;
+  background: #d9d9d9;
 }
 </style>

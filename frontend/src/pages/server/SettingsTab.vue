@@ -83,6 +83,16 @@
             filled
             dense
           />
+          <q-select
+            v-model="form.gc"
+            :options="GC_OPTIONS"
+            label="Garbage collector"
+            filled
+            dense
+            emit-value
+            map-options
+            :hint="gcHint"
+          />
           <q-input
             v-model.number="form.containerMemoryMb"
             type="number"
@@ -177,7 +187,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useQuasar } from 'quasar';
-import { serversApi, type ServerPatch } from '@/api/servers';
+import { serversApi, type GcPreset, type ServerPatch } from '@/api/servers';
 import { packsApi, type PackPlatform } from '@/api/packs';
 import { mcRouterApi } from '@/api/mcRouter';
 import { useServerDetail } from '@/composables/useServerDetail';
@@ -228,6 +238,33 @@ async function applyPick() {
   }
 }
 
+const GC_OPTIONS: { label: string; value: GcPreset; hint: string }[] = [
+  { label: 'Java default (G1)', value: 'default', hint: 'No extra flags.' },
+  {
+    label: "Aikar's flags",
+    value: 'aikar',
+    hint: 'Tuned G1 flags for Paper-family servers; a good general choice.',
+  },
+  {
+    label: 'MeowIce flags',
+    value: 'meowice',
+    hint: 'Aikar-style flags retuned for newer Java; needs Java 17 or later.',
+  },
+  {
+    label: 'ZGC',
+    value: 'zgc',
+    hint: 'Low-pause collector for large heaps; needs Java 17 or later (generational from Java 23).',
+  },
+  {
+    label: 'Shenandoah',
+    value: 'shenandoah',
+    hint: 'Low-pause collector; not present in every Java build.',
+  },
+  { label: 'Parallel', value: 'parallel', hint: 'Throughput-first; longer pauses.' },
+  { label: 'Serial', value: 'serial', hint: 'Single-threaded; for very small heaps or one CPU.' },
+];
+const gcHint = computed(() => GC_OPTIONS.find((o) => o.value === form.value.gc)?.hint ?? '');
+
 const form = ref<ServerPatch>({});
 const tagsText = ref('');
 const saving = ref(false);
@@ -267,6 +304,7 @@ function loadForm() {
     description: server.value.description,
     notes: server.value.notes,
     heapMb: server.value.resources.heapMb,
+    gc: server.value.resources.gc,
     containerMemoryMb: server.value.resources.containerMemoryMb,
     cpus: server.value.resources.cpus,
     diskQuotaGb: Math.round(server.value.disk.quota / 1024 ** 3),
