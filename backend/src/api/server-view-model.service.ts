@@ -19,11 +19,20 @@ import type {
   PackViewModel,
   ServerViewModel,
   ServerStatus,
+  LiveServerData,
 } from '../../../shared/types/servers';
 
 export type { PackViewModel, ServerViewModel };
 
 const GB = 1024 ** 3;
+
+/** Statuses whose container is up, so live stats are worth fetching. */
+const LIVE_STATUSES: ReadonlySet<string> = new Set([
+  'running',
+  'starting',
+  'unhealthy',
+  'stalled',
+]);
 
 const PLATFORM_NAMES: Record<string, string> = {
   curseforge: 'CurseForge',
@@ -116,13 +125,7 @@ export class ServerViewModelService {
       consoleLabel: s.console_label || '',
     };
 
-    if (
-      withLive &&
-      (s.status === 'running' ||
-        s.status === 'starting' ||
-        s.status === 'unhealthy' ||
-        s.status === 'stalled')
-    ) {
+    if (withLive && LIVE_STATUSES.has(s.status)) {
       const [sample, onlineNames] = await Promise.all([
         this.stats.statsOnce(s.id).catch(() => null),
         this.playerRoster.listOnlineNames(s.id).catch(() => [] as string[]),
@@ -142,6 +145,35 @@ export class ServerViewModelService {
         };
     }
     return vm;
+  }
+
+  /**
+   * The cheap per-poll slice of `serverVM`'s live data for `GET /servers/live`:
+   * CPU/memory from one Docker stats call plus the container start time. Player
+   * counts are deliberately `null` — they need an RCON `list`, which prints in
+   * the server's console on every call, so polling them would spam it; the
+   * client keeps the last full-list value instead.
+   */
+  async liveData(s: Server): Promise<LiveServerData> {
+    const live: LiveServerData = {
+      status: s.status as ServerStatus,
+      cpuPct: null,
+      memUsedMb: null,
+      players: null,
+      startedAt: null,
+      phase: null,
+    };
+    if (!LIVE_STATUSES.has(s.status)) return live;
+    const [sample, info] = await Promise.all([
+      this.stats.statsOnce(s.id).catch(() => null),
+      this.containers.inspectStatus(s.id).catch(() => null),
+    ]);
+    if (sample) {
+      live.cpuPct = sample.cpuPct;
+      live.memUsedMb = Math.round(sample.memUsedBytes / 1024 / 1024);
+    }
+    live.startedAt = info?.startedAt ?? null;
+    return live;
   }
 
   private async getPackUpdateCheck(serverId: string) {
