@@ -227,7 +227,7 @@ export class WorldChunksService {
         const existing = new Set(await regionFileNames(folder.regionDir));
         let chunksRemoved = 0;
         let regionsChanged = 0;
-        let regionsSkipped = 0;
+        const skippedRegions: DeleteChunksResult['skippedRegions'] = [];
         for (const [file, slots] of byFile) {
           if (!existing.has(file)) continue;
           const keep = (idx: number) => !slots.has(idx);
@@ -240,8 +240,13 @@ export class WorldChunksService {
                 false,
               )
             ).removed;
-          } catch {
-            regionsSkipped++;
+          } catch (err) {
+            skippedRegions.push({
+              file: `${path.basename(folder.regionDir)}/${file}`,
+              reason: (err instanceof Error ? err.message : String(err))
+                .split(folder.regionDir)
+                .join('<region dir>'),
+            });
             continue;
           }
           if (!removed) continue;
@@ -274,7 +279,8 @@ export class WorldChunksService {
           dimension,
           chunksRemoved,
           regionsChanged,
-          regionsSkipped,
+          regionsSkipped: skippedRegions.length,
+          skippedRegions,
           backedUp: wantBackup,
         };
       });

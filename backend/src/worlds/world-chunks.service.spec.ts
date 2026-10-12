@@ -170,6 +170,27 @@ describe('WorldChunksService', () => {
     );
   });
 
+  it('reports a truncated region file as skipped, with the reason, and leaves it alone', async () => {
+    const full = region();
+    const cut = full.subarray(0, full.length - 4096); // chops the last slot's data
+    write('world/region/r.0.0.mca', cut);
+    const r = await service.deleteChunks('srv_a', {
+      worldName: 'world',
+      dimension: '.',
+      chunks: [{ cx: 1, cz: 0 }],
+      backup: false,
+    });
+    expect(r.regionsSkipped).toBe(1);
+    expect(r.skippedRegions).toHaveLength(1);
+    expect(r.skippedRegions[0]?.file).toBe('region/r.0.0.mca');
+    expect(r.skippedRegions[0]?.reason).toContain('truncated');
+    expect(
+      fs
+        .readFileSync(path.join(serverDir(), 'world/region/r.0.0.mca'))
+        .equals(cut),
+    ).toBe(true);
+  });
+
   it('maps negative chunk coordinates to the right region slot', async () => {
     // chunk (-1,-1) lives in region r.-1.-1 at local slot (31, 31)
     const r = await service.deleteChunks('srv_a', {
