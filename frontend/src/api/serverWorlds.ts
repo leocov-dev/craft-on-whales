@@ -68,7 +68,7 @@ export const serverWorldsApi = {
       `/api/servers/${serverId}/worlds/${encodeURIComponent(world)}/chunks`,
     ),
   regionInhabited: (serverId: string, world: string, dimension: string, rx: number, rz: number) =>
-    http.get<{ ok: true; ticks: Array<number | null> }>(
+    http.get<{ ok: true; ticks: Array<number | null>; stale: boolean }>(
       `/api/servers/${serverId}/worlds/${encodeURIComponent(world)}/chunks/inhabited?` +
         new URLSearchParams({ dimension, rx: String(rx), rz: String(rz) }).toString(),
     ),

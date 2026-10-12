@@ -363,7 +363,10 @@ export class ServerWorldsController {
     return { ok: true, ...(await this.chunks.listChunks(id, world)) };
   }
 
-  /** InhabitedTime per slot for one region, for the chunk map's activity shading. */
+  /**
+   * InhabitedTime per slot for one region, for the chunk map's activity shading. `stale: true`
+   * means a cached result for an older version of the file is being refreshed in the background.
+   */
   @RequireServerPermission('content')
   @Get(':world/chunks/inhabited')
   async regionInhabited(
@@ -381,7 +384,7 @@ export class ServerWorldsController {
     );
     return {
       ok: true,
-      ticks: await this.chunks.regionInhabited(id, world, dimension, rx, rz),
+      ...(await this.chunks.regionInhabited(id, world, dimension, rx, rz)),
     };
   }
 
