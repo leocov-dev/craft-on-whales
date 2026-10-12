@@ -48,6 +48,7 @@ import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerLocksService } from './server-locks.service';
 import { PackPinGuardService } from './pack-pin-guard.service';
+import { GC_PRESET_ENV_KEY, gcPresetOf, type GcPreset } from './jvm-gc';
 import { StatusBusService } from '../status-bus/status-bus.service';
 // Injected via SCHEDULER_CONTRACT (below) instead of a direct SchedulerService
 // reference — a plain `import { SchedulerService }` here would drag
@@ -162,6 +163,7 @@ export interface UpdateServerChanges {
   updatePolicy?: string;
   tags?: string[];
   env?: Record<string, string>;
+  gc?: GcPreset;
   containerName?: string | null;
   networkName?: string | null;
   extraPorts?: ServerExtraPort[];
@@ -783,12 +785,18 @@ export class ServerLifecycleService implements OnModuleInit {
       diff.tags = [before.tags, changes.tags];
       set.tagsJson = JSON.stringify(changes.tags);
     }
-    if (changes.env) {
+    // `gc` is a view onto one env key, so it rides the env write below,
+    // layered over the incoming env (or the stored one when none is sent).
+    const nextEnv =
+      changes.gc !== undefined && changes.gc !== gcPresetOf(before.env)
+        ? { ...(changes.env ?? before.env), [GC_PRESET_ENV_KEY]: changes.gc }
+        : changes.env;
+    if (nextEnv && JSON.stringify(nextEnv) !== JSON.stringify(before.env)) {
       // The type column is not editable here, so the pinning check runs
       // against the server's existing type with the incoming env.
-      this.packPinGuard.assertPinned(before.type, changes.env);
+      this.packPinGuard.assertPinned(before.type, nextEnv);
       diff.env = ['(changed)', '(changed)'];
-      set.envJson = JSON.stringify(changes.env);
+      set.envJson = JSON.stringify(nextEnv);
       // A passing env write can only leave a pinned selector (or none at
       // all) — clear any prior "needs manual pin" flag from the boot sweep.
       set.packPinNeedsReview = false;

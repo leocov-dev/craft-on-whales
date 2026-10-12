@@ -135,6 +135,17 @@
           <q-tooltip>Restart</q-tooltip>
         </q-btn>
       </template>
+      <q-btn
+        v-if="server.status === 'running'"
+        flat
+        dense
+        round
+        icon="terminal"
+        :to="`/servers/${server.id}/console`"
+        @click.stop
+      >
+        <q-tooltip>Console</q-tooltip>
+      </q-btn>
       <q-btn flat dense round icon="edit" :to="`/servers/${server.id}`" @click.stop>
         <q-tooltip>Manage</q-tooltip>
       </q-btn>
