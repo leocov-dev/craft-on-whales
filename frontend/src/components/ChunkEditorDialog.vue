@@ -135,6 +135,8 @@ const DELETE_BATCH = 4096;
 const MIN_SCALE = 1;
 const MAX_SCALE = 48;
 const HEAT_CONCURRENCY = 3;
+const HEAT_REFRESH_ROUNDS = 5;
+const HEAT_REFRESH_DELAY_MS = 2000;
 
 interface Region {
   rx: number;
@@ -239,32 +241,47 @@ function buildCells(fit: boolean) {
   void loadHeat(regions, generation);
 }
 
-/** Fetch InhabitedTime region by region, a few at a time, so shading fills in progressively. */
+/**
+ * Fetch InhabitedTime region by region, a few at a time, so shading fills in progressively.
+ * The server answers from its cache straight away; regions it flags `stale` are refreshing in
+ * the background, so ask for those again a few times.
+ */
 async function loadHeat(regions: Region[], gen: number) {
   heatLoaded.value = 0;
   heatTotal.value = regions.length;
-  const queue = [...regions];
-  const worker = async () => {
-    for (let r = queue.shift(); r; r = queue.shift()) {
-      try {
-        const res = await serverWorldsApi.regionInhabited(
-          props.serverId,
-          props.world,
-          dimension.value,
-          r.rx,
-          r.rz,
-        );
-        if (gen !== generation) return;
-        r.ticks = res.ticks;
-      } catch {
-        if (gen !== generation) return;
-        /* leave this region grey; the grid is still usable */
+  const pass = async (list: Region[], countProgress: boolean) => {
+    const queue = [...list];
+    const stale: Region[] = [];
+    const worker = async () => {
+      for (let r = queue.shift(); r; r = queue.shift()) {
+        try {
+          const res = await serverWorldsApi.regionInhabited(
+            props.serverId,
+            props.world,
+            dimension.value,
+            r.rx,
+            r.rz,
+          );
+          if (gen !== generation) return;
+          r.ticks = res.ticks;
+          if (res.stale) stale.push(r);
+        } catch {
+          if (gen !== generation) return;
+          /* leave this region as it was; the grid is still usable */
+        }
+        if (countProgress) heatLoaded.value++;
+        schedule();
       }
-      heatLoaded.value++;
-      schedule();
-    }
+    };
+    await Promise.all(Array.from({ length: HEAT_CONCURRENCY }, worker));
+    return stale;
   };
-  await Promise.all(Array.from({ length: HEAT_CONCURRENCY }, worker));
+  let pending = await pass(regions, true);
+  for (let round = 0; round < HEAT_REFRESH_ROUNDS && pending.length; round++) {
+    await new Promise((resolve) => setTimeout(resolve, HEAT_REFRESH_DELAY_MS));
+    if (gen !== generation) return;
+    pending = await pass(pending, false);
+  }
 }
 
 async function deleteSelected() {

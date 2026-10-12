@@ -263,6 +263,11 @@ atomic repack, companion `entities`/`poi` handling).
 - Listing reads only each region's first 4 KiB, so it is cheap on huge worlds.
   InhabitedTime (the map's shading) is a separate per-region route because it
   has to decompress every chunk in the region.
+- That shading is cached in memory per region, keyed by file mtime + size, and
+  served stale-while-revalidate: a changed region returns its old result
+  immediately (`stale: true`) while one background recompute runs, and the UI
+  re-requests stale regions a few times. Only a region never computed since
+  the panel started blocks on the read. The cache is not persisted.
 - Dimensions are addressed by the `label` this service produced, never a
   client-supplied path; region file names are built from integer coordinates
   and checked against the directory listing.

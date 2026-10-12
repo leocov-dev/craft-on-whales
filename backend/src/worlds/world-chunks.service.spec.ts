@@ -94,11 +94,38 @@ describe('WorldChunksService', () => {
   });
 
   it('reports InhabitedTime per slot, null where absent', async () => {
-    const ticks = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    const { ticks, stale } = await service.regionInhabited(
+      'srv_a',
+      'world',
+      '.',
+      0,
+      0,
+    );
+    expect(stale).toBe(false);
     expect(ticks).toHaveLength(1024);
     expect(ticks[slot(0, 0)]).toBe(100);
     expect(ticks[slot(1, 0)]).toBe(5000);
     expect(ticks[slot(5, 5)]).toBeNull();
+  });
+
+  it('serves cached InhabitedTime stale while a changed region recomputes', async () => {
+    const file = path.join(serverDir(), 'world/region/r.0.0.mca');
+    const first = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    expect(
+      (await service.regionInhabited('srv_a', 'world', '.', 0, 0)).stale,
+    ).toBe(false);
+
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, later, later);
+    const stale = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    expect(stale).toEqual({ ticks: first.ticks, stale: true });
+
+    let fresh = stale;
+    for (let i = 0; i < 50 && fresh.stale; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      fresh = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    }
+    expect(fresh.stale).toBe(false);
   });
 
   it('rejects an unknown dimension or region', async () => {
