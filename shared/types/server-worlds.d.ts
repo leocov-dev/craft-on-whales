@@ -26,3 +26,35 @@ export interface ShrinkWorldResult {
   /** Spawn chunk used for protection, and where it came from. */
   spawn: { cx: number; cz: number; source: 'level.dat' | 'origin' };
 }
+
+/** One dimension's region files, as chunk slots that exist. */
+export interface WorldChunkDimension {
+  /** Region folder relative to the world folder (e.g. `.`, `DIM-1`); also the id used by the other chunk routes. */
+  label: string;
+  regions: Array<{
+    rx: number;
+    rz: number;
+    /** Occupied slots 0..1023 within the region (`x + z * 32`). */
+    slots: number[];
+  }>;
+}
+
+/** `GET /api/servers/:id/worlds/:world/chunks` */
+export interface WorldChunkMap {
+  worldName: string;
+  dimensions: WorldChunkDimension[];
+  /** Spawn chunk and where it came from. */
+  spawn: { cx: number; cz: number; source: 'level.dat' | 'origin' };
+}
+
+/** `POST /api/servers/:id/worlds/chunks/delete` */
+export interface DeleteChunksResult {
+  worldName: string;
+  dimension: string;
+  /** Chunks actually removed (selected chunks that didn't exist are not counted). */
+  chunksRemoved: number;
+  regionsChanged: number;
+  /** Selected regions whose file couldn't be repacked safely and was left untouched. */
+  regionsSkipped: number;
+  backedUp: boolean;
+}

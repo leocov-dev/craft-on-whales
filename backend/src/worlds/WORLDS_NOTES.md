@@ -251,3 +251,22 @@ knowing before changing it:
   is deleted.
 - Not ported: upstream's "also shrink after a backup" option on manual and
   scheduled backups. The Worlds-tab flow is the whole feature for now.
+
+## Chunk editor (`WorldChunksService`)
+
+Chunk-level list and delete over the same region files `WorldShrinkService`
+works on; both share `world-region-files.ts` (region-folder discovery, the
+atomic repack, companion `entities`/`poi` handling).
+
+- "Delete" and "reset" are one operation: drop the slot from the region (and
+  its `entities`/`poi` siblings) and Minecraft regenerates it from the seed.
+- Listing reads only each region's first 4 KiB, so it is cheap on huge worlds.
+  InhabitedTime (the map's shading) is a separate per-region route because it
+  has to decompress every chunk in the region.
+- Dimensions are addressed by the `label` this service produced, never a
+  client-supplied path; region file names are built from integer coordinates
+  and checked against the directory listing.
+- Delete order matters: stopped-check, then the `chunk-edit` lifecycle guard,
+  then the `pre-restore` backup, and only then the save lock. `createBackup`
+  takes the (non-re-entrant) save lock itself, so the backup must come first.
+- No spawn protection, unlike shrink: the user picks exact chunks.

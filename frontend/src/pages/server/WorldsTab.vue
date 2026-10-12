@@ -32,6 +32,9 @@
                 <q-tooltip>Duplicate</q-tooltip>
               </q-btn>
               <q-btn flat dense round icon="edit" @click="renamePrompt(w)" />
+              <q-btn flat dense round icon="grid_view" @click="chunkTarget = w">
+                <q-tooltip>Chunk editor</q-tooltip>
+              </q-btn>
               <q-btn flat dense round icon="compress" @click="shrinkTarget = w">
                 <q-tooltip>Shrink (remove unvisited chunks)</q-tooltip>
               </q-btn>
@@ -58,6 +61,15 @@
       </q-list>
     </q-card>
 
+    <ChunkEditorDialog
+      v-if="chunkTarget && server"
+      :server-id="server.id"
+      :world="chunkTarget.name"
+      :server-stopped="serverStopped"
+      @close="chunkTarget = null"
+      @changed="load"
+    />
+
     <ShrinkWorldDialog
       v-if="shrinkTarget && server"
       :server-id="server.id"
@@ -76,6 +88,7 @@ import { serverWorldsApi, type ServerWorldSummary } from '@/api/serverWorlds';
 import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { useAuthStore } from '@/stores/auth';
+import ChunkEditorDialog from '@/components/ChunkEditorDialog.vue';
 import ShrinkWorldDialog from '@/components/ShrinkWorldDialog.vue';
 
 const $q = useQuasar();
@@ -84,6 +97,7 @@ const auth = useAuthStore();
 
 const worlds = ref<ServerWorldSummary[]>([]);
 const shrinkTarget = ref<ServerWorldSummary | null>(null);
+const chunkTarget = ref<ServerWorldSummary | null>(null);
 const serverStopped = computed(() => ['stopped', 'crashed'].includes(server.value?.status ?? ''));
 
 async function load() {
