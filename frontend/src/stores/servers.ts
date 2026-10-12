@@ -7,29 +7,6 @@ import {
 } from '@/api/servers';
 import { useServersSocket } from '@/composables/useServersSocket';
 
-export type SortKey = 'status' | 'name' | 'size' | 'started' | 'created';
-
-// Mirrors src/web/routes/index.ts's STATUS_RANK — lower sorts first.
-const STATUS_RANK: Record<string, number> = {
-  running: 0,
-  unhealthy: 1,
-  starting: 2,
-  updating: 3,
-  stalled: 4,
-  crashed: 5,
-  'over-quota': 6,
-  stopped: 7,
-};
-
-const SORTERS: Record<SortKey, (a: ServerViewModel, b: ServerViewModel) => number> = {
-  status: (a, b) =>
-    (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9) || a.name.localeCompare(b.name),
-  name: (a, b) => a.name.localeCompare(b.name),
-  size: (a, b) => b.disk.used - a.disk.used,
-  started: (a, b) => String(b.lastStarted).localeCompare(String(a.lastStarted)),
-  created: (a, b) => String(b.created).localeCompare(String(a.created)),
-};
-
 // Safety-net poll for anything the status bus doesn't carry (and for a push
 // that was dropped); status itself arrives over /ws/servers.
 const LIVE_POLL_MS = 30_000;
@@ -47,7 +24,6 @@ interface State {
   servers: ServerViewModel[];
   loading: boolean;
   loaded: boolean;
-  sort: SortKey;
   /** Replaced (new object) on every pushed deletion, so watchers fire even for a repeated id. */
   lastRemoved: { id: string } | null;
 }
@@ -57,12 +33,14 @@ export const useServersStore = defineStore('servers', {
     servers: [],
     loading: false,
     loaded: false,
-    sort: 'status',
     lastRemoved: null,
   }),
 
   getters: {
-    sorted: (state) => [...state.servers].sort(SORTERS[state.sort]),
+    sorted: (state) =>
+      [...state.servers].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
+      ),
     totals: (state) => ({
       running: state.servers.filter((s) => s.status === 'running' || s.status === 'unhealthy')
         .length,

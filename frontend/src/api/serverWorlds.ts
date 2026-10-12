@@ -50,6 +50,10 @@ export const serverWorldsApi = {
       `/api/servers/${serverId}/worlds/activate`,
       { world },
     ),
+  reset: (
+    serverId: string,
+    opts: { seedMode: 'keep' | 'random' | 'custom'; seed?: string; backup: boolean },
+  ) => http.post<{ ok: true }>(`/api/servers/${serverId}/worlds/reset`, opts),
   shrink: (
     serverId: string,
     opts: {

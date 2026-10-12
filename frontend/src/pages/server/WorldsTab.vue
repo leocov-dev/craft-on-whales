@@ -31,9 +31,14 @@
               <q-btn flat dense round icon="content_copy" @click="duplicate(w)">
                 <q-tooltip>Duplicate</q-tooltip>
               </q-btn>
-              <q-btn flat dense round icon="edit" @click="renamePrompt(w)" />
+              <q-btn flat dense round icon="edit" @click="renamePrompt(w)">
+                <q-tooltip>Rename</q-tooltip>
+              </q-btn>
               <q-btn flat dense round icon="grid_view" @click="chunkTarget = w">
                 <q-tooltip>Chunk editor</q-tooltip>
+              </q-btn>
+              <q-btn v-if="w.active" flat dense round icon="casino" @click="reseedTarget = w">
+                <q-tooltip>New seed (regenerate world)</q-tooltip>
               </q-btn>
               <q-btn flat dense round icon="compress" @click="shrinkTarget = w">
                 <q-tooltip>Shrink (remove unvisited chunks)</q-tooltip>
@@ -45,7 +50,9 @@
                 round
                 icon="download"
                 :href="serverWorldsApi.downloadUrl(server!.id, w.name)"
-              />
+              >
+                <q-tooltip>Download</q-tooltip>
+              </q-btn>
               <q-btn
                 v-if="!w.active"
                 flat
@@ -54,7 +61,9 @@
                 icon="delete"
                 color="negative"
                 @click="removeWorld(w)"
-              />
+              >
+                <q-tooltip>Delete</q-tooltip>
+              </q-btn>
             </div>
           </q-item-section>
         </q-item>
@@ -68,6 +77,15 @@
       :server-stopped="serverStopped"
       @close="chunkTarget = null"
       @changed="load"
+    />
+
+    <ReseedWorldDialog
+      v-if="reseedTarget && server"
+      :server-id="server.id"
+      :world="reseedTarget.name"
+      :server-stopped="serverStopped"
+      @close="reseedTarget = null"
+      @reset="load"
     />
 
     <ShrinkWorldDialog
@@ -89,6 +107,7 @@ import { formatBytes } from '@/composables/useServerStatus';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { useAuthStore } from '@/stores/auth';
 import ChunkEditorDialog from '@/components/ChunkEditorDialog.vue';
+import ReseedWorldDialog from '@/components/ReseedWorldDialog.vue';
 import ShrinkWorldDialog from '@/components/ShrinkWorldDialog.vue';
 
 const $q = useQuasar();
@@ -96,6 +115,7 @@ const { server } = useServerDetail();
 const auth = useAuthStore();
 
 const worlds = ref<ServerWorldSummary[]>([]);
+const reseedTarget = ref<ServerWorldSummary | null>(null);
 const shrinkTarget = ref<ServerWorldSummary | null>(null);
 const chunkTarget = ref<ServerWorldSummary | null>(null);
 const serverStopped = computed(() => ['stopped', 'crashed'].includes(server.value?.status ?? ''));
