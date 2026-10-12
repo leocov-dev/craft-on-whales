@@ -106,6 +106,17 @@ export function parseHeader(buf: Buffer): RegionEntry[] {
   return out;
 }
 
+/** Slots (0..1023) that hold a chunk, from the first 4 KiB of a region file. */
+export function presentSlots(header: Buffer): number[] {
+  const out: number[] = [];
+  if (header.length < SECTOR) return out;
+  for (let i = 0; i < ENTRIES; i++) {
+    const loc = header.readUInt32BE(i * 4);
+    if (loc >>> 8 !== 0 && (loc & 0xff) !== 0) out.push(i);
+  }
+  return out;
+}
+
 /**
  * Decompress + decode one chunk and return its InhabitedTime in ticks, or null
  * when it can't be read (callers treat that as "keep").

@@ -3,9 +3,14 @@
 // src/web/routes/worlds.ts's serverWorlds sub-router.
 
 import { http } from './http';
-import type { ServerWorldSummary, ShrinkWorldResult } from '../../../shared/types/server-worlds';
+import type {
+  DeleteChunksResult,
+  ServerWorldSummary,
+  ShrinkWorldResult,
+  WorldChunkMap,
+} from '../../../shared/types/server-worlds';
 
-export type { ServerWorldSummary, ShrinkWorldResult };
+export type { DeleteChunksResult, ServerWorldSummary, ShrinkWorldResult, WorldChunkMap };
 
 interface CopyToResponse {
   ok: true;
@@ -56,6 +61,28 @@ export const serverWorldsApi = {
   ) =>
     http.post<{ ok: true; result: ShrinkWorldResult }>(
       `/api/servers/${serverId}/worlds/shrink`,
+      opts,
+    ),
+  chunks: (serverId: string, world: string) =>
+    http.get<{ ok: true } & WorldChunkMap>(
+      `/api/servers/${serverId}/worlds/${encodeURIComponent(world)}/chunks`,
+    ),
+  regionInhabited: (serverId: string, world: string, dimension: string, rx: number, rz: number) =>
+    http.get<{ ok: true; ticks: Array<number | null> }>(
+      `/api/servers/${serverId}/worlds/${encodeURIComponent(world)}/chunks/inhabited?` +
+        new URLSearchParams({ dimension, rx: String(rx), rz: String(rz) }).toString(),
+    ),
+  deleteChunks: (
+    serverId: string,
+    opts: {
+      world: string;
+      dimension: string;
+      chunks: Array<{ cx: number; cz: number }>;
+      backup: boolean;
+    },
+  ) =>
+    http.post<{ ok: true; result: DeleteChunksResult }>(
+      `/api/servers/${serverId}/worlds/chunks/delete`,
       opts,
     ),
   downloadUrl: (serverId: string, world: string) =>

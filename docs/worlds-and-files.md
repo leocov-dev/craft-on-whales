@@ -18,6 +18,15 @@ Worlds only grow: every chunk a player flies past stays on disk. **Shrink** (the
 - Chunks the panel can't read are kept and counted, and a damaged region file is left alone.
 - **Preview** shows how much would be freed and works while the server runs. Shrinking itself needs the server stopped, and can't be undone, so take a [backup](backups.md) first.
 
+### Deleting chunks
+
+The **chunk editor** (the grid button on a world in the Worlds tab) shows every generated chunk as a map, shaded by how long players have spent in it. Use it to delete (reset) specific chunks, for example a corrupted area. Minecraft regenerates a deleted chunk from the seed the next time it loads.
+
+- **Pan** drags the map and scroll zooms. **Select** drags a rectangle (shift-drag deselects, click toggles one chunk). The amber ring marks the world spawn.
+- Every dimension has its own map, and a deleted chunk's entities and villager job sites go with it.
+- Looking works while the server runs. Deleting needs it stopped, and takes a [backup](backups.md) first unless you untick that.
+- At most 4096 chunks can be deleted in one go.
+
 ## The file manager
 
 Under a server's **World** section, the **Files** tab is a full in-browser file manager for that server's data directory. List, read, edit, create, rename, move, copy, delete, and upload files — everything you'd normally do over SSH, from the browser.

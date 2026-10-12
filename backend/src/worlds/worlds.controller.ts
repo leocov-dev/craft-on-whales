@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UploadedFile,
@@ -28,6 +29,7 @@ import { libraryFiles } from '../db/schema';
 import { WorldOperationsService } from './world-operations.service';
 import { WorldLibraryService } from './world-library.service';
 import { WorldShrinkService } from './world-shrink.service';
+import { MAX_DELETE_CHUNKS, WorldChunksService } from './world-chunks.service';
 import type { SimpleWorld } from '../../../shared/types/worlds';
 import { currentUser } from '../auth/current-user';
 import { Roles } from '../auth/roles.decorator';
@@ -227,6 +229,7 @@ export class ServerWorldsController {
   constructor(
     private readonly ops: WorldOperationsService,
     private readonly shrink: WorldShrinkService,
+    private readonly chunks: WorldChunksService,
     private readonly permissions: PermissionsService,
   ) {}
 
@@ -347,6 +350,66 @@ export class ServerWorldsController {
       ok: true,
       result: await this.shrink.shrinkWorld(id, {
         ...opts,
+        worldName: world,
+        actor: actorOf(req),
+      }),
+    };
+  }
+
+  /** Which chunks exist in each dimension of a world (header reads; fine on a running server). */
+  @RequireServerPermission('content')
+  @Get(':world/chunks')
+  async listChunks(@Param('id') id: string, @Param('world') world: string) {
+    return { ok: true, ...(await this.chunks.listChunks(id, world)) };
+  }
+
+  /** InhabitedTime per slot for one region, for the chunk map's activity shading. */
+  @RequireServerPermission('content')
+  @Get(':world/chunks/inhabited')
+  async regionInhabited(
+    @Param('id') id: string,
+    @Param('world') world: string,
+    @Query() query: unknown,
+  ) {
+    const { dimension, rx, rz } = parseBody(
+      z.object({
+        dimension: z.string().min(1).max(256),
+        rx: z.coerce.number().int().min(-1_000_000).max(1_000_000),
+        rz: z.coerce.number().int().min(-1_000_000).max(1_000_000),
+      }),
+      query,
+    );
+    return {
+      ok: true,
+      ticks: await this.chunks.regionInhabited(id, world, dimension, rx, rz),
+    };
+  }
+
+  /** Delete (= reset) chunks. Needs the server stopped; takes a safety backup first by default. */
+  @RequireServerPermission('content')
+  @Post('chunks/delete')
+  async deleteChunks(@Param('id') id: string, @Req() req: Request) {
+    const { world, ...body } = parseBody(
+      z.object({
+        world: worldNameSchema,
+        dimension: z.string().min(1).max(256),
+        chunks: z
+          .array(
+            z.object({
+              cx: z.number().int().min(-1_000_000).max(1_000_000),
+              cz: z.number().int().min(-1_000_000).max(1_000_000),
+            }),
+          )
+          .min(1)
+          .max(MAX_DELETE_CHUNKS),
+        backup: z.boolean().default(true),
+      }),
+      req.body,
+    );
+    return {
+      ok: true,
+      result: await this.chunks.deleteChunks(id, {
+        ...body,
         worldName: world,
         actor: actorOf(req),
       }),
