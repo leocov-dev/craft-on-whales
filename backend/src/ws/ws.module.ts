@@ -8,6 +8,7 @@ import { StatusBusModule } from '../status-bus/status-bus.module';
 import { ConsoleGateway } from './console.gateway';
 import { StatsGateway } from './stats.gateway';
 import { StatusGateway } from './status.gateway';
+import { ServersGateway } from './servers.gateway';
 
 @Module({
   imports: [
@@ -18,6 +19,6 @@ import { StatusGateway } from './status.gateway';
     StatusBusModule,
     MonitoringModule,
   ],
-  providers: [ConsoleGateway, StatsGateway, StatusGateway],
+  providers: [ConsoleGateway, StatsGateway, StatusGateway, ServersGateway],
 })
 export class WsModule {}

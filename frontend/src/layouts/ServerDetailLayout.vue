@@ -110,7 +110,12 @@
 import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { serversApi, type LifecycleAction, type ServerDetail } from '@/api/servers';
+import {
+  serversApi,
+  type LifecycleAction,
+  type ServerDetail,
+  type ServerStatus,
+} from '@/api/servers';
 import { statusMeta, iconSrc } from '@/composables/useServerStatus';
 import { serverDetailKey } from '@/composables/useServerDetail';
 import { useStatusSocket } from '@/composables/useStatusSocket';
@@ -190,18 +195,25 @@ const meta = computed(() => statusMeta(server.value?.status ?? 'stopped'));
 // fires this without awaiting the failure path, and an expired session or a
 // server deleted by another user would otherwise surface as an unhandled
 // rejection instead of a message.
+// Only the newest request may write `server`: pushes can fire several
+// refetches back to back, and a slow older response landing last would
+// otherwise roll the header/status chip back to a stale status.
+let refreshSeq = 0;
 async function refresh() {
+  const seq = ++refreshSeq;
   loading.value = true;
   try {
     const res = await serversApi.get(serverId.value);
+    if (seq !== refreshSeq) return;
     server.value = res.server;
   } catch (err) {
+    if (seq !== refreshSeq) return;
     $q.notify({
       type: 'negative',
       message: err instanceof Error ? err.message : 'Could not load this server.',
     });
   } finally {
-    loading.value = false;
+    if (seq === refreshSeq) loading.value = false;
   }
 }
 
@@ -232,6 +244,13 @@ function openStatusSocket() {
   // while already `starting` pushes `starting` again) is a real change, and a
   // watcher on the value would drop it.
   const stopStatus = watch(sock.version, () => {
+    // Show the pushed status right away; the refetch fills in the rest.
+    if (server.value && sock.status.value) server.value.status = sock.status.value as ServerStatus;
+    statusVersion.value += 1;
+    void refresh();
+  });
+  // Pushes sent while the socket was down never arrive: resync once it's back.
+  const stopReconnect = watch(sock.reconnects, () => {
     statusVersion.value += 1;
     void refresh();
   });
@@ -240,6 +259,7 @@ function openStatusSocket() {
   });
   stopStatusWatch = () => {
     stopStatus();
+    stopReconnect();
     stopContainer();
   };
 }

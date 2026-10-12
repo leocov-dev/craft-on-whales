@@ -24,6 +24,30 @@ function hasValidOrigin(config: ConfigService, client: Socket): boolean {
 }
 
 /**
+ * Origin check + session cookie only — the part of `authenticateGatewayConnection`
+ * that doesn't depend on a `serverId`, for fleet-wide sockets (`/ws/servers`).
+ * Disconnects the client and returns null on failure.
+ */
+export async function authenticateGatewaySession(
+  config: ConfigService,
+  sessions: SessionService,
+  client: Socket,
+): Promise<PublicUser | null> {
+  if (!hasValidOrigin(config, client)) {
+    client.disconnect(true);
+    return null;
+  }
+  const user = await sessions.authenticateFromCookieHeader(
+    client.handshake.headers.cookie,
+  );
+  if (!user) {
+    client.disconnect(true);
+    return null;
+  }
+  return user;
+}
+
+/**
  * Shared `handleConnection` auth: validates the handshake's Origin/Referer,
  * authenticates the socket's session cookie, validates the `serverId`
  * handshake query param, and checks the `view` permission on it —
@@ -41,17 +65,8 @@ export async function authenticateGatewayConnection(
   permissions: PermissionsService,
   client: Socket,
 ): Promise<{ user: PublicUser; serverId: string } | null> {
-  if (!hasValidOrigin(config, client)) {
-    client.disconnect(true);
-    return null;
-  }
-  const user = await sessions.authenticateFromCookieHeader(
-    client.handshake.headers.cookie,
-  );
-  if (!user) {
-    client.disconnect(true);
-    return null;
-  }
+  const user = await authenticateGatewaySession(config, sessions, client);
+  if (!user) return null;
   const serverId = String(client.handshake.query.serverId || '');
   if (!serverId || !(await serverQuery.getServer(serverId))) {
     client.disconnect(true);

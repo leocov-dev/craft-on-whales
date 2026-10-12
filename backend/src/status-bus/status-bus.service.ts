@@ -10,6 +10,11 @@ export interface ContainerReplacedEvent {
   serverId: string;
 }
 
+export interface ServerListChangedEvent {
+  serverId: string;
+  change: 'created' | 'deleted';
+}
+
 /**
  * In-process pub/sub for server status transitions, decoupling
  * ServerLifecycleService (backend/src/servers/) from the WS gateways
@@ -59,5 +64,23 @@ export class StatusBusService extends EventEmitter {
     listener: (event: ContainerReplacedEvent) => void,
   ): void {
     this.off('container-replaced', listener);
+  }
+
+  /**
+   * A server row was created or soft-deleted — membership of the server list
+   * changed, which a status transition alone does not convey.
+   */
+  emitServerListChanged(event: ServerListChangedEvent): void {
+    this.emit('server-list-changed', event);
+  }
+
+  onServerListChanged(listener: (event: ServerListChangedEvent) => void): void {
+    this.on('server-list-changed', listener);
+  }
+
+  offServerListChanged(
+    listener: (event: ServerListChangedEvent) => void,
+  ): void {
+    this.off('server-list-changed', listener);
   }
 }
