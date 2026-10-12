@@ -26,8 +26,13 @@
       </div>
 
       <div class="column items-end">
-        <div class="row items-center q-gutter-x-xs text-caption" :class="`text-${meta.color}`">
-          <q-badge rounded :color="meta.color" :class="{ 'pulse-dot': meta.pulse }" />
+        <div class="row items-center text-caption" :class="`text-${meta.color}`">
+          <q-badge
+            rounded
+            :color="meta.color"
+            class="q-mr-sm"
+            :class="{ 'pulse-dot': meta.pulse }"
+          />
           {{ meta.label }}
         </div>
         <div
