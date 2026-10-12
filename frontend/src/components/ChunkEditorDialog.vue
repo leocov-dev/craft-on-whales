@@ -6,7 +6,9 @@
         <q-select
           v-if="map && map.dimensions.length > 1"
           v-model="dimension"
-          :options="map.dimensions.map((d) => d.label)"
+          :options="map.dimensions.map((d) => ({ label: dimensionName(d.label), value: d.label }))"
+          emit-value
+          map-options
           dense
           outlined
           label="Dimension"
@@ -146,6 +148,7 @@ import { serverWorldsApi, type WorldChunkMap } from '@/api/serverWorlds';
 import {
   HEAT_STEPS,
   cellsInRect,
+  dimensionName,
   chunkKey,
   heatColor,
   slotToChunk,
