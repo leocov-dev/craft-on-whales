@@ -13,17 +13,6 @@
           style="min-width: 160px"
           :disable="busy"
         />
-        <q-btn-toggle
-          v-model="mode"
-          class="q-ml-sm"
-          dense
-          no-caps
-          toggle-color="primary"
-          :options="[
-            { label: 'Pan', value: 'pan', icon: 'pan_tool' },
-            { label: 'Select', value: 'select', icon: 'highlight_alt' },
-          ]"
-        />
         <q-btn
           flat
           round
@@ -52,13 +41,14 @@
         </q-banner>
         <canvas
           ref="canvas"
-          :style="{ touchAction: 'none', cursor: mode === 'pan' ? 'grab' : 'crosshair' }"
+          :style="{ touchAction: 'none', cursor: dragging ? 'grabbing' : 'grab' }"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
           @pointerup="onPointerUp"
           @pointercancel="onPointerUp"
           @pointerleave="hover = null"
           @wheel.prevent="onWheel"
+          @dblclick="onDoubleClick"
         />
       </div>
 
@@ -72,12 +62,8 @@
             <template v-if="hoverTime"> · {{ hoverTime }}</template>
           </template>
           <template v-else>
-            {{ cells.length }} chunks ·
-            {{
-              mode === 'select'
-                ? 'drag to select, shift-drag to deselect, click to toggle'
-                : 'drag to pan, scroll to zoom'
-            }}
+            {{ cells.length }} chunks · drag to pan, scroll or double-click to zoom, click to toggle
+            a chunk, shift-drag to select an area, alt-drag to deselect
           </template>
         </div>
         <div class="row items-center q-gutter-x-sm text-caption">
@@ -101,9 +87,6 @@
           @click="confirming = true"
         >
           <q-tooltip v-if="!serverStopped">Stop the server first</q-tooltip>
-          <q-tooltip v-else-if="selected.size > MAX_DELETE">
-            Select at most {{ MAX_DELETE }} at once
-          </q-tooltip>
         </q-btn>
       </div>
 
@@ -147,8 +130,8 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 
 const $q = useQuasar();
 
-/** Mirrors the backend's per-request cap. */
-const MAX_DELETE = 4096;
+/** Mirrors the backend's per-request cap; larger selections are sent in batches of this size. */
+const DELETE_BATCH = 4096;
 const MIN_SCALE = 1;
 const MAX_SCALE = 48;
 const HEAT_CONCURRENCY = 3;
@@ -173,7 +156,7 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const map = ref<WorldChunkMap | null>(null);
 const dimension = ref('');
-const mode = ref<'pan' | 'select'>('pan');
+const dragging = ref(false);
 const cells = shallowRef<Cell[]>([]);
 const cellByKey = new Map<string, Cell>();
 const selected = shallowRef<Set<string>>(new Set());
@@ -192,13 +175,7 @@ let frame = 0;
 let generation = 0;
 let resizeObserver: ResizeObserver | null = null;
 
-const canDelete = computed(
-  () =>
-    props.serverStopped &&
-    !busy.value &&
-    selected.value.size > 0 &&
-    selected.value.size <= MAX_DELETE,
-);
+const canDelete = computed(() => props.serverStopped && !busy.value && selected.value.size > 0);
 
 const hoverTime = computed(() => {
   const c = hover.value && cellByKey.get(chunkKey(hover.value.cx, hover.value.cz));
@@ -292,33 +269,47 @@ async function loadHeat(regions: Region[], gen: number) {
 
 async function deleteSelected() {
   busy.value = true;
+  let removed = 0;
+  let skipped = 0;
   try {
     const chunks = [...selected.value].map((k) => {
       const c = cellByKey.get(k)!;
       return { cx: c.cx, cz: c.cz };
     });
-    const res = await serverWorldsApi.deleteChunks(props.serverId, {
-      world: props.world,
-      dimension: dimension.value,
-      chunks,
-      backup: backup.value,
-    });
+    for (let i = 0; i < chunks.length; i += DELETE_BATCH) {
+      const res = await serverWorldsApi.deleteChunks(props.serverId, {
+        world: props.world,
+        dimension: dimension.value,
+        chunks: chunks.slice(i, i + DELETE_BATCH),
+        // One backup up front covers the whole selection.
+        backup: backup.value && i === 0,
+      });
+      removed += res.result.chunksRemoved;
+      skipped += res.result.regionsSkipped;
+    }
     confirming.value = false;
     $q.notify({
       type: 'positive',
-      message: `Deleted ${res.result.chunksRemoved} chunk${res.result.chunksRemoved === 1 ? '' : 's'}.`,
+      message: `Deleted ${removed} chunk${removed === 1 ? '' : 's'}.`,
     });
-    if (res.result.regionsSkipped)
+    if (skipped)
       $q.notify({
         type: 'warning',
-        message: `${res.result.regionsSkipped} damaged region file(s) were left untouched.`,
+        message: `${skipped} damaged region file(s) were left untouched.`,
       });
-    emit('changed');
-    await load();
   } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Delete failed.' });
+    $q.notify({
+      type: 'negative',
+      message:
+        (err instanceof Error ? err.message : 'Delete failed.') +
+        (removed ? ` ${removed} chunk(s) were already deleted.` : ''),
+    });
   } finally {
     busy.value = false;
+  }
+  if (removed) {
+    emit('changed');
+    await load();
   }
 }
 
@@ -359,14 +350,17 @@ function localPoint(e: PointerEvent | WheelEvent) {
 
 // ---- input ---------------------------------------------------------------
 
+/**
+ * Maps-style gestures: plain drag pans, wheel / double-click zooms, click toggles a chunk,
+ * and a modifier-drag draws a selection rectangle (shift adds, alt/ctrl/cmd removes).
+ */
 let drag: {
   startX: number;
   startY: number;
   lastX: number;
   lastY: number;
   moved: boolean;
-  mode: 'pan' | 'select';
-  subtract: boolean;
+  mode: 'pan' | 'add' | 'subtract';
   from: ChunkCell;
   to: ChunkCell;
 } | null = null;
@@ -381,8 +375,7 @@ function onPointerDown(e: PointerEvent) {
     lastX: x,
     lastY: y,
     moved: false,
-    mode: mode.value,
-    subtract: e.shiftKey,
+    mode: e.altKey || e.ctrlKey || e.metaKey ? 'subtract' : e.shiftKey ? 'add' : 'pan',
     from: c,
     to: c,
   };
@@ -393,8 +386,11 @@ function onPointerMove(e: PointerEvent) {
   const { x, y } = localPoint(e);
   hover.value = toChunk(x, y);
   if (drag) {
-    if (Math.hypot(x - drag.startX, y - drag.startY) > 4) drag.moved = true;
-    if (drag.mode === 'pan') {
+    if (Math.hypot(x - drag.startX, y - drag.startY) > 4) {
+      drag.moved = true;
+      dragging.value = drag.mode === 'pan';
+    }
+    if (drag.mode === 'pan' && drag.moved) {
       view.cx -= (x - drag.lastX) / view.scale;
       view.cz -= (y - drag.lastY) / view.scale;
     } else {
@@ -410,35 +406,48 @@ function onPointerUp() {
   if (!drag) return;
   const d = drag;
   drag = null;
-  if (d.mode === 'select') {
-    const next = new Set(selected.value);
-    // A click toggles the one chunk under it; a drag adds (or, with shift, removes) the rectangle.
-    if (d.moved) {
-      for (const c of cellsInRect(cells.value, { a: d.from, b: d.to })) {
-        if (d.subtract) next.delete(c.key);
-        else next.add(c.key);
-      }
-    } else {
-      const c = cellByKey.get(chunkKey(d.from.cx, d.from.cz));
-      if (c) {
-        if (next.has(c.key)) next.delete(c.key);
-        else next.add(c.key);
-      }
+  dragging.value = false;
+  const next = new Set(selected.value);
+  if (d.moved && d.mode !== 'pan') {
+    for (const c of cellsInRect(cells.value, { a: d.from, b: d.to })) {
+      if (d.mode === 'subtract') next.delete(c.key);
+      else next.add(c.key);
     }
-    selected.value = next;
+  } else if (!d.moved) {
+    // A click toggles the one chunk under it.
+    const c = cellByKey.get(chunkKey(d.from.cx, d.from.cz));
+    if (c) {
+      if (next.has(c.key)) next.delete(c.key);
+      else next.add(c.key);
+    }
+  } else {
+    schedule();
+    return;
   }
+  selected.value = next;
   schedule();
+}
+
+function zoomAt(x: number, y: number, factor: number) {
+  // Zoom about the cursor: keep the world point under it fixed.
+  const wx = (x - width / 2) / view.scale + view.cx;
+  const wz = (y - height / 2) / view.scale + view.cz;
+  view.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * factor));
+  view.cx = wx - (x - width / 2) / view.scale;
+  view.cz = wz - (y - height / 2) / view.scale;
+  schedule();
+}
+
+function onDoubleClick(e: MouseEvent) {
+  // The two clicks of a double-click toggle the chunk twice, so the selection is unchanged.
+  const { x, y } = localPoint(e as PointerEvent);
+  zoomAt(x, y, e.shiftKey ? 0.5 : 2);
 }
 
 function onWheel(e: WheelEvent) {
   const { x, y } = localPoint(e);
-  // Zoom about the cursor: keep the world point under it fixed.
-  const wx = (x - width / 2) / view.scale + view.cx;
-  const wz = (y - height / 2) / view.scale + view.cz;
-  view.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * Math.exp(-e.deltaY * 0.0015)));
-  view.cx = wx - (x - width / 2) / view.scale;
-  view.cz = wz - (y - height / 2) / view.scale;
-  schedule();
+  // ctrl+wheel is a trackpad pinch, which reports small deltas.
+  zoomAt(x, y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
 }
 
 // ---- drawing -------------------------------------------------------------
@@ -499,13 +508,13 @@ function draw() {
     if (!c || c.cx < left || c.cx > right || c.cz < top || c.cz > bottom) continue;
     ctx.fillRect(sx(c.cx), sy(c.cz), size, size);
   }
-  if (drag && drag.mode === 'select' && drag.moved) {
+  if (drag && drag.mode !== 'pan' && drag.moved) {
     const x0 = Math.min(drag.from.cx, drag.to.cx);
     const z0 = Math.min(drag.from.cz, drag.to.cz);
     const x1 = Math.max(drag.from.cx, drag.to.cx) + 1;
     const z1 = Math.max(drag.from.cz, drag.to.cz) + 1;
-    ctx.fillStyle = drag.subtract ? 'rgba(33,150,243,0.25)' : 'rgba(244,67,54,0.25)';
-    ctx.strokeStyle = drag.subtract ? '#2196f3' : '#f44336';
+    ctx.fillStyle = drag.mode === 'subtract' ? 'rgba(33,150,243,0.25)' : 'rgba(244,67,54,0.25)';
+    ctx.strokeStyle = drag.mode === 'subtract' ? '#2196f3' : '#f44336';
     ctx.fillRect(sx(x0), sy(z0), sx(x1) - sx(x0), sy(z1) - sy(z0));
     ctx.strokeRect(sx(x0) + 0.5, sy(z0) + 0.5, sx(x1) - sx(x0), sy(z1) - sy(z0));
   }
