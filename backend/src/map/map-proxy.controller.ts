@@ -125,6 +125,13 @@ export class MapProxyController {
       res.status(405).send('Method not allowed');
       return;
     }
+    // BlueMap's index.html uses relative asset paths; without the trailing
+    // slash they resolve to /map/assets/... (a different "server id").
+    const [pathname, query] = req.originalUrl.split('?');
+    if (pathname === `/map/${id}`) {
+      res.redirect(302, `${pathname}/${query ? `?${query}` : ''}`);
+      return;
+    }
     const server = await this.serverQuery.getServer(id);
     const cfg = server
       ? await this.map.getMapConfig(server.id)

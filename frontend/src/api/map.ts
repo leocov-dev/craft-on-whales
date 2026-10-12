@@ -14,5 +14,6 @@ export const mapApi = {
   enable: (serverId: string) =>
     http.post<{ ok: true; hostPort: number }>(`/api/servers/${serverId}/map/enable`),
   disable: (serverId: string) => http.post<{ ok: true }>(`/api/servers/${serverId}/map/disable`),
-  viewUrl: (serverId: string) => `/map/${serverId}`,
+  // Trailing slash required: BlueMap's index.html uses relative asset paths.
+  viewUrl: (serverId: string) => `/map/${serverId}/`,
 };
