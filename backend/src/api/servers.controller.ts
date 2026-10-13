@@ -21,6 +21,7 @@ import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ServerQueryService } from '../servers/server-query.service';
 import { ServerOperationsService } from '../servers/server-operations.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
+import { GC_PRESETS } from '../servers/jvm-gc';
 import { PortsService } from '../servers/ports.service';
 import { DockerSpecService } from '../servers/docker-spec.service';
 import { DockerLogsService } from '../docker/docker-logs.service';
@@ -123,6 +124,7 @@ const patchSchema = z
     autoStart: z.coerce.boolean().optional(),
     autoRestart: z.coerce.boolean().optional(),
     env: z.record(z.string(), z.string()).optional(),
+    gc: z.enum(GC_PRESETS).optional(),
     // A URL-safe subdomain label (see McRouterService.composeHostname): lowercase
     // alnum + hyphens, no leading/trailing hyphen, 1-30 chars. Capped short of
     // DNS's 63-char label limit to keep generated hostnames readable.
@@ -149,12 +151,6 @@ const patchSchema = z
       message: 'Container memory limit must be higher than the Java heap',
     },
   );
-
-const LIVE_EMPTY = {
-  stats: null as { cpuPct: number; memUsedBytes: number } | null,
-  players: null as string[] | null,
-  startedAt: null as string | null,
-};
 
 // Server statuses that mean "something's wrong right now", for the
 // `GET /api/status/summary` operator/monitor endpoint. This panel's
@@ -187,8 +183,9 @@ const ALERT_WINDOW_HOURS = 24;
  * live in `DockerAdminController`; icon upload/serving lives in
  * `IconsController` — both split out of this file to keep it to the core
  * server lifecycle surface (see `.plan/reviews/02-api-servers.md` finding
- * #7). The always-warm live-stats cache (`GET /servers/live`'s per-poll
- * hydration) is deliberately deferred — see `API_NOTES.md`.
+ * #7). `GET /servers/live` is a per-poll CPU/memory lookup
+ * (`ServerViewModelService.liveData`), not legacy's always-warm cache — see
+ * `API_NOTES.md`.
  */
 @Controller('api')
 export class ServersController {
@@ -229,20 +226,12 @@ export class ServersController {
   async live(@Req() req: Request) {
     const visible = await this.permissions.filterVisible(
       req.user,
-      await this.db
-        .select({ id: servers.id, status: servers.status })
-        .from(servers),
+      await this.query.listServers(),
     );
-    const out: Record<string, unknown> = {};
-    for (const row of visible) {
-      out[row.id] = {
-        status: row.status,
-        ...LIVE_EMPTY,
-        phase: null,
-        operation: this.operations.get(row.id),
-      };
-    }
-    return { ok: true, servers: out };
+    const entries = await Promise.all(
+      visible.map(async (s) => [s.id, await this.vm.liveData(s)] as const),
+    );
+    return { ok: true, servers: Object.fromEntries(entries) };
   }
 
   /**

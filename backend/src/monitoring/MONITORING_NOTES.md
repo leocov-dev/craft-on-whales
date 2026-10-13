@@ -19,8 +19,10 @@ Backs the Live tab and the dashboard's resource card (upstream 0.13.0, see
 
 ## Overview (`OverviewService`)
 
-This fork has no always-warm live cache (`GET /servers/live` returns empty
-stats), so `GET /api/monitoring/overview` calls `statsOnce` for each running
+This fork has no always-warm live cache (`GET /servers/live` does its own
+per-request `statsOnce` for CPU/memory and leaves player counts `null`, since
+they need an RCON `list` that prints in the console), so
+`GET /api/monitoring/overview` also calls `statsOnce` for each running
 server the caller may see, in parallel. Docker's one-shot stats take 1-2 s per
 container, which is why the dashboard polls every 5 s and no faster. If this
 becomes costly, add a shared cache here rather than polling faster.

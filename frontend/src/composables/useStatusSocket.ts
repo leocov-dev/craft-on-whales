@@ -28,6 +28,9 @@ export interface StatusSocket {
   containerVersion: Ref<number>;
   /** Latest operation push (null = finished); undefined until one arrives. */
   operation: Ref<ServerOperation | null | undefined>;
+  /** Bumped on every RECONNECT (not the first connect): pushes sent while the
+   *  socket was down are gone, so the owner must resync over HTTP. */
+  reconnects: Ref<number>;
   connected: Ref<boolean>;
   close: () => void;
 }
@@ -41,8 +44,10 @@ export function useStatusSocket(serverId: string): StatusSocket {
   const status = ref<string | null>(null);
   const version = ref(0);
   const containerVersion = ref(0);
+  const reconnects = ref(0);
   const connected = ref(false);
   const operation = ref<ServerOperation | null | undefined>(undefined);
+  let hasConnected = false;
 
   const socket: Socket = io('/ws/status', {
     query: { serverId },
@@ -51,6 +56,8 @@ export function useStatusSocket(serverId: string): StatusSocket {
 
   socket.on('connect', () => {
     connected.value = true;
+    if (hasConnected) reconnects.value += 1;
+    hasConnected = true;
   });
   socket.on('disconnect', () => {
     connected.value = false;
@@ -71,5 +78,13 @@ export function useStatusSocket(serverId: string): StatusSocket {
     socket.disconnect();
   }
 
-  return { status, version, containerVersion, operation, connected, close };
+  return {
+    status,
+    version,
+    containerVersion,
+    operation,
+    reconnects,
+    connected,
+    close,
+  };
 }

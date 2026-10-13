@@ -52,6 +52,15 @@ export interface DeleteChunksOptions {
   actor?: string;
 }
 
+/** Cap on cached regions (~8 KiB each); the oldest entry is evicted first. */
+const MAX_HEAT_ENTRIES = 4096;
+
+interface HeatEntry {
+  mtimeMs: number;
+  size: number;
+  ticks: Array<number | null>;
+}
+
 const regionFileName = (rx: number, rz: number) => `r.${rx}.${rz}.mca`;
 /** Chunk coordinate -> position inside its 32x32 region (0..31, also for negatives). */
 const local = (c: number) => ((c % 32) + 32) % 32;
@@ -68,6 +77,10 @@ const local = (c: number) => ((c % 32) + 32) % 32;
  */
 @Injectable()
 export class WorldChunksService {
+  /** Last computed InhabitedTime per region, keyed by server/world/dimension/region. */
+  private readonly heat = new Map<string, HeatEntry>();
+  private readonly heatRefreshing = new Set<string>();
+
   constructor(
     private readonly query: ServerQueryService,
     private readonly props: WorldPropsService,
@@ -101,7 +114,10 @@ export class WorldChunksService {
 
   /**
    * InhabitedTime (ticks) for each of a region's 1024 slots; null where the
-   * chunk is absent or can't be read.
+   * chunk is absent or can't be read. Stale-while-revalidate: if the region
+   * file changed since the cached result, the old result is returned at once
+   * (`stale: true`) and recomputed in the background, so a later call sees
+   * the new one. Only a region never computed before waits for the read.
    */
   async regionInhabited(
     serverId: string,
@@ -109,18 +125,59 @@ export class WorldChunksService {
     dimension: string,
     rx: number,
     rz: number,
-  ): Promise<Array<number | null>> {
+  ): Promise<{ ticks: Array<number | null>; stale: boolean }> {
     const { folders } = await this.resolve(serverId, worldName);
     const folder = this.pickFolder(folders, dimension);
     const file = regionFileName(rx, rz);
     if (!(await regionFileNames(folder.regionDir)).includes(file))
       throw new NotFoundException('No such region');
-    const buf = await fsp.readFile(path.join(folder.regionDir, file));
+    const full = path.join(folder.regionDir, file);
+    const st = await fsp.stat(full);
+    const key = [serverId, worldName, folder.label, rx, rz].join('\0');
+
+    const hit = this.heat.get(key);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size)
+      return { ticks: hit.ticks, stale: false };
+    if (hit) {
+      this.refreshHeat(key, full, st.mtimeMs, st.size);
+      return { ticks: hit.ticks, stale: true };
+    }
+    const ticks = await this.computeHeat(full);
+    this.storeHeat(key, { mtimeMs: st.mtimeMs, size: st.size, ticks });
+    return { ticks, stale: false };
+  }
+
+  private async computeHeat(full: string): Promise<Array<number | null>> {
+    const buf = await fsp.readFile(full);
     const out: Array<number | null> = new Array<number | null>(1024).fill(null);
     for (const e of parseHeader(buf)) {
       out[e.index] = await chunkInhabitedTime(buf, e);
     }
     return out;
+  }
+
+  /** Fire-and-forget recompute; at most one per region. A failure keeps the old entry. */
+  private refreshHeat(
+    key: string,
+    full: string,
+    mtimeMs: number,
+    size: number,
+  ): void {
+    if (this.heatRefreshing.has(key)) return;
+    this.heatRefreshing.add(key);
+    void this.computeHeat(full)
+      .then((ticks) => this.storeHeat(key, { mtimeMs, size, ticks }))
+      .catch(() => undefined)
+      .finally(() => this.heatRefreshing.delete(key));
+  }
+
+  private storeHeat(key: string, entry: HeatEntry): void {
+    this.heat.delete(key); // re-insert so Map order tracks recency
+    this.heat.set(key, entry);
+    if (this.heat.size > MAX_HEAT_ENTRIES) {
+      const oldest = this.heat.keys().next().value;
+      if (oldest !== undefined) this.heat.delete(oldest);
+    }
   }
 
   async deleteChunks(
@@ -170,7 +227,7 @@ export class WorldChunksService {
         const existing = new Set(await regionFileNames(folder.regionDir));
         let chunksRemoved = 0;
         let regionsChanged = 0;
-        let regionsSkipped = 0;
+        const skippedRegions: DeleteChunksResult['skippedRegions'] = [];
         for (const [file, slots] of byFile) {
           if (!existing.has(file)) continue;
           const keep = (idx: number) => !slots.has(idx);
@@ -183,8 +240,13 @@ export class WorldChunksService {
                 false,
               )
             ).removed;
-          } catch {
-            regionsSkipped++;
+          } catch (err) {
+            skippedRegions.push({
+              file: `${path.basename(folder.regionDir)}/${file}`,
+              reason: (err instanceof Error ? err.message : String(err))
+                .split(folder.regionDir)
+                .join('<region dir>'),
+            });
             continue;
           }
           if (!removed) continue;
@@ -217,7 +279,8 @@ export class WorldChunksService {
           dimension,
           chunksRemoved,
           regionsChanged,
-          regionsSkipped,
+          regionsSkipped: skippedRegions.length,
+          skippedRegions,
           backedUp: wantBackup,
         };
       });

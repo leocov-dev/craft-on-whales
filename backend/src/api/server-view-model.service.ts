@@ -8,6 +8,7 @@ import { ModsService } from '../mods/mods.service';
 import { PlayerRosterService } from '../players/player-roster.service';
 import { JvmMemoryService } from '../servers/jvm-memory.service';
 import { ServerOperationsService } from '../servers/server-operations.service';
+import { gcPresetOf } from '../servers/jvm-gc';
 import {
   crashReports,
   serverPacks,
@@ -20,11 +21,20 @@ import type {
   PackViewModel,
   ServerViewModel,
   ServerStatus,
+  LiveServerData,
 } from '../../../shared/types/servers';
 
 export type { PackViewModel, ServerViewModel };
 
 const GB = 1024 ** 3;
+
+/** Statuses whose container is up, so live stats are worth fetching. */
+const LIVE_STATUSES: ReadonlySet<string> = new Set([
+  'running',
+  'starting',
+  'unhealthy',
+  'stalled',
+]);
 
 const PLATFORM_NAMES: Record<string, string> = {
   curseforge: 'CurseForge',
@@ -97,6 +107,7 @@ export class ServerViewModelService {
         initialHeapMb: heap.initMb,
         heapGrowsOnDemand: heap.growsOnDemand,
         heapNote: heap.note,
+        gc: gcPresetOf(s.env),
       },
       stats: { cpuPct: 0, memUsedMb: 0, uptime: null },
       players: { online: 0, max: Number(s.env.MAX_PLAYERS) || 20, names: [] },
@@ -119,13 +130,7 @@ export class ServerViewModelService {
       operation: this.operations.get(s.id),
     };
 
-    if (
-      withLive &&
-      (s.status === 'running' ||
-        s.status === 'starting' ||
-        s.status === 'unhealthy' ||
-        s.status === 'stalled')
-    ) {
+    if (withLive && LIVE_STATUSES.has(s.status)) {
       const [sample, onlineNames] = await Promise.all([
         this.stats.statsOnce(s.id).catch(() => null),
         this.playerRoster.listOnlineNames(s.id).catch(() => [] as string[]),
@@ -145,6 +150,36 @@ export class ServerViewModelService {
         };
     }
     return vm;
+  }
+
+  /**
+   * The cheap per-poll slice of `serverVM`'s live data for `GET /servers/live`:
+   * CPU/memory from one Docker stats call plus the container start time. Player
+   * counts are deliberately `null` — they need an RCON `list`, which prints in
+   * the server's console on every call, so polling them would spam it; the
+   * client keeps the last full-list value instead.
+   */
+  async liveData(s: Server): Promise<LiveServerData> {
+    const live: LiveServerData = {
+      status: s.status as ServerStatus,
+      cpuPct: null,
+      memUsedMb: null,
+      players: null,
+      startedAt: null,
+      phase: null,
+      operation: this.operations.get(s.id),
+    };
+    if (!LIVE_STATUSES.has(s.status)) return live;
+    const [sample, info] = await Promise.all([
+      this.stats.statsOnce(s.id).catch(() => null),
+      this.containers.inspectStatus(s.id).catch(() => null),
+    ]);
+    if (sample) {
+      live.cpuPct = sample.cpuPct;
+      live.memUsedMb = Math.round(sample.memUsedBytes / 1024 / 1024);
+    }
+    live.startedAt = info?.startedAt ?? null;
+    return live;
   }
 
   private async getPackUpdateCheck(serverId: string) {

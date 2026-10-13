@@ -99,11 +99,38 @@ describe('WorldChunksService', () => {
   });
 
   it('reports InhabitedTime per slot, null where absent', async () => {
-    const ticks = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    const { ticks, stale } = await service.regionInhabited(
+      'srv_a',
+      'world',
+      '.',
+      0,
+      0,
+    );
+    expect(stale).toBe(false);
     expect(ticks).toHaveLength(1024);
     expect(ticks[slot(0, 0)]).toBe(100);
     expect(ticks[slot(1, 0)]).toBe(5000);
     expect(ticks[slot(5, 5)]).toBeNull();
+  });
+
+  it('serves cached InhabitedTime stale while a changed region recomputes', async () => {
+    const file = path.join(serverDir(), 'world/region/r.0.0.mca');
+    const first = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    expect(
+      (await service.regionInhabited('srv_a', 'world', '.', 0, 0)).stale,
+    ).toBe(false);
+
+    const later = new Date(Date.now() + 60_000);
+    fs.utimesSync(file, later, later);
+    const stale = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    expect(stale).toEqual({ ticks: first.ticks, stale: true });
+
+    let fresh = stale;
+    for (let i = 0; i < 50 && fresh.stale; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      fresh = await service.regionInhabited('srv_a', 'world', '.', 0, 0);
+    }
+    expect(fresh.stale).toBe(false);
   });
 
   it('rejects an unknown dimension or region', async () => {
@@ -146,6 +173,27 @@ describe('WorldChunksService', () => {
         type: 'world-chunks-deleted',
       }),
     );
+  });
+
+  it('reports a truncated region file as skipped, with the reason, and leaves it alone', async () => {
+    const full = region();
+    const cut = full.subarray(0, full.length - 4096); // chops the last slot's data
+    write('world/region/r.0.0.mca', cut);
+    const r = await service.deleteChunks('srv_a', {
+      worldName: 'world',
+      dimension: '.',
+      chunks: [{ cx: 1, cz: 0 }],
+      backup: false,
+    });
+    expect(r.regionsSkipped).toBe(1);
+    expect(r.skippedRegions).toHaveLength(1);
+    expect(r.skippedRegions[0]?.file).toBe('region/r.0.0.mca');
+    expect(r.skippedRegions[0]?.reason).toContain('truncated');
+    expect(
+      fs
+        .readFileSync(path.join(serverDir(), 'world/region/r.0.0.mca'))
+        .equals(cut),
+    ).toBe(true);
   });
 
   it('maps negative chunk coordinates to the right region slot', async () => {

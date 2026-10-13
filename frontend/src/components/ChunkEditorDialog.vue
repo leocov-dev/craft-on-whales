@@ -6,23 +6,14 @@
         <q-select
           v-if="map && map.dimensions.length > 1"
           v-model="dimension"
-          :options="map.dimensions.map((d) => d.label)"
+          :options="map.dimensions.map((d) => ({ label: dimensionName(d.label), value: d.label }))"
+          emit-value
+          map-options
           dense
           outlined
           label="Dimension"
           style="min-width: 160px"
           :disable="busy"
-        />
-        <q-btn-toggle
-          v-model="mode"
-          class="q-ml-sm"
-          dense
-          no-caps
-          toggle-color="primary"
-          :options="[
-            { label: 'Pan', value: 'pan', icon: 'pan_tool' },
-            { label: 'Select', value: 'select', icon: 'highlight_alt' },
-          ]"
         />
         <q-btn
           flat
@@ -50,15 +41,46 @@
         <q-banner v-else-if="map && !cells.length" dense class="absolute-top z-top">
           No generated chunks in this dimension.
         </q-banner>
+        <q-card
+          flat
+          bordered
+          class="absolute-top-left q-ma-sm z-top"
+          style="opacity: 0.93; pointer-events: none"
+        >
+          <div class="row items-center no-wrap q-pl-md q-pr-xs" style="pointer-events: auto">
+            <div class="col text-subtitle2">Controls</div>
+            <q-btn
+              flat
+              round
+              dense
+              :icon="showHelp ? 'expand_less' : 'expand_more'"
+              @click="showHelp = !showHelp"
+            >
+              <q-tooltip>{{ showHelp ? 'Hide controls' : 'Show controls' }}</q-tooltip>
+            </q-btn>
+          </div>
+          <q-list v-if="showHelp" dense>
+            <q-item v-for="hint in HINTS" :key="hint.action">
+              <q-item-section avatar style="min-width: 32px">
+                <q-icon :name="hint.icon" size="sm" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ hint.action }}</q-item-label>
+                <q-item-label caption>{{ hint.keys }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card>
         <canvas
           ref="canvas"
-          :style="{ touchAction: 'none', cursor: mode === 'pan' ? 'grab' : 'crosshair' }"
+          :style="{ touchAction: 'none', cursor: dragging ? 'grabbing' : 'grab' }"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
           @pointerup="onPointerUp"
           @pointercancel="onPointerUp"
           @pointerleave="hover = null"
           @wheel.prevent="onWheel"
+          @dblclick="onDoubleClick"
         />
       </div>
 
@@ -71,14 +93,7 @@
             }}, {{ hover.cz * 16 }}…{{ hover.cz * 16 + 15 }}
             <template v-if="hoverTime"> · {{ hoverTime }}</template>
           </template>
-          <template v-else>
-            {{ cells.length }} chunks ·
-            {{
-              mode === 'select'
-                ? 'drag to select, shift-drag to deselect, click to toggle'
-                : 'drag to pan, scroll to zoom'
-            }}
-          </template>
+          <template v-else> {{ cells.length }} chunks </template>
         </div>
         <div class="row items-center q-gutter-x-sm text-caption">
           <span v-for="(step, i) in HEAT_STEPS" :key="step.label" class="row items-center">
@@ -101,9 +116,6 @@
           @click="confirming = true"
         >
           <q-tooltip v-if="!serverStopped">Stop the server first</q-tooltip>
-          <q-tooltip v-else-if="selected.size > MAX_DELETE">
-            Select at most {{ MAX_DELETE }} at once
-          </q-tooltip>
         </q-btn>
       </div>
 
@@ -131,11 +143,12 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { useQuasar } from 'quasar';
+import { copyToClipboard, useQuasar } from 'quasar';
 import { serverWorldsApi, type WorldChunkMap } from '@/api/serverWorlds';
 import {
   HEAT_STEPS,
   cellsInRect,
+  dimensionName,
   chunkKey,
   heatColor,
   slotToChunk,
@@ -147,11 +160,21 @@ const emit = defineEmits<{ close: []; changed: [] }>();
 
 const $q = useQuasar();
 
-/** Mirrors the backend's per-request cap. */
-const MAX_DELETE = 4096;
+/** Mirrors the backend's per-request cap; larger selections are sent in batches of this size. */
+const DELETE_BATCH = 4096;
 const MIN_SCALE = 1;
 const MAX_SCALE = 48;
 const HEAT_CONCURRENCY = 3;
+
+const HINTS = [
+  { icon: 'pan_tool', action: 'Pan', keys: 'Drag' },
+  { icon: 'zoom_in', action: 'Zoom', keys: 'Scroll, pinch or double-click (shift to zoom out)' },
+  { icon: 'touch_app', action: 'Select or deselect one chunk', keys: 'Click' },
+  { icon: 'highlight_alt', action: 'Select an area', keys: 'Shift + drag' },
+  { icon: 'deselect', action: 'Deselect an area', keys: 'Alt, Ctrl or Cmd + drag' },
+];
+const HEAT_REFRESH_ROUNDS = 5;
+const HEAT_REFRESH_DELAY_MS = 2000;
 
 interface Region {
   rx: number;
@@ -173,7 +196,8 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const map = ref<WorldChunkMap | null>(null);
 const dimension = ref('');
-const mode = ref<'pan' | 'select'>('pan');
+const dragging = ref(false);
+const showHelp = ref(true);
 const cells = shallowRef<Cell[]>([]);
 const cellByKey = new Map<string, Cell>();
 const selected = shallowRef<Set<string>>(new Set());
@@ -192,13 +216,7 @@ let frame = 0;
 let generation = 0;
 let resizeObserver: ResizeObserver | null = null;
 
-const canDelete = computed(
-  () =>
-    props.serverStopped &&
-    !busy.value &&
-    selected.value.size > 0 &&
-    selected.value.size <= MAX_DELETE,
-);
+const canDelete = computed(() => props.serverStopped && !busy.value && selected.value.size > 0);
 
 const hoverTime = computed(() => {
   const c = hover.value && cellByKey.get(chunkKey(hover.value.cx, hover.value.cz));
@@ -262,63 +280,116 @@ function buildCells(fit: boolean) {
   void loadHeat(regions, generation);
 }
 
-/** Fetch InhabitedTime region by region, a few at a time, so shading fills in progressively. */
+/**
+ * Fetch InhabitedTime region by region, a few at a time, so shading fills in progressively.
+ * The server answers from its cache straight away; regions it flags `stale` are refreshing in
+ * the background, so ask for those again a few times.
+ */
 async function loadHeat(regions: Region[], gen: number) {
   heatLoaded.value = 0;
   heatTotal.value = regions.length;
-  const queue = [...regions];
-  const worker = async () => {
-    for (let r = queue.shift(); r; r = queue.shift()) {
-      try {
-        const res = await serverWorldsApi.regionInhabited(
-          props.serverId,
-          props.world,
-          dimension.value,
-          r.rx,
-          r.rz,
-        );
-        if (gen !== generation) return;
-        r.ticks = res.ticks;
-      } catch {
-        if (gen !== generation) return;
-        /* leave this region grey; the grid is still usable */
+  const pass = async (list: Region[], countProgress: boolean) => {
+    const queue = [...list];
+    const stale: Region[] = [];
+    const worker = async () => {
+      for (let r = queue.shift(); r; r = queue.shift()) {
+        try {
+          const res = await serverWorldsApi.regionInhabited(
+            props.serverId,
+            props.world,
+            dimension.value,
+            r.rx,
+            r.rz,
+          );
+          if (gen !== generation) return;
+          r.ticks = res.ticks;
+          if (res.stale) stale.push(r);
+        } catch {
+          if (gen !== generation) return;
+          /* leave this region as it was; the grid is still usable */
+        }
+        if (countProgress) heatLoaded.value++;
+        schedule();
       }
-      heatLoaded.value++;
-      schedule();
-    }
+    };
+    await Promise.all(Array.from({ length: HEAT_CONCURRENCY }, worker));
+    return stale;
   };
-  await Promise.all(Array.from({ length: HEAT_CONCURRENCY }, worker));
+  let pending = await pass(regions, true);
+  for (let round = 0; round < HEAT_REFRESH_ROUNDS && pending.length; round++) {
+    await new Promise((resolve) => setTimeout(resolve, HEAT_REFRESH_DELAY_MS));
+    if (gen !== generation) return;
+    pending = await pass(pending, false);
+  }
+}
+
+/** Persistent warning (never auto-dismisses) with the full details one click from the clipboard. */
+function notifySkipped(skipped: Array<{ file: string; reason: string }>) {
+  const details = [
+    `Chunk delete skipped ${skipped.length} region file(s) in "${props.world}" (${dimension.value}). They were left untouched; their selected chunks were not deleted.`,
+    ...skipped.map((s) => `- ${s.file}: ${s.reason}`),
+  ].join('\n');
+  $q.notify({
+    type: 'warning',
+    timeout: 0,
+    message: `${skipped.length} region file(s) could not be changed and were left untouched.`,
+    caption: skipped.map((s) => s.file).join(', '),
+    actions: [
+      {
+        label: 'Copy details',
+        color: 'white',
+        noDismiss: true,
+        handler: () => {
+          copyToClipboard(details).then(
+            () => $q.notify({ type: 'positive', message: 'Details copied.', timeout: 1500 }),
+            () => $q.notify({ type: 'negative', message: 'Could not copy to the clipboard.' }),
+          );
+        },
+      },
+      { label: 'Dismiss', color: 'white' },
+    ],
+  });
 }
 
 async function deleteSelected() {
   busy.value = true;
+  let removed = 0;
+  const skippedRegions: Array<{ file: string; reason: string }> = [];
   try {
     const chunks = [...selected.value].map((k) => {
       const c = cellByKey.get(k)!;
       return { cx: c.cx, cz: c.cz };
     });
-    const res = await serverWorldsApi.deleteChunks(props.serverId, {
-      world: props.world,
-      dimension: dimension.value,
-      chunks,
-      backup: backup.value,
-    });
+    for (let i = 0; i < chunks.length; i += DELETE_BATCH) {
+      const res = await serverWorldsApi.deleteChunks(props.serverId, {
+        world: props.world,
+        dimension: dimension.value,
+        chunks: chunks.slice(i, i + DELETE_BATCH),
+        // One backup up front covers the whole selection.
+        backup: backup.value && i === 0,
+      });
+      removed += res.result.chunksRemoved;
+      skippedRegions.push(...res.result.skippedRegions);
+    }
     confirming.value = false;
     $q.notify({
       type: 'positive',
-      message: `Deleted ${res.result.chunksRemoved} chunk${res.result.chunksRemoved === 1 ? '' : 's'}.`,
+      message: `Deleted ${removed} chunk${removed === 1 ? '' : 's'}.`,
     });
-    if (res.result.regionsSkipped)
-      $q.notify({
-        type: 'warning',
-        message: `${res.result.regionsSkipped} damaged region file(s) were left untouched.`,
-      });
-    emit('changed');
-    await load();
+    if (skippedRegions.length) notifySkipped(skippedRegions);
   } catch (err) {
-    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Delete failed.' });
+    $q.notify({
+      type: 'negative',
+      message:
+        (err instanceof Error ? err.message : 'Delete failed.') +
+        (removed ? ` ${removed} chunk(s) were already deleted.` : ''),
+    });
   } finally {
     busy.value = false;
+  }
+  if (removed) {
+    emit('changed');
+    await load();
   }
 }
 
@@ -362,14 +433,17 @@ function localPoint(e: PointerEvent | WheelEvent) {
 
 // ---- input ---------------------------------------------------------------
 
+/**
+ * Maps-style gestures: plain drag pans, wheel / double-click zooms, click toggles a chunk,
+ * and a modifier-drag draws a selection rectangle (shift adds, alt/ctrl/cmd removes).
+ */
 let drag: {
   startX: number;
   startY: number;
   lastX: number;
   lastY: number;
   moved: boolean;
-  mode: 'pan' | 'select';
-  subtract: boolean;
+  mode: 'pan' | 'add' | 'subtract';
   from: ChunkCell;
   to: ChunkCell;
 } | null = null;
@@ -384,8 +458,7 @@ function onPointerDown(e: PointerEvent) {
     lastX: x,
     lastY: y,
     moved: false,
-    mode: mode.value,
-    subtract: e.shiftKey,
+    mode: e.altKey || e.ctrlKey || e.metaKey ? 'subtract' : e.shiftKey ? 'add' : 'pan',
     from: c,
     to: c,
   };
@@ -396,8 +469,11 @@ function onPointerMove(e: PointerEvent) {
   const { x, y } = localPoint(e);
   hover.value = toChunk(x, y);
   if (drag) {
-    if (Math.hypot(x - drag.startX, y - drag.startY) > 4) drag.moved = true;
-    if (drag.mode === 'pan') {
+    if (Math.hypot(x - drag.startX, y - drag.startY) > 4) {
+      drag.moved = true;
+      dragging.value = drag.mode === 'pan';
+    }
+    if (drag.mode === 'pan' && drag.moved) {
       view.cx -= (x - drag.lastX) / view.scale;
       view.cz -= (y - drag.lastY) / view.scale;
     } else {
@@ -413,35 +489,48 @@ function onPointerUp() {
   if (!drag) return;
   const d = drag;
   drag = null;
-  if (d.mode === 'select') {
-    const next = new Set(selected.value);
-    // A click toggles the one chunk under it; a drag adds (or, with shift, removes) the rectangle.
-    if (d.moved) {
-      for (const c of cellsInRect(cells.value, { a: d.from, b: d.to })) {
-        if (d.subtract) next.delete(c.key);
-        else next.add(c.key);
-      }
-    } else {
-      const c = cellByKey.get(chunkKey(d.from.cx, d.from.cz));
-      if (c) {
-        if (next.has(c.key)) next.delete(c.key);
-        else next.add(c.key);
-      }
+  dragging.value = false;
+  const next = new Set(selected.value);
+  if (d.moved && d.mode !== 'pan') {
+    for (const c of cellsInRect(cells.value, { a: d.from, b: d.to })) {
+      if (d.mode === 'subtract') next.delete(c.key);
+      else next.add(c.key);
     }
-    selected.value = next;
+  } else if (!d.moved) {
+    // A click toggles the one chunk under it.
+    const c = cellByKey.get(chunkKey(d.from.cx, d.from.cz));
+    if (c) {
+      if (next.has(c.key)) next.delete(c.key);
+      else next.add(c.key);
+    }
+  } else {
+    schedule();
+    return;
   }
+  selected.value = next;
   schedule();
+}
+
+function zoomAt(x: number, y: number, factor: number) {
+  // Zoom about the cursor: keep the world point under it fixed.
+  const wx = (x - width / 2) / view.scale + view.cx;
+  const wz = (y - height / 2) / view.scale + view.cz;
+  view.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * factor));
+  view.cx = wx - (x - width / 2) / view.scale;
+  view.cz = wz - (y - height / 2) / view.scale;
+  schedule();
+}
+
+function onDoubleClick(e: MouseEvent) {
+  // The two clicks of a double-click toggle the chunk twice, so the selection is unchanged.
+  const { x, y } = localPoint(e as PointerEvent);
+  zoomAt(x, y, e.shiftKey ? 0.5 : 2);
 }
 
 function onWheel(e: WheelEvent) {
   const { x, y } = localPoint(e);
-  // Zoom about the cursor: keep the world point under it fixed.
-  const wx = (x - width / 2) / view.scale + view.cx;
-  const wz = (y - height / 2) / view.scale + view.cz;
-  view.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, view.scale * Math.exp(-e.deltaY * 0.0015)));
-  view.cx = wx - (x - width / 2) / view.scale;
-  view.cz = wz - (y - height / 2) / view.scale;
-  schedule();
+  // ctrl+wheel is a trackpad pinch, which reports small deltas.
+  zoomAt(x, y, Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
 }
 
 // ---- drawing -------------------------------------------------------------
@@ -502,13 +591,13 @@ function draw() {
     if (!c || c.cx < left || c.cx > right || c.cz < top || c.cz > bottom) continue;
     ctx.fillRect(sx(c.cx), sy(c.cz), size, size);
   }
-  if (drag && drag.mode === 'select' && drag.moved) {
+  if (drag && drag.mode !== 'pan' && drag.moved) {
     const x0 = Math.min(drag.from.cx, drag.to.cx);
     const z0 = Math.min(drag.from.cz, drag.to.cz);
     const x1 = Math.max(drag.from.cx, drag.to.cx) + 1;
     const z1 = Math.max(drag.from.cz, drag.to.cz) + 1;
-    ctx.fillStyle = drag.subtract ? 'rgba(33,150,243,0.25)' : 'rgba(244,67,54,0.25)';
-    ctx.strokeStyle = drag.subtract ? '#2196f3' : '#f44336';
+    ctx.fillStyle = drag.mode === 'subtract' ? 'rgba(33,150,243,0.25)' : 'rgba(244,67,54,0.25)';
+    ctx.strokeStyle = drag.mode === 'subtract' ? '#2196f3' : '#f44336';
     ctx.fillRect(sx(x0), sy(z0), sx(x1) - sx(x0), sy(z1) - sy(z0));
     ctx.strokeRect(sx(x0) + 0.5, sy(z0) + 0.5, sx(x1) - sx(x0), sy(z1) - sy(z0));
   }

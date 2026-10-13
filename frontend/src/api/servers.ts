@@ -11,6 +11,7 @@ import type {
   LifecycleAction,
   ServerDetail,
   ServerPatch,
+  GcPreset,
 } from '../../../shared/types/servers';
 
 export type {
@@ -22,6 +23,7 @@ export type {
   LifecycleAction,
   ServerDetail,
   ServerPatch,
+  GcPreset,
 };
 
 interface ServersListResponse {

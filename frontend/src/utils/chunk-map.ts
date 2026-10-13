@@ -64,3 +64,34 @@ export function heatColor(ticks: number | null | undefined, dark: boolean): stri
   const light = dark ? [30, 38, 48, 58] : [78, 64, 50, 36];
   return `hsl(145, 55%, ${light[step]}%)`;
 }
+
+const VANILLA_DIMENSIONS: Record<string, string> = {
+  overworld: 'Overworld',
+  the_nether: 'Nether',
+  the_end: 'The End',
+};
+const titleCase = (s: string) =>
+  s
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(' ');
+
+/**
+ * Friendly name for a dimension `label` from the chunk map API (`.`, `DIM-1`, `DIM1`,
+ * `dimensions/<ns>/<name>`, optionally prefixed by another world folder's name). The label stays
+ * the identifier; this is display only.
+ */
+export function dimensionName(label: string): string {
+  const m =
+    /^(?:(.*)\/)?(DIM-1|DIM1)$/.exec(label) ??
+    /^(?:(.*)\/)?dimensions\/([^/]+)\/([^/]+)$/.exec(label);
+  if (!m) return label === '.' ? 'Overworld' : label;
+  const [, prefix, a, b] = m;
+  let name: string;
+  if (a === 'DIM-1') name = 'Nether';
+  else if (a === 'DIM1') name = 'The End';
+  else if (a === 'minecraft') name = VANILLA_DIMENSIONS[b!] ?? titleCase(b!);
+  else name = `${titleCase(b!)} (${a})`;
+  return prefix ? `${prefix} · ${name}` : name;
+}

@@ -1,5 +1,8 @@
 export type ServerStatus = 'running' | 'unhealthy' | 'starting' | 'updating' | 'crashed' | 'over-quota' | 'stopped';
 
+/** Mirrors `GC_PRESETS` in backend/src/servers/jvm-gc.ts. */
+export type GcPreset = 'default' | 'aikar' | 'meowice' | 'zgc' | 'shenandoah' | 'parallel' | 'serial';
+
 export interface PackViewModel {
   platform: string;
   name: string;
@@ -36,6 +39,8 @@ export interface ServerViewModel {
     heapGrowsOnDemand: boolean;
     /** One sentence explaining what the memory meter's number means. */
     heapNote: string | null;
+    /** Garbage-collector preset (see backend/src/servers/jvm-gc.ts). */
+    gc: GcPreset;
   };
   stats: { cpuPct: number; memUsedMb: number; uptime: string | null };
   players: { online: number; max: number; names: string[] };
@@ -114,6 +119,7 @@ export interface ServerPatch {
   autoStart?: boolean;
   autoRestart?: boolean;
   env?: Record<string, string>;
+  gc?: GcPreset;
   /** mc-router subdomain label; '' clears it. */
   routerHostname?: string;
   routerAutoScale?: 'on' | 'off' | null;

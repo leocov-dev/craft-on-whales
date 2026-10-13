@@ -53,7 +53,7 @@ The **Health & stability** card works on stopped servers too. It shows the conta
 
 ## Server settings
 
-The **Settings** tab covers identity (name, description, tags, notes), resources (heap, container memory, CPU, disk quota), and lifecycle (auto-start, auto-restart on crash, modpack update policy).
+The **Settings** tab covers identity (name, description, tags, notes), resources (heap, garbage collector, container memory, CPU, disk quota), and lifecycle (auto-start, auto-restart on crash, modpack update policy).
 
 ![Server settings](images/server-settings.png)
 

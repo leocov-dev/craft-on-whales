@@ -159,6 +159,28 @@ heap" rather than on which preset is on, and why the meters (Overview,
 Metrics, the server card's hover) carry it: a 12 GB heap reading 12 GB with
 nobody online looks exactly like a leak and generates support noise.
 
+## Garbage-collector presets
+
+The Settings tab's "Garbage collector" select is stored as the panel-owned env
+key `GC_PRESET` (no schema change; `PATCH` takes `gc`, which `updateServer()`
+layers onto the stored env, so env is never sent to the browser).
+`applyGcPreset()` (`jvm-gc.ts`) translates it inside `assembleEnv()`:
+`aikar`/`meowice` set the image's `USE_*_FLAGS` toggle; `zgc`, `shenandoah`,
+`parallel`, `serial` append `-XX:+Use…GC` to `JVM_XX_OPTS` (the image docs put
+`-XX` options there). `GC_PRESET` never reaches the container.
+
+- When the key is present it is authoritative: the other flag-set toggles and
+  any `-XX:+Use…GC` already in `JVM_OPTS`/`JVM_XX_OPTS` are removed, because
+  two collectors make the JVM refuse to start. Other tokens are kept, and
+  `USE_MEOWICE_GRAALVM_FLAGS` survives only under the `meowice` preset.
+- When absent, env passes through untouched and `gcPresetOf()` infers the
+  preset from `USE_AIKAR_FLAGS`/`USE_MEOWICE_FLAGS`, so blueprint and
+  hand-configured servers display correctly and aren't recreated by an
+  unrelated save (`updateServer()` skips `gc` equal to the inferred preset).
+- A GC change recreates the container (it's an env change). The panel does not
+  check Java version support (ZGC, MeowIce need 17+); the JVM's own error shows
+  in the console, same as a bad `INIT_MEMORY`.
+
 ## The startup watchdog and the `stalled` status
 
 A server that enters `starting` and never finishes booting used to sit in

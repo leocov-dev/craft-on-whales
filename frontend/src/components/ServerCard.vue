@@ -22,8 +22,13 @@
       </div>
 
       <div class="column items-end">
-        <div class="row items-center q-gutter-x-xs text-caption" :class="`text-${meta.color}`">
-          <q-badge rounded :color="meta.color" :class="{ 'pulse-dot': meta.pulse }" />
+        <div class="row items-center text-caption" :class="`text-${meta.color}`">
+          <q-badge
+            rounded
+            :color="meta.color"
+            class="q-mr-sm"
+            :class="{ 'pulse-dot': meta.pulse }"
+          />
           {{ meta.label }}
         </div>
         <div
@@ -149,6 +154,17 @@
           <q-tooltip>Restart</q-tooltip>
         </q-btn>
       </template>
+      <q-btn
+        v-if="server.status === 'running'"
+        flat
+        dense
+        round
+        icon="terminal"
+        :to="`/servers/${server.id}/console`"
+        @click.stop
+      >
+        <q-tooltip>Console</q-tooltip>
+      </q-btn>
       <q-btn flat dense round icon="edit" :to="`/servers/${server.id}`" @click.stop>
         <q-tooltip>Manage</q-tooltip>
       </q-btn>
