@@ -10,7 +10,6 @@ import { SessionService } from '../auth/session.service';
 import { BackupsService } from '../worlds/backups.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { UpdateCheckerService } from '../updates/update-checker.service';
-import { PackwizWatcherService } from '../updates/packwiz-watcher.service';
 import { MaintenanceService } from '../maintenance/maintenance.service';
 import { SchedulerService } from './scheduler.service';
 
@@ -40,7 +39,6 @@ describe('SchedulerService.createSchedule — invalid cron handling', () => {
         { provide: BackupsService, useValue: {} },
         { provide: ServerLifecycleService, useValue: {} },
         { provide: UpdateCheckerService, useValue: {} },
-        { provide: PackwizWatcherService, useValue: {} },
         { provide: MaintenanceService, useValue: {} },
       ],
     }).compile();

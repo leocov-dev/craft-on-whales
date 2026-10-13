@@ -1,9 +1,16 @@
 import { EventEmitter } from 'node:events';
 import { Injectable } from '@nestjs/common';
+import type { ServerOperation } from '../../../shared/types/servers';
 
 export interface ServerStatusChangedEvent {
   serverId: string;
   status: string;
+}
+
+export interface ServerOperationChangedEvent {
+  serverId: string;
+  /** null = the operation finished. */
+  operation: ServerOperation | null;
 }
 
 export interface ContainerReplacedEvent {
@@ -64,6 +71,22 @@ export class StatusBusService extends EventEmitter {
     listener: (event: ContainerReplacedEvent) => void,
   ): void {
     this.off('container-replaced', listener);
+  }
+
+  emitOperationChanged(event: ServerOperationChangedEvent): void {
+    this.emit('operation-changed', event);
+  }
+
+  onOperationChanged(
+    listener: (event: ServerOperationChangedEvent) => void,
+  ): void {
+    this.on('operation-changed', listener);
+  }
+
+  offOperationChanged(
+    listener: (event: ServerOperationChangedEvent) => void,
+  ): void {
+    this.off('operation-changed', listener);
   }
 
   /**

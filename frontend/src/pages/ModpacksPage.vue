@@ -81,7 +81,10 @@ async function upgrade(s: ServerViewModel) {
   try {
     const { taskId } = await packsApi.upgrade(s.id, s.pack?.latestVersionId ?? undefined);
     await tasksApi.waitFor(taskId);
-    $q.notify({ type: 'positive', message: `${s.name} upgraded.` });
+    $q.notify({
+      type: 'positive',
+      message: `${s.name} upgraded.`,
+    });
     await servers.fetchServers();
   } catch (err) {
     $q.notify({

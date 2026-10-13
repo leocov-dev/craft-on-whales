@@ -1,9 +1,11 @@
-import { inject, type InjectionKey, type Ref } from 'vue';
-import type { ServerDetail } from '@/api/servers';
+import { inject, type ComputedRef, type InjectionKey, type Ref } from 'vue';
+import type { ServerDetail, ServerOperation } from '@/api/servers';
 
 export interface ServerDetailContext {
   server: Ref<ServerDetail | null>;
   loading: Ref<boolean>;
+  /** The background operation locking this server, or null. Tabs disable their mutating controls while set. */
+  operation: ComputedRef<ServerOperation | null>;
   refresh: () => Promise<void>;
   /** Bumped each time a live status push arrives — watch it to re-check a tab's own socket. */
   statusVersion: Ref<number>;

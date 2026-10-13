@@ -52,6 +52,7 @@ import { ref, onMounted, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { backupsApi, type ServerBackupRow } from '@/api/backups';
 import { tasksApi } from '@/api/tasks';
+import { useServersStore } from '@/stores/servers';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { formatBytes } from '@/composables/useServerStatus';
 
@@ -88,7 +89,7 @@ function restore(b: ServerBackupRow) {
   $q.dialog({
     title: `Restore "${b.file}"?`,
     message:
-      'This stops the server, replaces its current world/config with this backup, and restarts it.',
+      'This stops the server, replaces its current world/config with this backup, and leaves it stopped.',
     cancel: true,
     ok: { color: 'negative', label: 'Restore' },
   }).onOk(() => {
@@ -96,8 +97,14 @@ function restore(b: ServerBackupRow) {
       busyId.value = b.id;
       try {
         const { taskId } = await backupsApi.restore(server.value!.id, b.id);
-        await tasksApi.waitFor(taskId);
-        $q.notify({ type: 'positive', message: 'Backup restored.' });
+        $q.notify({
+          type: 'info',
+          message: 'Restore started — the server is locked until it finishes.',
+        });
+        void useServersStore().trackOperation(taskId, {
+          success: 'Backup restored.',
+          failure: 'Restore failed',
+        });
       } catch (err) {
         $q.notify({
           type: 'negative',

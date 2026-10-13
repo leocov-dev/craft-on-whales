@@ -7,6 +7,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ServerLocksService } from '../servers/server-locks.service';
+import type { ServerOperationsService } from '../servers/server-operations.service';
+
+const noOperations = {
+  assertNotBusy: () => {},
+} as unknown as ServerOperationsService;
 import { WorldArchiveService } from './world-archive.service';
 import { WorldChunksService } from './world-chunks.service';
 import { WorldSaveLockService } from './world-save-lock.service';
@@ -69,7 +74,7 @@ describe('WorldChunksService', () => {
       {
         isRunning: () => Promise.resolve(running),
       } as unknown as WorldRuntimeService,
-      new ServerLocksService(),
+      new ServerLocksService(noOperations),
       new WorldSaveLockService(),
       { createBackup } as unknown as BackupsService,
       { recordEvent } as unknown as EventsService,

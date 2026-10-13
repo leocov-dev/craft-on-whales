@@ -526,6 +526,7 @@ export class ServerLifecycleService implements OnModuleInit {
     { actor = 'system' }: { actor?: string } = {},
   ): Promise<void> {
     await this.query.mustGet(id);
+    this.locks.assertNotBusy(id);
     this.events.recordEvent({
       serverId: id,
       actor,
@@ -902,6 +903,7 @@ export class ServerLifecycleService implements OnModuleInit {
       keepWorld = false,
     }: { actor?: string; keepWorld?: boolean } = {},
   ): Promise<{ freedBytes: number }> {
+    this.locks.assertNotBusy(id);
     const server = await this.query.mustGet(id);
     await this.containers.stopContainer(id).catch(() => {});
     await this.containers.removeContainer(id);

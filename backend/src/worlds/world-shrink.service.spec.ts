@@ -5,6 +5,11 @@ import * as zlib from 'node:zlib';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import * as nbt from 'prismarine-nbt';
 import { ServerLocksService } from '../servers/server-locks.service';
+import type { ServerOperationsService } from '../servers/server-operations.service';
+
+const noOperations = {
+  assertNotBusy: () => {},
+} as unknown as ServerOperationsService;
 import { WorldArchiveService } from './world-archive.service';
 import { WorldSaveLockService } from './world-save-lock.service';
 import { WorldShrinkService } from './world-shrink.service';
@@ -103,7 +108,7 @@ describe('WorldShrinkService', () => {
       {
         isRunning: () => Promise.resolve(running),
       } as unknown as WorldRuntimeService,
-      new ServerLocksService(),
+      new ServerLocksService(noOperations),
       new WorldSaveLockService(),
       { recordEvent } as unknown as EventsService,
     );
@@ -187,7 +192,7 @@ describe('WorldShrinkService', () => {
   });
 
   it('refuses while another lifecycle operation is in flight', async () => {
-    const locks = new ServerLocksService();
+    const locks = new ServerLocksService(noOperations);
     (service as unknown as { locks: ServerLocksService }).locks = locks;
     let release!: () => void;
     const start = locks.guard(

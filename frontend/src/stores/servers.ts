@@ -1,4 +1,6 @@
 import { defineStore, acceptHMRUpdate } from 'pinia';
+import { Notify } from 'quasar';
+import { tasksApi } from '@/api/tasks';
 import {
   serversApi,
   type ServerViewModel,
@@ -77,9 +79,31 @@ export const useServersStore = defineStore('servers', {
         if (e.cpuPct !== null) s.stats.cpuPct = e.cpuPct;
         if (e.memUsedMb !== null) s.stats.memUsedMb = e.memUsedMb;
         if (e.players) s.players = { ...s.players, ...e.players };
+        s.operation = e.operation ?? null;
         if (e.phase) s.statusDetail = e.phase;
         else delete s.statusDetail;
       }
+    },
+
+    /**
+     * Follows a server-locking background operation (restore, world install):
+     * keeps the card's progress fresh while it runs, then toasts the outcome.
+     * Fire-and-forget by design — the caller's dialog has long since closed.
+     */
+    async trackOperation(taskId: string, labels: { success: string; failure: string }) {
+      let ok = true;
+      let message = labels.success;
+      try {
+        await this.refreshLive();
+        await tasksApi.waitFor(taskId, {
+          onProgress: () => void this.refreshLive().catch(() => {}),
+        });
+      } catch (err) {
+        ok = false;
+        message = `${labels.failure}${err instanceof Error ? `: ${err.message}` : ''}`;
+      }
+      Notify.create({ type: ok ? 'positive' : 'negative', message });
+      await this.fetchServers().catch(() => {});
     },
 
     /** Applies a pushed status; false if the server isn't in the list yet. */

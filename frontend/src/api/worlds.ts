@@ -19,6 +19,8 @@ interface InstallResponse {
   ok: true;
   requiresConfirm?: boolean;
   warnings?: string[];
+  /** Present once the install has started in the background. */
+  taskId?: string;
   [key: string]: unknown;
 }
 

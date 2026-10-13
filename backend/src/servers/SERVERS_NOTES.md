@@ -237,3 +237,12 @@ none of the size-walk implementations in this repo follow a symlink out of
 the directory being measured (which also matters for the `safeJoin`
 path-guard invariant: a symlink loop or an out-of-tree symlink can't be
 used to inflate a size count or read outside the sandboxed server dir).
+
+## Server operations (restore / world install lock)
+
+`ServerOperationsService` holds an in-memory `serverId -> ServerOperation` for long background jobs (backup restore, library-world install). It is deliberately **not** a `servers.status` value: `refreshStatuses()` and `DockerWatcherService` re-derive that column from Docker and would overwrite it. Instead:
+
+- `start()` takes the lock synchronously (409 on overlap), runs the body as a `TasksService` task and mirrors `step()`/`progress()` into the operation.
+- `ServerLocksService.guard` (and kill/delete) call `assertNotBusy`; the operation's own body is exempt via `AsyncLocalStorage`, so restore can still call `stopServer`.
+- The operation rides on `ServerViewModel.operation` / `LiveServerData.operation` and is pushed as `{kind:'operation'}` over `/ws/status`.
+- Lost on process restart, like tasks. Not covered: file/mod/world-tab writes are blocked only in the UI (`inert` tab content), not server-side. `copy-to` is still synchronous.

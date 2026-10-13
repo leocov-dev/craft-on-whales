@@ -7,6 +7,7 @@ import { MojangService } from '../players/mojang.service';
 import { ModsService } from '../mods/mods.service';
 import { PlayerRosterService } from '../players/player-roster.service';
 import { JvmMemoryService } from '../servers/jvm-memory.service';
+import { ServerOperationsService } from '../servers/server-operations.service';
 import { gcPresetOf } from '../servers/jvm-gc';
 import {
   crashReports,
@@ -67,6 +68,7 @@ export class ServerViewModelService {
     private readonly stats: DockerStatsService,
     private readonly playerRoster: PlayerRosterService,
     private readonly jvmMemory: JvmMemoryService,
+    private readonly operations: ServerOperationsService,
   ) {}
 
   private get db() {
@@ -125,6 +127,7 @@ export class ServerViewModelService {
       lastStarted: s.last_started_at || '—',
       created: s.created_at,
       consoleLabel: s.console_label || '',
+      operation: this.operations.get(s.id),
     };
 
     if (withLive && LIVE_STATUSES.has(s.status)) {
@@ -164,6 +167,7 @@ export class ServerViewModelService {
       players: null,
       startedAt: null,
       phase: null,
+      operation: this.operations.get(s.id),
     };
     if (!LIVE_STATUSES.has(s.status)) return live;
     const [sample, info] = await Promise.all([
@@ -213,7 +217,6 @@ export class ServerViewModelService {
       latest: check?.latestName || pack.pinnedVersionName,
       latestVersionId: check?.latestVersion || null,
       ref: pack.projectRef ?? null,
-      autoRestartOnPackChange: Boolean(pack.autoRestartOnPackChange),
     };
   }
 

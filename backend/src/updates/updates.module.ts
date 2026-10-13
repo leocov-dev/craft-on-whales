@@ -8,7 +8,6 @@ import { DockerModule } from '../docker/docker.module';
 import { UpdateCheckerService } from './update-checker.service';
 import { ContentLatestService } from './content-latest.service';
 import { UpdateUpgradeService } from './update-upgrade.service';
-import { PackwizWatcherService } from './packwiz-watcher.service';
 
 // forwardRef: closes a genuine module-level cycle — ServersModule
 // forwardRef()s SchedulerModule, SchedulerModule plainly imports
@@ -24,12 +23,7 @@ import { PackwizWatcherService } from './packwiz-watcher.service';
     WorldsModule,
     DockerModule,
   ],
-  providers: [
-    ContentLatestService,
-    UpdateCheckerService,
-    UpdateUpgradeService,
-    PackwizWatcherService,
-  ],
-  exports: [UpdateCheckerService, UpdateUpgradeService, PackwizWatcherService],
+  providers: [ContentLatestService, UpdateCheckerService, UpdateUpgradeService],
+  exports: [UpdateCheckerService, UpdateUpgradeService],
 })
 export class UpdatesModule {}

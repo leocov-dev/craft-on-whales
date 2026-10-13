@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { ServerOperationsService } from './server-operations.service';
 
 export type LifecycleOp =
   'start' | 'stop' | 'restart' | 'recreate' | 'shrink' | 'chunk-edit';
@@ -27,6 +28,8 @@ export class ServerLocksService {
   private createChain: Promise<unknown> = Promise.resolve();
   private readonly inFlightOps = new Map<string, InFlightEntry>(); // serverId -> { op, promise }
 
+  constructor(private readonly operations: ServerOperationsService) {}
+
   runSerializedCreate<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.createChain.then(fn, fn);
     this.createChain = result.then(
@@ -36,11 +39,17 @@ export class ServerLocksService {
     return result;
   }
 
+  /** For non-lifecycle destructive ops (kill, delete) that must not race a background restore/install. */
+  assertNotBusy(id: string): void {
+    this.operations.assertNotBusy(id);
+  }
+
   async guard<T>(
     id: string,
     op: LifecycleOp,
     fn: (id: string) => Promise<T>,
   ): Promise<T> {
+    this.operations.assertNotBusy(id);
     const existing = this.inFlightOps.get(id);
     if (existing) {
       if (existing.op === op && op === 'start')

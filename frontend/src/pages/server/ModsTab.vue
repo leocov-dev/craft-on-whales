@@ -14,28 +14,6 @@
       </div>
     </q-banner>
 
-    <q-banner
-      v-if="isPackwiz && server?.updateAvailable"
-      rounded
-      class="bg-warning text-black q-mb-md"
-    >
-      <template #avatar>
-        <q-icon name="restart_alt" />
-      </template>
-      The pack changed since this server last started — restart to pick up the new mods.
-      <template #action>
-        <q-btn flat label="Restart now" :loading="syncing" @click="syncPackwiz" />
-      </template>
-    </q-banner>
-
-    <q-toggle
-      v-if="isPackwiz"
-      :model-value="server?.pack?.autoRestartOnPackChange ?? false"
-      label="Auto-restart when the pack changes (checked every 5 min)"
-      class="q-mb-md"
-      @update:model-value="toggleAutoRestart"
-    />
-
     <div v-if="!isPackwiz" class="row items-center q-gutter-x-sm q-mb-md">
       <q-input
         v-model="addUrl"
@@ -208,7 +186,7 @@ import ModImportsDialog from '@/components/ModImportsDialog.vue';
 import BlockedDownloadBanner from '@/components/BlockedDownloadBanner.vue';
 
 const $q = useQuasar();
-const { server, refresh } = useServerDetail();
+const { server } = useServerDetail();
 
 const isPackwiz = computed(() => server.value?.pack?.platform === 'packwiz');
 
@@ -219,7 +197,6 @@ const addUrl = ref('');
 const adding = ref(false);
 /** The last add-by-link the panel couldn't download itself, awaiting a manual upload. */
 const blocked = ref<{ url: string; info: BlockedDownload } | null>(null);
-const syncing = ref(false);
 
 const imports = ref<ContentImportSummary[]>([]);
 const importFile = ref<File | null>(null);
@@ -366,41 +343,6 @@ async function toggle(m: ContentItem) {
     await load();
   } catch (err) {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Toggle failed.' });
-  }
-}
-
-async function syncPackwiz() {
-  if (!server.value) return;
-  syncing.value = true;
-  try {
-    const { taskId } = await packsApi.packwizSync(server.value.id);
-    const task = await tasksApi.waitFor<{ changed: boolean; hash: string }>(taskId);
-    if (task.result?.changed === false) {
-      $q.notify({ type: 'info', message: 'Already up to date.' });
-    } else {
-      $q.notify({ type: 'positive', message: 'Restarted with the updated pack.' });
-    }
-    await refresh();
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: err instanceof Error ? err.message : 'Restart failed.',
-    });
-  } finally {
-    syncing.value = false;
-  }
-}
-
-async function toggleAutoRestart(enabled: boolean) {
-  if (!server.value) return;
-  try {
-    await packsApi.setAutoRestart(server.value.id, enabled);
-    await refresh();
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: err instanceof Error ? err.message : 'Could not save.',
-    });
   }
 }
 

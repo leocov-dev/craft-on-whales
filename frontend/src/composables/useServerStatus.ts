@@ -1,6 +1,8 @@
 // Mirrors STATUS_META/STATUS_DOT/STATUS_TEXT and iconSrc() in src/web/app.ts —
 // Quasar color names stand in for the original Tailwind classes.
 
+import type { ServerOperation } from '@/api/servers';
+
 export interface StatusMeta {
   label: string;
   color: 'positive' | 'warning' | 'info' | 'negative' | 'grey';
@@ -19,6 +21,15 @@ const STATUS_META: Record<string, StatusMeta> = {
   crashed: { label: 'Crashed', color: 'negative', pulse: false },
   'over-quota': { label: 'Over quota', color: 'negative', pulse: false },
 };
+
+const OPERATION_LABELS: Record<ServerOperation['kind'], string> = {
+  restoring: 'Restoring backup',
+  'installing-world': 'Installing world',
+};
+
+export function operationLabel(kind: ServerOperation['kind']): string {
+  return OPERATION_LABELS[kind];
+}
 
 export function statusMeta(status: string): StatusMeta {
   return STATUS_META[status] ?? STATUS_META.stopped!;

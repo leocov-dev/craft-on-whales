@@ -432,29 +432,6 @@ export class PacksService {
     return { previous };
   }
 
-  /** packwiz only: opt a server in/out of PackwizWatcherService's auto-restart. */
-  async setAutoRestart(
-    serverId: string,
-    enabled: boolean,
-    { actor = 'system' }: { actor?: string } = {},
-  ): Promise<void> {
-    const pack = await this.getPack(serverId);
-    if (!pack || pack.platform !== 'packwiz')
-      throw new BadRequestException(
-        'Auto-restart on pack change only applies to packwiz servers',
-      );
-    await this.db
-      .update(serverPacks)
-      .set({ autoRestartOnPackChange: enabled })
-      .where(eq(serverPacks.serverId, serverId));
-    this.events.recordEvent({
-      serverId,
-      actor,
-      type: 'modpack-updated',
-      summary: `Auto-restart on pack change ${enabled ? 'enabled' : 'disabled'}`,
-    });
-  }
-
   async getPack(serverId: string): Promise<ServerPackRow | null> {
     const [row] = await this.db
       .select()
@@ -472,10 +449,8 @@ export class PacksService {
     if (pack.platform === 'packwiz') {
       // packwiz mods are fully author-controlled — there's no panel-side
       // "version" to offer a swap to, so this platform is deliberately kept
-      // out of the generic update checker. `PackwizWatcherService` tracks
-      // the pack.toml index hash on its own 5-minute cadence and surfaces a
-      // restart notice (or auto-restarts, if opted in) instead. See
-      // PACKS_NOTES.md.
+      // out of the generic update checker. A restart re-syncs from
+      // PACKWIZ_URL. See PACKS_NOTES.md.
       return null;
     }
     if (pack.platform === 'gtnh') {

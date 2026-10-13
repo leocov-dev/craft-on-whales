@@ -1,0 +1,1 @@
+ALTER TABLE `server_packs` DROP COLUMN `auto_restart_on_pack_change`;
