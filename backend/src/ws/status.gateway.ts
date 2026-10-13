@@ -12,6 +12,7 @@ import { PermissionsService } from '../permissions/permissions.service';
 import {
   StatusBusService,
   type ContainerReplacedEvent,
+  type ServerOperationChangedEvent,
   type ServerStatusChangedEvent,
 } from '../status-bus/status-bus.service';
 import { authenticateGatewayConnection } from './gateway-auth';
@@ -20,6 +21,7 @@ interface StatusSocketState {
   closed: boolean;
   onStatus: ((event: ServerStatusChangedEvent) => void) | null;
   onContainerReplaced: ((event: ContainerReplacedEvent) => void) | null;
+  onOperation: ((event: ServerOperationChangedEvent) => void) | null;
 }
 
 /**
@@ -57,6 +59,7 @@ export class StatusGateway implements OnGatewayConnection, OnGatewayDisconnect {
       closed: false,
       onStatus: null,
       onContainerReplaced: null,
+      onOperation: null,
     };
     this.state.set(client, state);
 
@@ -86,6 +89,15 @@ export class StatusGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (client.connected)
         client.emit('message', { kind: 'container-replaced' });
     };
+    state.onOperation = (event: ServerOperationChangedEvent) => {
+      if (event.serverId !== serverId) return;
+      if (client.connected)
+        client.emit('message', {
+          kind: 'operation',
+          operation: event.operation,
+        });
+    };
+    this.statusBus.onOperationChanged(state.onOperation);
     this.statusBus.onStatusChanged(state.onStatus);
     this.statusBus.onContainerReplaced(state.onContainerReplaced);
   }
@@ -101,6 +113,10 @@ export class StatusGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (state.onStatus) {
       this.statusBus.offStatusChanged(state.onStatus);
       state.onStatus = null;
+    }
+    if (state.onOperation) {
+      this.statusBus.offOperationChanged(state.onOperation);
+      state.onOperation = null;
     }
     if (state.onContainerReplaced) {
       this.statusBus.offContainerReplaced(state.onContainerReplaced);

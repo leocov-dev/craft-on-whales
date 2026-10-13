@@ -22,6 +22,7 @@ import { ConfigService } from '../config/config.service';
 import { backups, servers } from '../db/schema';
 import { BackupsService } from '../worlds/backups.service';
 import { ServerQueryService } from '../servers/server-query.service';
+import { ServerOperationsService } from '../servers/server-operations.service';
 import { TasksService } from '../tasks/tasks.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -65,6 +66,7 @@ export class BackupsController {
     private readonly serverQuery: ServerQueryService,
     private readonly tasks: TasksService,
     private readonly permissions: PermissionsService,
+    private readonly operations: ServerOperationsService,
   ) {}
 
   private get db() {
@@ -186,12 +188,16 @@ export class BackupsController {
   ) {
     const server = await this.serverQuery.mustGet(id);
     const actor = currentUser(req).username;
-    const taskId = this.tasks.run(
+    const taskId = this.operations.start(
+      server.id,
+      'restoring',
       `Restoring backup on ${server.display_name}`,
-      { serverId: server.id, actor },
+      actor,
       async (t) => {
-        t.step('Stopping server & taking a safety backup');
-        await this.backupsService.restoreBackup(server.id, backupId, { actor });
+        await this.backupsService.restoreBackup(server.id, backupId, {
+          actor,
+          task: t,
+        });
         return { ok: true };
       },
     );

@@ -264,6 +264,10 @@ export class UpdateUpgradeService {
     }: { backupId?: string | null; actor?: string } = {},
   ): Promise<RollbackResult> {
     const pack = await this.packs.getPack(serverId);
+    if (pack?.platform === 'packwiz')
+      throw new BadRequestException(
+        "packwiz packs cannot be rolled back — mods follow the pack author's pack.toml",
+      );
     if (!pack || !pack.previousVersionId)
       throw new BadRequestException('No previous pack version recorded');
 

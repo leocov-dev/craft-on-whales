@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Patch,
@@ -36,6 +37,8 @@ import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
 import { RequireServerPermission } from '../permissions/require-server-permission.decorator';
+import { ServerQueryService } from '../servers/server-query.service';
+import { ServerOperationsService } from '../servers/server-operations.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
 /** `serverId` from the extract body — the source server being read from. */
@@ -86,6 +89,8 @@ export class WorldsController {
     private readonly db: DbService,
     private readonly events: EventsService,
     private readonly pathGuard: PathGuardService,
+    private readonly serverQuery: ServerQueryService,
+    private readonly operations: ServerOperationsService,
   ) {}
 
   @Get()
@@ -145,6 +150,7 @@ export class WorldsController {
   }
 
   @Post(':id/install')
+  @HttpCode(202)
   @UseGuards(ServerPermissionGuard)
   @RequireServerPermission('content', installTargetServerId)
   async install(@Param('id') worldId: string, @Req() req: Request) {
@@ -160,12 +166,22 @@ export class WorldsController {
     const warnings = await this.ops.installWarnings(worldId, serverId);
     if (warnings.length && !confirm)
       return { ok: true, requiresConfirm: true, warnings };
-    const result = await this.ops.installToServer(worldId, serverId, {
-      mode,
-      newName,
-      actor: actorOf(req),
-    });
-    return { ok: true, ...result };
+    const server = await this.serverQuery.mustGet(serverId);
+    const actor = actorOf(req);
+    const taskId = this.operations.start(
+      serverId,
+      'installing-world',
+      `Installing world on ${server.display_name}`,
+      actor,
+      (t) =>
+        this.ops.installToServer(worldId, serverId, {
+          mode,
+          newName,
+          actor,
+          task: t,
+        }),
+    );
+    return { ok: true, taskId };
   }
 
   // Streams a full world save (may contain player data) — bulk sensitive

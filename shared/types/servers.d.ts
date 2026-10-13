@@ -9,9 +9,6 @@ export interface PackViewModel {
   latestVersionId: string | null;
   /** Platform-specific project reference; for packwiz this is the pack.toml URL. */
   ref: string | null;
-  /** packwiz only: whether PackwizWatcherService restarts the server itself
-   *  on a pack.toml hash change instead of just showing a restart notice. */
-  autoRestartOnPackChange: boolean;
 }
 
 /** The server view model returned by `GET /api/servers` and `GET /api/servers/:id`. */
@@ -59,9 +56,21 @@ export interface ServerViewModel {
   created: string;
   consoleLabel: string;
   statusDetail?: string;
+  operation?: ServerOperation | null;
 }
 
 /** `GET /api/servers/live`'s per-server hydration payload. */
+export type ServerOperationKind = 'restoring' | 'installing-world';
+
+/** A long background operation holding the server locked (no user actions until it ends). */
+export interface ServerOperation {
+  kind: ServerOperationKind;
+  step: string;
+  /** 0-100 for the current step, or null when indeterminate. */
+  percent: number | null;
+  taskId: string;
+}
+
 export interface LiveServerData {
   status: ServerStatus;
   cpuPct: number | null;
@@ -69,6 +78,7 @@ export interface LiveServerData {
   players: { online: number; max: number; names: string[] } | null;
   startedAt: string | null;
   phase: string | null;
+  operation: ServerOperation | null;
 }
 
 export type LifecycleAction = 'start' | 'stop' | 'restart' | 'kill' | 'recreate';

@@ -169,7 +169,16 @@ async function doInstall() {
       installWarnings.value = res.warnings ?? [];
       return;
     }
-    $q.notify({ type: 'positive', message: 'World installed.' });
+    if (res.taskId) {
+      $q.notify({
+        type: 'info',
+        message: 'Install started — the server is locked until it finishes.',
+      });
+      void servers.trackOperation(res.taskId, {
+        success: 'World installed.',
+        failure: 'World install failed',
+      });
+    }
     installOpen.value = false;
   } catch (err) {
     $q.notify({

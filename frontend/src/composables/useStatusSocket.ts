@@ -1,9 +1,11 @@
 import { ref, type Ref } from 'vue';
 import { io, type Socket } from 'socket.io-client';
+import type { ServerOperation } from '@/api/servers';
 
 // socket.io client for the /ws/status namespace (backend/src/ws/status.gateway.ts).
-// Protocol: one 'message' event carrying JSON {kind: 'status', status} or
-// {kind: 'container-replaced'} (a recreate swapped the container out). See
+// Protocol: one 'message' event carrying JSON {kind: 'status', status},
+// {kind: 'container-replaced'} (a recreate swapped the container out) or
+// {kind: 'operation', operation} (a restore/world install started, advanced or ended). See
 // useConsoleSocket.ts's header comment — deliberately isolated so a future
 // wire-protocol change only touches these composables. Full spec: WS_NOTES.md.
 //
@@ -24,17 +26,23 @@ export interface StatusSocket {
   /** Bumped when a recreate replaced the container, so anything holding a
    *  handle on the old one (the console tab's log follower) must reconnect. */
   containerVersion: Ref<number>;
+  /** Latest operation push (null = finished); undefined until one arrives. */
+  operation: Ref<ServerOperation | null | undefined>;
   connected: Ref<boolean>;
   close: () => void;
 }
 
-type WireMessage = { kind: 'status'; status: string } | { kind: 'container-replaced' };
+type WireMessage =
+  | { kind: 'status'; status: string }
+  | { kind: 'container-replaced' }
+  | { kind: 'operation'; operation: ServerOperation | null };
 
 export function useStatusSocket(serverId: string): StatusSocket {
   const status = ref<string | null>(null);
   const version = ref(0);
   const containerVersion = ref(0);
   const connected = ref(false);
+  const operation = ref<ServerOperation | null | undefined>(undefined);
 
   const socket: Socket = io('/ws/status', {
     query: { serverId },
@@ -54,6 +62,8 @@ export function useStatusSocket(serverId: string): StatusSocket {
       version.value += 1;
     } else if (msg.kind === 'container-replaced') {
       containerVersion.value += 1;
+    } else if (msg.kind === 'operation') {
+      operation.value = msg.operation;
     }
   });
 
@@ -61,5 +71,5 @@ export function useStatusSocket(serverId: string): StatusSocket {
     socket.disconnect();
   }
 
-  return { status, version, containerVersion, connected, close };
+  return { status, version, containerVersion, operation, connected, close };
 }

@@ -97,6 +97,7 @@ export interface InstallToServerOptions {
   mode?: 'replace' | 'alongside';
   newName?: string;
   actor?: string;
+  task?: { step(label: string): void } | null;
 }
 
 export interface InstallToServerResult {
@@ -277,6 +278,7 @@ export class WorldTransferService {
       mode = 'replace',
       newName = '',
       actor = 'system',
+      task = null,
     }: InstallToServerOptions = {},
   ): Promise<InstallToServerResult> {
     const lib = await this.libraryWorldsService.mustLibWorld(libraryId);
@@ -311,6 +313,7 @@ export class WorldTransferService {
         );
       }
       targetLevel = this.props.activeLevelName(server);
+      if (task) task.step('Creating safety backup');
       await this.backups.createBackup(serverId, {
         reason: PRE_RESTORE_REASON,
         actor,
@@ -327,6 +330,7 @@ export class WorldTransferService {
       }
     }
 
+    if (task) task.step('Extracting world');
     const tmpDir = this.pathGuard.dataPath('tmp', `world-install-${nanoid(6)}`);
     await fsp.mkdir(tmpDir, { recursive: true });
     let replacedBytes = 0;
@@ -336,6 +340,7 @@ export class WorldTransferService {
         tmpDir,
       );
 
+      if (task) task.step('Installing world');
       const tops = await fsp.readdir(tmpDir, { withFileTypes: true });
       const dimTops = tops.filter(
         (e) => e.isDirectory() && this.archive.isDimName(e.name),

@@ -8,11 +8,7 @@
       <div class="col min-width-0">
         <div class="row items-center q-gutter-x-xs">
           <div class="text-subtitle2 ellipsis">{{ server.name }}</div>
-          <q-badge
-            v-if="server.updateAvailable"
-            color="warning"
-            :label="server.pack?.platform === 'packwiz' ? 'restart' : 'update'"
-          />
+          <q-badge v-if="server.updateAvailable" color="warning" label="update" />
           <q-badge
             v-if="server.crashesUnread"
             color="negative"
@@ -38,6 +34,19 @@
           {{ server.statusDetail }}
         </div>
       </div>
+    </q-card-section>
+
+    <q-card-section v-if="server.operation" class="q-pt-none">
+      <q-item-label caption class="q-mb-xs">
+        {{ operationLabel(server.operation.kind) }} — {{ server.operation.step }}
+      </q-item-label>
+      <q-linear-progress
+        :indeterminate="server.operation.percent === null"
+        :value="(server.operation.percent ?? 0) / 100"
+        color="info"
+        rounded
+        size="6px"
+      />
     </q-card-section>
 
     <q-card-section class="q-pt-none">
@@ -114,6 +123,7 @@
         icon="play_arrow"
         label="Start"
         :loading="busy"
+        :disable="locked"
         @click.stop="run('start')"
       />
       <template v-else>
@@ -124,9 +134,18 @@
           icon="stop"
           label="Stop"
           :loading="busy"
+          :disable="locked"
           @click.stop="run('stop')"
         />
-        <q-btn flat dense round icon="refresh" :loading="busy" @click.stop="run('restart')">
+        <q-btn
+          flat
+          dense
+          round
+          icon="refresh"
+          :loading="busy"
+          :disable="locked"
+          @click.stop="run('restart')"
+        >
           <q-tooltip>Restart</q-tooltip>
         </q-btn>
       </template>
@@ -146,6 +165,7 @@ import {
   formatBytes,
   pctUsed,
   meterColor,
+  operationLabel,
 } from '@/composables/useServerStatus';
 import { useServersStore } from '@/stores/servers';
 
@@ -154,6 +174,7 @@ const props = defineProps<{ server: ServerViewModel }>();
 const store = useServersStore();
 const busy = ref(false);
 const meta = computed(() => statusMeta(props.server.status));
+const locked = computed(() => !!props.server.operation);
 
 function onIconError(e: Event) {
   (e.target as HTMLImageElement).src = '/icons/servers/grass.png';

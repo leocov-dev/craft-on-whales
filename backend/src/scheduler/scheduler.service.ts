@@ -22,7 +22,6 @@ import { MaintenanceService } from '../maintenance/maintenance.service';
 import { BackupsService } from '../worlds/backups.service';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { UpdateCheckerService } from '../updates/update-checker.service';
-import { PackwizWatcherService } from '../updates/packwiz-watcher.service';
 import type {
   CreateScheduleInput,
   ScheduleViewModel,
@@ -56,7 +55,6 @@ export const TASK_TYPES = {
   start: { label: 'Start server', serverScoped: true, capability: 'power' },
   rcon: { label: 'Run command', serverScoped: true, capability: 'console' },
   'update-check': { label: 'Update check', serverScoped: false },
-  'packwiz-check': { label: 'Packwiz pack check', serverScoped: false },
   'storage-scan': { label: 'Storage re-scan', serverScoped: false },
   'tmp-clean': { label: 'Purge tmp', serverScoped: false },
   'db-maintenance': { label: 'Database maintenance', serverScoped: false },
@@ -106,7 +104,6 @@ export class SchedulerService implements OnModuleInit {
     @Inject(forwardRef(() => ServerLifecycleService))
     private readonly lifecycle: ServerLifecycleService,
     private readonly updateChecker: UpdateCheckerService,
-    private readonly packwizWatcher: PackwizWatcherService,
     private readonly maintenance: MaintenanceService,
   ) {}
 
@@ -162,9 +159,6 @@ export class SchedulerService implements OnModuleInit {
         // findings summary — no separate schedule-fired bookkeeping needed
         // here beyond what runTask's caller (schedule()) already records.
         await this.updateChecker.checkAll({ actor });
-        break;
-      case 'packwiz-check':
-        await this.packwizWatcher.checkAll({ actor });
         break;
       case 'storage-scan':
         await this.indexer.scan();
@@ -265,9 +259,13 @@ export class SchedulerService implements OnModuleInit {
 
   /** Global maintenance tasks exist from first boot; user can disable/edit. */
   private async seedGlobalDefaults(): Promise<void> {
+    // The 5-minute packwiz pack check was removed; drop its seeded row so it
+    // isn't armed as an unknown task type on existing installs.
+    await this.db
+      .delete(schedules)
+      .where(eq(schedules.taskType, 'packwiz-check'));
     const defaults: { taskType: string; cron: string }[] = [
       { taskType: 'update-check', cron: '0 3 * * *' },
-      { taskType: 'packwiz-check', cron: '*/5 * * * *' },
       { taskType: 'storage-scan', cron: '0 */6 * * *' },
       { taskType: 'tmp-clean', cron: '30 4 * * *' },
       { taskType: 'db-maintenance', cron: '15 4 * * *' },

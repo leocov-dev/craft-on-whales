@@ -19,6 +19,7 @@ import { DbService } from '../db/db.service';
 import { servers } from '../db/schema';
 import { ServerLifecycleService } from '../servers/server-lifecycle.service';
 import { ServerQueryService } from '../servers/server-query.service';
+import { ServerOperationsService } from '../servers/server-operations.service';
 import { ServerEnvironmentService } from '../servers/server-environment.service';
 import { PortsService } from '../servers/ports.service';
 import { DockerSpecService } from '../servers/docker-spec.service';
@@ -207,6 +208,7 @@ export class ServersController {
     private readonly config: ConfigService,
     private readonly permissions: PermissionsService,
     private readonly eventsService: EventsService,
+    private readonly operations: ServerOperationsService,
   ) {}
 
   private get db() {
@@ -233,7 +235,12 @@ export class ServersController {
     );
     const out: Record<string, unknown> = {};
     for (const row of visible) {
-      out[row.id] = { status: row.status, ...LIVE_EMPTY, phase: null };
+      out[row.id] = {
+        status: row.status,
+        ...LIVE_EMPTY,
+        phase: null,
+        operation: this.operations.get(row.id),
+      };
     }
     return { ok: true, servers: out };
   }

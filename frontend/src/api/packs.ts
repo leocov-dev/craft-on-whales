@@ -94,8 +94,4 @@ export const packsApi = {
       `/api/servers/${serverId}/pack/rollback`,
       backupId ? { backupId } : {},
     ),
-  setAutoRestart: (serverId: string, enabled: boolean) =>
-    http.post<{ ok: true }>(`/api/servers/${serverId}/pack/auto-restart`, { enabled }),
-  packwizSync: (serverId: string) =>
-    http.post<TaskStartResponse>(`/api/servers/${serverId}/pack/packwiz-sync`, {}),
 };

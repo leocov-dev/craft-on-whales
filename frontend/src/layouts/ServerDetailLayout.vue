@@ -19,6 +19,7 @@
           icon="play_arrow"
           label="Start"
           :loading="actionBusy"
+          :disable="!!operation"
           @click="run('start')"
         />
         <template v-else>
@@ -28,13 +29,21 @@
             icon="stop"
             label="Stop"
             :loading="actionBusy"
+            :disable="!!operation"
             @click="run('stop')"
           />
-          <q-btn flat round icon="refresh" :loading="actionBusy" @click="run('restart')">
+          <q-btn
+            flat
+            round
+            icon="refresh"
+            :loading="actionBusy"
+            :disable="!!operation"
+            @click="run('restart')"
+          >
             <q-tooltip>Restart</q-tooltip>
           </q-btn>
         </template>
-        <q-btn flat round icon="more_vert">
+        <q-btn flat round icon="more_vert" :disable="!!operation">
           <q-menu>
             <q-list>
               <q-item clickable v-close-popup @click="run('kill')">
@@ -52,6 +61,21 @@
         </q-btn>
       </div>
 
+      <q-banner v-if="operation" dense rounded class="bg-info text-dark q-mb-md">
+        <div class="text-weight-medium">
+          {{ operationLabel(operation.kind) }} — {{ operation.step }}
+        </div>
+        <div class="text-caption">The server is locked until this finishes.</div>
+        <q-linear-progress
+          class="q-mt-xs"
+          :indeterminate="operation.percent === null"
+          :value="(operation.percent ?? 0) / 100"
+          color="dark"
+          rounded
+          size="6px"
+        />
+      </q-banner>
+
       <q-banner v-if="server.pendingRecreate" dense rounded class="bg-warning text-dark q-mb-md">
         Configuration changes are waiting to be applied. They take effect when the server
         {{ stopped ? 'is started' : 'is restarted' }}.
@@ -61,6 +85,7 @@
             no-caps
             :label="stopped ? 'Start now' : 'Restart now'"
             :loading="actionBusy"
+            :disable="!!operation"
             @click="run(stopped ? 'start' : 'restart')"
           />
         </template>
@@ -94,7 +119,10 @@
       </q-tabs>
       <q-separator v-else class="q-mb-md" />
 
-      <router-view />
+      <!-- inert: no clicks/focus into the tab while a restore/install holds the server -->
+      <div :inert="!!operation" :style="operation ? 'opacity: 0.5' : undefined">
+        <router-view />
+      </div>
     </template>
 
     <q-banner v-else rounded>
@@ -111,7 +139,7 @@ import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { serversApi, type LifecycleAction, type ServerDetail } from '@/api/servers';
-import { statusMeta, iconSrc } from '@/composables/useServerStatus';
+import { statusMeta, iconSrc, operationLabel } from '@/composables/useServerStatus';
 import { serverDetailKey } from '@/composables/useServerDetail';
 import { useStatusSocket } from '@/composables/useStatusSocket';
 import { useServersStore } from '@/stores/servers';
@@ -185,6 +213,7 @@ function onTabChange(tab: string | number) {
 }
 
 const meta = computed(() => statusMeta(server.value?.status ?? 'stopped'));
+const operation = computed(() => server.value?.operation ?? null);
 
 // Never rejects: every caller (mount, a lifecycle action, a live status push)
 // fires this without awaiting the failure path, and an expired session or a
@@ -210,6 +239,7 @@ const containerVersion = ref(0);
 provide(serverDetailKey, {
   server,
   loading,
+  operation,
   refresh,
   statusVersion,
   containerVersion,
@@ -238,9 +268,20 @@ function openStatusSocket() {
   const stopContainer = watch(sock.containerVersion, () => {
     containerVersion.value += 1;
   });
+  // Operation pushes carry the whole state, so apply them in place; the end
+  // (null) also refetches since the restore/install changed what's on disk.
+  const stopOperation = watch(sock.operation, (op) => {
+    if (op === undefined) return;
+    if (server.value) server.value.operation = op;
+    if (op === null) {
+      statusVersion.value += 1;
+      void refresh();
+    }
+  });
   stopStatusWatch = () => {
     stopStatus();
     stopContainer();
+    stopOperation();
   };
 }
 watch(serverId, openStatusSocket);

@@ -327,8 +327,8 @@ async function deleteSelected() {
 function fitView() {
   const list = cells.value;
   if (!list.length || !width || !height) {
-    view.cx = map.value?.spawn.cx ?? 0;
-    view.cz = map.value?.spawn.cz ?? 0;
+    view.cx = 0;
+    view.cz = 0;
     return;
   }
   let x0 = Infinity;
@@ -341,9 +341,12 @@ function fitView() {
     z0 = Math.min(z0, c.cz);
     z1 = Math.max(z1, c.cz + 1);
   }
-  view.cx = (x0 + x1) / 2;
-  view.cz = (z0 + z1) / 2;
-  const fit = Math.min(width / (x1 - x0 + 4), height / (z1 - z0 + 4));
+  // Always centred on the world origin; scale so every loaded chunk still fits.
+  view.cx = 0;
+  view.cz = 0;
+  const halfX = Math.max(Math.abs(x0), Math.abs(x1));
+  const halfZ = Math.max(Math.abs(z0), Math.abs(z1));
+  const fit = Math.min(width / (2 * halfX + 4), height / (2 * halfZ + 4));
   view.scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, fit));
 }
 

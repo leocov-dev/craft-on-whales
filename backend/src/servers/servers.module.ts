@@ -14,6 +14,7 @@ import { DockerSpecService } from './docker-spec.service';
 import { ServerQueryService } from './server-query.service';
 import { ServerEnvironmentService } from './server-environment.service';
 import { ServerPreviewService } from './server-preview.service';
+import { ServerOperationsService } from './server-operations.service';
 import { ServerLocksService } from './server-locks.service';
 import { ServerLifecycleService } from './server-lifecycle.service';
 import { ServerPropertiesService } from './server-properties.service';
@@ -42,6 +43,7 @@ import { StatusBusModule } from '../status-bus/status-bus.module';
     ServerQueryService,
     ServerEnvironmentService,
     ServerPreviewService,
+    ServerOperationsService,
     ServerLocksService,
     ServerLifecycleService,
     ServerPropertiesService,
@@ -57,6 +59,7 @@ import { StatusBusModule } from '../status-bus/status-bus.module';
     ServerQueryService,
     ServerEnvironmentService,
     ServerPreviewService,
+    ServerOperationsService,
     ServerLocksService,
     ServerLifecycleService,
     ServerPropertiesService,
