@@ -9,6 +9,9 @@ import { EventsModule } from '../events/events.module';
 import { DiscordService } from './discord.service';
 import { InvitesService } from './invites.service';
 import { IntegrationsController } from './integrations.controller';
+import { RestartHookController } from './restart-hook.controller';
+import { RestartHookGuard } from './restart-hook.guard';
+import { RestartHookService } from './restart-hook.service';
 
 @Module({
   imports: [
@@ -20,8 +23,13 @@ import { IntegrationsController } from './integrations.controller';
     StatusModule,
     EventsModule,
   ],
-  controllers: [IntegrationsController],
-  providers: [DiscordService, InvitesService],
+  controllers: [IntegrationsController, RestartHookController],
+  providers: [
+    DiscordService,
+    InvitesService,
+    RestartHookService,
+    RestartHookGuard,
+  ],
   exports: [DiscordService, InvitesService],
 })
 export class IntegrationsModule {}

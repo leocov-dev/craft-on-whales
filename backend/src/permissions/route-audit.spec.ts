@@ -129,8 +129,13 @@ const EXPLICIT_ROSTER = new Set<string>([
  * `API_TOKENS_NOTES.md`. Kept as its own tiny roster (not folded into
  * `EXPLICIT_ROSTER`, which does the opposite job) so it stays a one-line,
  * reviewer-visible exception rather than a silent gap in the heuristic.
+ * `RestartHookController` (`backend/src/integrations/`) is the same shape:
+ * `@Public()` + `RestartHookGuard`, authenticated by a per-server restart key.
  */
-const EXCLUDE_ROSTER = new Set<string>(['PublicApiController#get']);
+const EXCLUDE_ROSTER = new Set<string>([
+  'PublicApiController#get',
+  'RestartHookController#restart',
+]);
 
 function collectCases(): RouteCase[] {
   const cases: RouteCase[] = [];

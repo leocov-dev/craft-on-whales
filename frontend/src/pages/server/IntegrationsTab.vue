@@ -57,6 +57,58 @@
         </div>
       </q-card>
     </div>
+
+    <div class="col-12 col-md-6">
+      <q-card flat bordered class="q-pa-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Restart webhook</div>
+          <div class="text-caption text-grey">
+            Lets another service restart this server by calling
+            <code>POST {{ restartUrl }}</code> with <code>Authorization: Bearer &lt;key&gt;</code>.
+            The key works for this endpoint only.
+          </div>
+          <q-toggle
+            :model-value="restartHook.enabled"
+            :disable="!restartHook.hasKey"
+            label="Enabled"
+            @update:model-value="toggleRestartHook"
+          />
+          <q-input
+            v-if="newKey"
+            :model-value="newKey"
+            label="New key — copy it now, it won't be shown again"
+            filled
+            dense
+            readonly
+          >
+            <template #append>
+              <q-btn flat dense round icon="content_copy" @click="copyKey" />
+            </template>
+          </q-input>
+          <div v-else-if="restartHook.hasKey" class="text-caption">
+            Current key: <code>{{ restartHook.keyPrefix }}…</code>
+          </div>
+          <div class="row justify-end q-gutter-sm">
+            <q-btn
+              v-if="restartHook.hasKey"
+              dense
+              flat
+              color="negative"
+              label="Revoke"
+              :loading="savingHook"
+              @click="revokeRestartHook"
+            />
+            <q-btn
+              dense
+              color="primary"
+              :label="restartHook.hasKey ? 'Regenerate key' : 'Generate key'"
+              :loading="savingHook"
+              @click="generateKey"
+            />
+          </div>
+        </div>
+      </q-card>
+    </div>
   </div>
 </template>
 
@@ -68,6 +120,7 @@ import {
   type DiscordConfig,
   type StatusPageConfig,
   type EventToggles,
+  type RestartHookConfig,
 } from '@/api/integrations';
 import { useServerDetail } from '@/composables/useServerDetail';
 import { slugify } from '@/utils/slug';
@@ -106,6 +159,17 @@ const discordWebhook = ref('');
 const statusPage = ref<StatusPageConfig>({ enabled: false, slug: null, path: null });
 const statusSlug = ref('');
 
+const restartHook = ref<RestartHookConfig>({
+  enabled: false,
+  hasKey: false,
+  keyPrefix: null,
+  path: '',
+});
+// The raw key, held only until the user leaves — the API never returns it again.
+const newKey = ref('');
+const savingHook = ref(false);
+const restartUrl = computed(() => `${window.location.origin}${restartHook.value.path}`);
+
 const savingDiscord = ref(false);
 const testingDiscord = ref(false);
 const savingStatus = ref(false);
@@ -116,6 +180,7 @@ async function load() {
   discord.value = res.discord;
   statusPage.value = res.statusPage;
   statusSlug.value = res.statusPage.slug ?? '';
+  restartHook.value = res.restartHook;
 }
 
 async function saveDiscord() {
@@ -164,6 +229,53 @@ async function saveStatusPage() {
     $q.notify({ type: 'negative', message: err instanceof Error ? err.message : 'Save failed.' });
   } finally {
     savingStatus.value = false;
+  }
+}
+
+async function runHookAction(action: () => Promise<void>, failure: string): Promise<void> {
+  savingHook.value = true;
+  try {
+    await action();
+  } catch (err) {
+    $q.notify({ type: 'negative', message: err instanceof Error ? err.message : failure });
+  } finally {
+    savingHook.value = false;
+  }
+}
+
+function toggleRestartHook(enabled: boolean) {
+  const id = server.value?.id;
+  if (!id) return;
+  return runHookAction(async () => {
+    restartHook.value = (await integrationsApi.setRestartHook(id, enabled)).restartHook;
+  }, 'Save failed.');
+}
+
+function generateKey() {
+  const id = server.value?.id;
+  if (!id) return;
+  return runHookAction(async () => {
+    const res = await integrationsApi.regenerateRestartHookKey(id);
+    newKey.value = res.key;
+    restartHook.value = res.restartHook;
+  }, 'Could not generate key.');
+}
+
+function revokeRestartHook() {
+  const id = server.value?.id;
+  if (!id) return;
+  return runHookAction(async () => {
+    restartHook.value = (await integrationsApi.clearRestartHook(id)).restartHook;
+    newKey.value = '';
+  }, 'Could not revoke key.');
+}
+
+async function copyKey() {
+  try {
+    await navigator.clipboard.writeText(newKey.value);
+    $q.notify({ type: 'positive', message: 'Key copied.' });
+  } catch {
+    $q.notify({ type: 'negative', message: 'Copy failed — select the key and copy manually.' });
   }
 }
 

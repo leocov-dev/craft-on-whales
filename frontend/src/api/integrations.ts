@@ -7,14 +7,25 @@ import type {
   SetDiscordConfigInput,
   StatusPageConfig,
   InviteInfo,
+  RestartHookConfig,
+  RestartHookKeyResult,
 } from '../../../shared/types/integrations';
 
-export type { EventToggles, DiscordConfig, SetDiscordConfigInput, StatusPageConfig, InviteInfo };
+export type {
+  EventToggles,
+  DiscordConfig,
+  SetDiscordConfigInput,
+  StatusPageConfig,
+  InviteInfo,
+  RestartHookConfig,
+  RestartHookKeyResult,
+};
 
 interface IntegrationsResponse {
   ok: true;
   discord: DiscordConfig;
   statusPage: StatusPageConfig;
+  restartHook: RestartHookConfig;
   invite: InviteInfo | null;
 }
 
@@ -34,5 +45,18 @@ export const integrationsApi = {
     http.post<{ ok: true; statusPage: StatusPageConfig }>(
       `/api/servers/${serverId}/integrations/status-page`,
       input,
+    ),
+  setRestartHook: (serverId: string, enabled: boolean) =>
+    http.post<{ ok: true; restartHook: RestartHookConfig }>(
+      `/api/servers/${serverId}/integrations/restart-hook`,
+      { enabled },
+    ),
+  regenerateRestartHookKey: (serverId: string) =>
+    http.post<{ ok: true } & RestartHookKeyResult>(
+      `/api/servers/${serverId}/integrations/restart-hook/key`,
+    ),
+  clearRestartHook: (serverId: string) =>
+    http.delete<{ ok: true; restartHook: RestartHookConfig }>(
+      `/api/servers/${serverId}/integrations/restart-hook`,
     ),
 };

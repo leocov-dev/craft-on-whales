@@ -75,3 +75,18 @@ One server's detail. A server the token isn't scoped to returns `404`, identical
   response; wait a minute and retry.
 - Turning **Public API** off immediately stops every token from authenticating, without deleting
   them — turning it back on restores them all.
+
+## Restart webhook
+
+Each server can accept an inbound webhook that restarts it — handy for a deploy pipeline or a
+monitoring tool. Open the server's **Integrations** tab, find **Restart webhook**, and click
+**Generate key**. Copy the key right away; it is shown once. Then call:
+
+```sh
+curl -X POST https://panel.example.com/api/hooks/servers/<server-id>/restart \
+  -H "Authorization: Bearer <key>"
+```
+
+The panel answers `202` and restarts in the background; a failed restart shows up in the server's
+history. The key only works for that one server's restart endpoint. **Regenerate key** replaces it
+(the old one stops working immediately), and **Revoke** removes it.

@@ -48,3 +48,19 @@ export interface InviteInfo {
   inviteText: string;
   modded: boolean;
 }
+
+/** `GET /api/servers/:id/integrations`'s `restartHook` field. The key itself
+ *  is never sent back — only a short prefix to tell keys apart. */
+export interface RestartHookConfig {
+  enabled: boolean;
+  hasKey: boolean;
+  keyPrefix: string | null;
+  /** Path (no origin) of the inbound restart endpoint for this server. */
+  path: string;
+}
+
+/** `POST …/integrations/restart-hook/key` — the only time the raw key is returned. */
+export interface RestartHookKeyResult {
+  key: string;
+  restartHook: RestartHookConfig;
+}
