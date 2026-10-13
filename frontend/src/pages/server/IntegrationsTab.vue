@@ -63,9 +63,9 @@
         <div class="q-gutter-md">
           <div class="text-subtitle1">Restart webhook</div>
           <div class="text-caption text-grey">
-            Lets another service restart this server by sending a <code>POST</code> to the URL
-            below with <code>Authorization: Bearer &lt;key&gt;</code>. The key works for this
-            endpoint only.
+            Lets another service restart this server by sending a <code>POST</code> to the URL below
+            with <code>Authorization: Bearer &lt;key&gt;</code>. The key works for this endpoint
+            only.
           </div>
           <q-input :model-value="restartUrl" label="Restart URL" filled dense readonly>
             <template #append>
