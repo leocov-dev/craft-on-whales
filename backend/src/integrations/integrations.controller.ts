@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -18,6 +19,7 @@ import { EventsService } from '../events/events.service';
 import { StatusService } from '../status/status.service';
 import { DiscordService } from './discord.service';
 import { InvitesService } from './invites.service';
+import { RestartHookService } from './restart-hook.service';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ServerPermissionGuard } from '../permissions/server-permission.guard';
@@ -60,6 +62,8 @@ const discordSchema = z.object({
     .optional(),
 });
 
+const restartHookSchema = z.object({ enabled: z.boolean() });
+
 const statusPageSchema = z
   .object({
     enabled: z.boolean(),
@@ -86,6 +90,7 @@ export class IntegrationsController {
     private readonly discord: DiscordService,
     private readonly invites: InvitesService,
     private readonly statusPage: StatusService,
+    private readonly restartHook: RestartHookService,
   ) {}
 
   private async mustGet(id: string) {
@@ -103,6 +108,7 @@ export class IntegrationsController {
       ok: true,
       discord: await this.discord.getConfig(server.id),
       statusPage: await this.statusPage.getStatusPage(server.id),
+      restartHook: await this.restartHook.getConfig(server.id),
       invite: await this.invites.inviteInfo(server.id),
     };
   }
@@ -172,5 +178,49 @@ export class IntegrationsController {
       summary: `Public status page ${config.enabled ? `enabled at /status/${config.slug}` : 'disabled'}`,
     });
     return { ok: true, statusPage: config };
+  }
+
+  @RequireServerPermission('settings')
+  @Post('restart-hook')
+  async setRestartHook(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.mustGet(id);
+    const { enabled } = parseBody(restartHookSchema, req.body);
+    const config = await this.restartHook.setEnabled(server.id, enabled);
+    this.events.recordEvent({
+      serverId: server.id,
+      actor: req.user ? req.user.username : 'admin',
+      type: 'integration-changed',
+      summary: `Restart webhook ${config.enabled ? 'enabled' : 'disabled'}`,
+    });
+    return { ok: true, restartHook: config };
+  }
+
+  // Returns the raw key — the only time it is ever visible.
+  @RequireServerPermission('settings')
+  @Post('restart-hook/key')
+  async regenerateRestartHookKey(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.mustGet(id);
+    const result = await this.restartHook.regenerateKey(server.id);
+    this.events.recordEvent({
+      serverId: server.id,
+      actor: req.user ? req.user.username : 'admin',
+      type: 'integration-changed',
+      summary: 'Restart webhook key generated',
+    });
+    return { ok: true, ...result };
+  }
+
+  @RequireServerPermission('settings')
+  @Delete('restart-hook')
+  async clearRestartHook(@Param('id') id: string, @Req() req: Request) {
+    const server = await this.mustGet(id);
+    const config = await this.restartHook.clear(server.id);
+    this.events.recordEvent({
+      serverId: server.id,
+      actor: req.user ? req.user.username : 'admin',
+      type: 'integration-changed',
+      summary: 'Restart webhook key revoked',
+    });
+    return { ok: true, restartHook: config };
   }
 }
