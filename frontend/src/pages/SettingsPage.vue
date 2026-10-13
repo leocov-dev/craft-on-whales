@@ -17,8 +17,15 @@
               :placeholder="
                 cfMasked ? `${cfMasked} (stored)` : 'paste your key from console.curseforge.com'
               "
+              :hint="
+                cfMasked ? `Key saved (${cfMasked}). Paste a new one to replace it.` : undefined
+              "
               autocomplete="off"
-            />
+            >
+              <template v-if="cfMasked" #append>
+                <q-icon name="check_circle" color="positive" />
+              </template>
+            </q-input>
             <q-btn label="Save key" :loading="savingKey" @click="saveKey" />
             <q-btn flat label="Test key" :loading="testingKey" @click="testKey" />
           </div>
