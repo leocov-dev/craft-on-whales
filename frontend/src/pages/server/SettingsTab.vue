@@ -69,6 +69,21 @@
           <q-input v-model="form.notes" label="Notes" filled dense type="textarea" autogrow />
         </div>
       </q-card>
+
+      <q-card flat bordered class="q-pa-md q-mt-md">
+        <div class="q-gutter-md">
+          <div class="text-subtitle1">Lifecycle</div>
+          <q-toggle v-model="form.autoStart" label="Auto-start with the panel" />
+          <q-toggle v-model="form.autoRestart" label="Auto-restart on crash" />
+          <q-select
+            v-model="form.updatePolicy"
+            :options="['manual', 'notify', 'auto']"
+            filled
+            dense
+            label="Modpack update policy"
+          />
+        </div>
+      </q-card>
     </div>
 
     <div class="col-12 col-md-6">
@@ -114,21 +129,6 @@
             label="Disk quota (GB)"
             filled
             dense
-          />
-        </div>
-      </q-card>
-
-      <q-card flat bordered class="q-pa-md q-mt-md">
-        <div class="q-gutter-md">
-          <div class="text-subtitle1">Lifecycle</div>
-          <q-toggle v-model="form.autoStart" label="Auto-start with the panel" />
-          <q-toggle v-model="form.autoRestart" label="Auto-restart on crash" />
-          <q-select
-            v-model="form.updatePolicy"
-            :options="['manual', 'notify', 'auto']"
-            filled
-            dense
-            label="Modpack update policy"
           />
         </div>
       </q-card>

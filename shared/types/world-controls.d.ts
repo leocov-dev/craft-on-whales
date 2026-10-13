@@ -66,6 +66,8 @@ export interface WorldState {
   clock?: string;
   day?: number | null;
   pvp: boolean;
+  /** server.properties `difficulty` (peaceful|easy|normal|hard). */
+  difficulty: string;
   [rule: string]: boolean | number | string | null | undefined;
 }
 

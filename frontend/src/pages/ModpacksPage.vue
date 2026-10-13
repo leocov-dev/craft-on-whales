@@ -37,7 +37,14 @@
               :loading="busyId === s.id"
               @click="upgrade(s)"
             />
-            <q-btn dense flat label="Rollback" :loading="busyId === s.id" @click="rollback(s)" />
+            <q-btn
+              v-if="s.pack?.platform !== 'packwiz'"
+              dense
+              flat
+              label="Rollback"
+              :loading="busyId === s.id"
+              @click="rollback(s)"
+            />
             <q-btn dense flat label="View mods" @click="viewInstalledMods(s.id)" />
           </div>
         </q-card>

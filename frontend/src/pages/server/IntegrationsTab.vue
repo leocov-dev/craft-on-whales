@@ -63,10 +63,15 @@
         <div class="q-gutter-md">
           <div class="text-subtitle1">Restart webhook</div>
           <div class="text-caption text-grey">
-            Lets another service restart this server by calling
-            <code>POST {{ restartUrl }}</code> with <code>Authorization: Bearer &lt;key&gt;</code>.
-            The key works for this endpoint only.
+            Lets another service restart this server by sending a <code>POST</code> to the URL below
+            with <code>Authorization: Bearer &lt;key&gt;</code>. The key works for this endpoint
+            only.
           </div>
+          <q-input :model-value="restartUrl" label="Restart URL" filled dense readonly>
+            <template #append>
+              <q-btn flat dense round icon="content_copy" @click="copyRestartUrl" />
+            </template>
+          </q-input>
           <q-toggle
             :model-value="restartHook.enabled"
             :disable="!restartHook.hasKey"
@@ -276,6 +281,15 @@ async function copyKey() {
     $q.notify({ type: 'positive', message: 'Key copied.' });
   } catch {
     $q.notify({ type: 'negative', message: 'Copy failed — select the key and copy manually.' });
+  }
+}
+
+async function copyRestartUrl() {
+  try {
+    await navigator.clipboard.writeText(restartUrl.value);
+    $q.notify({ type: 'positive', message: 'URL copied.' });
+  } catch {
+    $q.notify({ type: 'negative', message: 'Copy failed — select the URL and copy manually.' });
   }
 }
 
