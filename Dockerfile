@@ -38,6 +38,10 @@ RUN npm --prefix backend run build
 # 'frontend', 'dist', 'spa'), i.e. two levels up from backend/dist/.
 FROM node:24-alpine
 WORKDIR /app
+# Re-declared here: ARG/ENV don't cross stages, and the backend reads
+# process.env.APP_VERSION at runtime (settings/panel-update.service.ts).
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 ENV NODE_ENV=production \
     DATA_DIR=/data \
     PANEL_HOST=0.0.0.0 \

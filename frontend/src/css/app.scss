@@ -164,6 +164,14 @@ a {
   text-decoration-color: var(--color-link);
 }
 
+// Inline text links: Quasar's text-primary (ocean-500) is too dark on the dark
+// canvas and unclassed anchors fall back to the browser's default blue. Use the
+// theme's link shade for both. !important matches Quasar's own text-* helpers.
+a.text-primary,
+a:not([class]) {
+  color: var(--color-link) !important;
+}
+
 // Quasar has no equivalent for native browser form-control chrome (the
 // number-input spin arrows), so this is a deliberate exception to leaning on
 // Quasar's own theming rather than custom CSS — nothing Quasar-side can
