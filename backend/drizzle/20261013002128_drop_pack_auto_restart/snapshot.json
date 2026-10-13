@@ -2,9 +2,7 @@
   "version": "7",
   "dialect": "sqlite",
   "id": "fb806e09-6614-420e-bc7f-685d3fbad0cf",
-  "prevIds": [
-    "5816e6dd-6787-4e39-92ce-998e1126bbc1"
-  ],
+  "prevIds": ["5816e6dd-6787-4e39-92ce-998e1126bbc1"],
   "ddl": [
     {
       "name": "content_import_overrides",
@@ -2499,13 +2497,9 @@
       "table": "update_checks"
     },
     {
-      "columns": [
-        "import_id"
-      ],
+      "columns": ["import_id"],
       "tableTo": "content_imports",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2514,13 +2508,9 @@
       "table": "content_import_overrides"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "tableTo": "servers",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2529,13 +2519,9 @@
       "table": "content_imports"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "tableTo": "servers",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2544,13 +2530,9 @@
       "table": "server_content"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "tableTo": "servers",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2559,13 +2541,9 @@
       "table": "server_packs"
     },
     {
-      "columns": [
-        "user_id"
-      ],
+      "columns": ["user_id"],
       "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2574,13 +2552,9 @@
       "table": "user_server_permissions"
     },
     {
-      "columns": [
-        "event_id"
-      ],
+      "columns": ["event_id"],
       "tableTo": "events",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "nameExplicit": false,
@@ -2589,13 +2563,9 @@
       "table": "crash_reports"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "tableTo": "servers",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2604,13 +2574,9 @@
       "table": "schedules"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "tableTo": "servers",
-      "columnsTo": [
-        "id"
-      ],
+      "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
@@ -2619,255 +2585,196 @@
       "table": "backups"
     },
     {
-      "columns": [
-        "user_id",
-        "server_id"
-      ],
+      "columns": ["user_id", "server_id"],
       "nameExplicit": false,
       "name": "user_server_permissions_pk",
       "entityType": "pks",
       "table": "user_server_permissions"
     },
     {
-      "columns": [
-        "server_id",
-        "kind"
-      ],
+      "columns": ["server_id", "kind"],
       "nameExplicit": false,
       "name": "integrations_pk",
       "entityType": "pks",
       "table": "integrations"
     },
     {
-      "columns": [
-        "subject_type",
-        "subject_id"
-      ],
+      "columns": ["subject_type", "subject_id"],
       "nameExplicit": false,
       "name": "update_checks_pk",
       "entityType": "pks",
       "table": "update_checks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "content_import_overrides_pk",
       "table": "content_import_overrides",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "content_imports_pk",
       "table": "content_imports",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "server_content_pk",
       "table": "server_content",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "nameExplicit": false,
       "name": "server_packs_pk",
       "table": "server_packs",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "servers_pk",
       "table": "servers",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "api_tokens_pk",
       "table": "api_tokens",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "sid"
-      ],
+      "columns": ["sid"],
       "nameExplicit": false,
       "name": "sessions_pk",
       "table": "sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "users_pk",
       "table": "users",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "crash_reports_pk",
       "table": "crash_reports",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "events_pk",
       "table": "events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "player_events_pk",
       "table": "player_events",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "player_notes_pk",
       "table": "player_notes",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "player_sessions_pk",
       "table": "player_sessions",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "player_stat_snapshots_pk",
       "table": "player_stat_snapshots",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "library_files_pk",
       "table": "library_files",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "server_id"
-      ],
+      "columns": ["server_id"],
       "nameExplicit": false,
       "name": "chat_command_settings_pk",
       "table": "chat_command_settings",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "chat_commands_pk",
       "table": "chat_commands",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "schedules_pk",
       "table": "schedules",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "backups_pk",
       "table": "backups",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "blueprints_pk",
       "table": "blueprints",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "api_cache_pk",
       "table": "api_cache",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "provider"
-      ],
+      "columns": ["provider"],
       "nameExplicit": false,
       "name": "api_keys_pk",
       "table": "api_keys",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "key"
-      ],
+      "columns": ["key"],
       "nameExplicit": false,
       "name": "settings_pk",
       "table": "settings",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "rel_path"
-      ],
+      "columns": ["rel_path"],
       "nameExplicit": false,
       "name": "storage_index_pk",
       "table": "storage_index",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "storage_snapshots_pk",
       "table": "storage_snapshots",
@@ -3192,18 +3099,14 @@
       "table": "backups"
     },
     {
-      "columns": [
-        "token_hash"
-      ],
+      "columns": ["token_hash"],
       "nameExplicit": false,
       "name": "api_tokens_token_hash_unique",
       "entityType": "uniques",
       "table": "api_tokens"
     },
     {
-      "columns": [
-        "username"
-      ],
+      "columns": ["username"],
       "nameExplicit": false,
       "name": "users_username_unique",
       "entityType": "uniques",
