@@ -134,8 +134,21 @@ export class WorldControlsService {
     return value === undefined ? true : value !== 'false'; // vanilla default is on
   }
 
+  // Same file-backed read as PvP: every difficulty quick action also writes
+  // server.properties (see runQuick), so the file tracks the live value.
+  private readDifficulty(serverId: string): string {
+    const value = this.properties.get(serverId, 'difficulty');
+    const names = ['peaceful', 'easy', 'normal', 'hard'];
+    const lower = value?.toLowerCase();
+    if (lower && names.includes(lower)) return lower;
+    return names[Number(value)] ?? 'easy'; // vanilla default
+  }
+
   async getState(serverId: string): Promise<WorldState> {
-    const state: WorldState = { pvp: true };
+    const state: WorldState = {
+      pvp: true,
+      difficulty: 'easy',
+    };
     const time = await this.queryTime(serverId);
     if (time) {
       state.timeTicks = time.ticks;
@@ -165,6 +178,7 @@ export class WorldControlsService {
       }
     });
     state.pvp = this.readPvp(serverId); // from server.properties — the pending/effective value
+    state.difficulty = this.readDifficulty(serverId);
     return state;
   }
 

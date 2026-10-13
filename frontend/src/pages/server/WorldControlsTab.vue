@@ -51,32 +51,15 @@
           <q-item-label caption>Difficulty</q-item-label>
           <div class="row q-gutter-xs q-mt-md">
             <q-btn
+              v-for="d in DIFFICULTIES"
+              :key="d"
               dense
-              outline
-              label="Peaceful"
+              :outline="state.difficulty !== d"
+              :unelevated="state.difficulty === d"
+              :color="state.difficulty === d ? 'primary' : undefined"
+              :label="d.charAt(0).toUpperCase() + d.slice(1)"
               :disable="!canWrite"
-              @click="run('difficulty-peaceful')"
-            />
-            <q-btn
-              dense
-              outline
-              label="Easy"
-              :disable="!canWrite"
-              @click="run('difficulty-easy')"
-            />
-            <q-btn
-              dense
-              outline
-              label="Normal"
-              :disable="!canWrite"
-              @click="run('difficulty-normal')"
-            />
-            <q-btn
-              dense
-              outline
-              label="Hard"
-              :disable="!canWrite"
-              @click="run('difficulty-hard')"
+              @click="run(`difficulty-${d}`)"
             />
           </div>
         </div>
@@ -160,6 +143,7 @@ const canWrite = auth.canWrite;
 
 const loading = ref(true);
 const running = ref(false);
+const DIFFICULTIES = ['peaceful', 'easy', 'normal', 'hard'] as const;
 const state = ref<WorldState | null>(null);
 
 // Grouped exactly the way world-controls.types.ts's GameruleKey comments
