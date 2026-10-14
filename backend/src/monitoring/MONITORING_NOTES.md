@@ -27,6 +27,17 @@ server the caller may see, in parallel. Docker's one-shot stats take 1-2 s per
 container, which is why the dashboard polls every 5 s and no faster. If this
 becomes costly, add a shared cache here rather than polling faster.
 
+### Host overlay (`HostStatsService`)
+
+`overview.host` is the raw machine's CPU and memory, drawn as a second line on
+the dashboard charts. Inside the container these are the host's numbers (the
+Linux VM under Docker Desktop, which is accepted). Memory used is
+`total - MemAvailable` from `/proc/meminfo` (`os.freemem()` would count page
+cache as used). CPU is the `os.cpus()` busy delta since the previous call,
+scaled by core count so it shares the servers' "100% = one core" unit. Readings
+under 1 s apart reuse the last value because several users poll concurrently.
+It is returned even when no servers are running.
+
 ## Health (`HealthService`)
 
 Read-only join of values recorded elsewhere: `inspectStatus`, event counts for

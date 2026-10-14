@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { HostStatsService } from './host-stats.service';
 import { DockerStatsService } from '../docker/docker-stats.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { ServerQueryService } from '../servers/server-query.service';
@@ -15,9 +16,11 @@ export class OverviewService {
     private readonly query: ServerQueryService,
     private readonly stats: DockerStatsService,
     private readonly permissions: PermissionsService,
+    private readonly host: HostStatsService,
   ) {}
 
   async forUser(user: PublicUser): Promise<ResourceOverview> {
+    const host = this.host.current();
     const visible = await this.permissions.filterVisible(
       user,
       await this.query.listServers(),
@@ -41,6 +44,7 @@ export class OverviewService {
     const sum = (pick: (u: ServerUsage) => number) =>
       usage.reduce((acc, u) => acc + pick(u), 0);
     return {
+      host: await host,
       servers: usage,
       totals: {
         cpuPct: Math.round(sum((u) => u.cpuPct) * 10) / 10,

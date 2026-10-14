@@ -7,6 +7,7 @@ import { ServersModule } from '../servers/servers.module';
 import { TpsService } from './tps.service';
 import { HealthService } from './health.service';
 import { OverviewService } from './overview.service';
+import { HostStatsService } from './host-stats.service';
 import {
   MonitoringController,
   MonitoringOverviewController,
@@ -21,7 +22,7 @@ import {
     ServersModule,
   ],
   controllers: [MonitoringController, MonitoringOverviewController],
-  providers: [TpsService, HealthService, OverviewService],
+  providers: [TpsService, HealthService, OverviewService, HostStatsService],
   exports: [TpsService],
 })
 export class MonitoringModule {}
