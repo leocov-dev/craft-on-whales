@@ -35,9 +35,19 @@ export interface ServerUsage {
   memLimitBytes: number;
 }
 
+/** Raw host machine usage (the Linux VM under Docker Desktop). */
+export interface HostUsage {
+  /** 100% = one core, so the ceiling is `ncpu * 100`. */
+  cpuPct: number;
+  ncpu: number;
+  memUsedBytes: number;
+  memTotalBytes: number;
+}
+
 /** `GET /api/monitoring/overview` — the dashboard's combined resource graphs. */
 export interface ResourceOverview {
   servers: ServerUsage[];
   /** Host-wide totals across `servers`. */
   totals: { cpuPct: number; memUsedBytes: number; memLimitBytes: number };
+  host: HostUsage;
 }
