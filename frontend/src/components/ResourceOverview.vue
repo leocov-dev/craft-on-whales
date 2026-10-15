@@ -7,6 +7,7 @@
         <div class="row justify-between text-caption">
           <span>Memory</span>
           <span>
+            <span class="swatch" :style="{ borderTopColor: MEM_COLOR }" />
             Servers {{ formatBytes(overview.totals.memUsedBytes) }}
             <template v-if="overview.totals.memLimitBytes">
               / {{ formatBytes(overview.totals.memLimitBytes) }}
@@ -15,18 +16,21 @@
         </div>
         <q-linear-progress rounded size="10px" color="teal" :value="memFraction" class="q-mb-xs" />
         <div class="row justify-between text-caption text-grey q-mb-sm">
-          <span>Host</span>
+          <span><span class="swatch swatch--dashed" />Host</span>
           <span>
             {{ formatBytes(overview.host.memUsedBytes) }} /
             {{ formatBytes(overview.host.memTotalBytes) }}
           </span>
         </div>
-        <canvas ref="memCanvas" height="80" />
+        <div class="chart-box"><canvas ref="memCanvas" /></div>
       </div>
       <div class="col-12 col-md-6">
         <div class="row justify-between text-caption">
           <span>CPU (100% = one core)</span>
-          <span>Servers {{ overview.totals.cpuPct }}%</span>
+          <span>
+            <span class="swatch" :style="{ borderTopColor: CPU_COLOR }" />
+            Servers {{ overview.totals.cpuPct }}%
+          </span>
         </div>
         <q-linear-progress
           rounded
@@ -36,10 +40,10 @@
           class="q-mb-xs"
         />
         <div class="row justify-between text-caption text-grey q-mb-sm">
-          <span>Host ({{ overview.host.ncpu }} cores)</span>
+          <span><span class="swatch swatch--dashed" />Host ({{ overview.host.ncpu }} cores)</span>
           <span>{{ overview.host.cpuPct }}%</span>
         </div>
-        <canvas ref="cpuCanvas" height="80" />
+        <div class="chart-box"><canvas ref="cpuCanvas" /></div>
       </div>
     </div>
 
@@ -62,24 +66,17 @@ import {
   LinearScale,
   CategoryScale,
   Filler,
-  Legend,
 } from 'chart.js';
 import { monitoringApi, type ResourceOverview } from '@/api/monitoring';
 
-Chart.register(
-  LineController,
-  LineElement,
-  PointElement,
-  LinearScale,
-  CategoryScale,
-  Filler,
-  Legend,
-);
+Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Filler);
 
 // Docker's one-shot stats take ~1-2 s per container, so don't poll faster.
 const POLL_MS = 5000;
 const MAX_POINTS = 60;
 const HOST_COLOR = '#9e9e9e';
+const CPU_COLOR = '#3fa62b';
+const MEM_COLOR = '#21a7ab';
 
 const overview = ref<ResourceOverview | null>(null);
 const cpuCanvas = ref<HTMLCanvasElement>();
@@ -105,13 +102,7 @@ function formatBytes(bytes: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
-function makeChart(
-  canvas: HTMLCanvasElement,
-  data: number[],
-  hostData: number[],
-  color: string,
-  max: number,
-) {
+function makeChart(canvas: HTMLCanvasElement, data: number[], hostData: number[], color: string) {
   return new Chart(canvas, {
     type: 'line',
     data: {
@@ -140,17 +131,17 @@ function makeChart(
     options: {
       animation: false,
       responsive: true,
-      scales: { x: { display: false }, y: { beginAtZero: true, max } },
-      plugins: { legend: { display: true, labels: { boxHeight: 2 } } },
+      maintainAspectRatio: false,
+      scales: { x: { display: false }, y: { beginAtZero: true } },
+      plugins: { legend: { display: false } },
     },
   });
 }
 
-function refreshChart(chart: Chart | null, data: number[], hostData: number[], max: number) {
+function refreshChart(chart: Chart | null, data: number[], hostData: number[]) {
   if (!chart) return;
   chart.data.datasets[0]!.data = [...data];
   chart.data.datasets[1]!.data = [...hostData];
-  chart.options.scales!.y!.max = max;
   chart.update('none');
 }
 
@@ -172,17 +163,15 @@ async function poll() {
       hostCpuData.shift();
       hostMemData.shift();
     }
-    // Pin the axes to the machine's capacity so servers read as a share of it.
-    const cpuMax = next.host.ncpu * 100;
-    const memMax = Math.round(next.host.memTotalBytes / 1024 / 1024);
     // The card only renders once the first response lands, so build lazily.
+    // Axes auto-scale to the largest value currently in the window.
     await nextTick();
     if (!cpuChart && cpuCanvas.value)
-      cpuChart = makeChart(cpuCanvas.value, cpuData, hostCpuData, '#3fa62b', cpuMax);
+      cpuChart = makeChart(cpuCanvas.value, cpuData, hostCpuData, CPU_COLOR);
     if (!memChart && memCanvas.value)
-      memChart = makeChart(memCanvas.value, memData, hostMemData, '#21a7ab', memMax);
-    refreshChart(cpuChart, cpuData, hostCpuData, cpuMax);
-    refreshChart(memChart, memData, hostMemData, memMax);
+      memChart = makeChart(memCanvas.value, memData, hostMemData, MEM_COLOR);
+    refreshChart(cpuChart, cpuData, hostCpuData);
+    refreshChart(memChart, memData, hostMemData);
   } catch {
     /* transient; next tick retries */
   } finally {
@@ -201,3 +190,21 @@ onUnmounted(() => {
   memChart?.destroy();
 });
 </script>
+
+<style scoped>
+/* Fixed height so the chart fills it; the swatches above replace a legend row. */
+.chart-box {
+  position: relative;
+  height: 180px;
+}
+.swatch {
+  display: inline-block;
+  width: 14px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-top: 2px solid #9e9e9e;
+}
+.swatch--dashed {
+  border-top-style: dashed;
+}
+</style>
