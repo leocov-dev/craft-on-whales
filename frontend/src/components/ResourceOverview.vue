@@ -58,7 +58,6 @@
         </q-list>
       </div>
     </div>
-
   </q-card>
 </template>
 
