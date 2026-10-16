@@ -23,6 +23,12 @@
           </span>
         </div>
         <div class="chart-box"><canvas ref="memCanvas" /></div>
+        <q-list v-if="topByMem.length" dense class="q-mt-sm">
+          <q-item v-for="s in topByMem" :key="s.id" :to="`/servers/${s.id}/metrics`">
+            <q-item-section>{{ s.name }}</q-item-section>
+            <q-item-section side>{{ formatBytes(s.memUsedBytes) }}</q-item-section>
+          </q-item>
+        </q-list>
       </div>
       <div class="col-12 col-md-6">
         <div class="row justify-between text-caption">
@@ -44,15 +50,14 @@
           <span>{{ overview.host.cpuPct }}%</span>
         </div>
         <div class="chart-box"><canvas ref="cpuCanvas" /></div>
+        <q-list v-if="topByCpu.length" dense class="q-mt-sm">
+          <q-item v-for="s in topByCpu" :key="s.id" :to="`/servers/${s.id}/metrics`">
+            <q-item-section>{{ s.name }}</q-item-section>
+            <q-item-section side>{{ s.cpuPct }}%</q-item-section>
+          </q-item>
+        </q-list>
       </div>
     </div>
-
-    <q-list v-if="overview.servers.length" dense class="q-mt-md">
-      <q-item v-for="s in overview.servers" :key="s.id" :to="`/servers/${s.id}/metrics`">
-        <q-item-section>{{ s.name }}</q-item-section>
-        <q-item-section side> {{ s.cpuPct }}% · {{ formatBytes(s.memUsedBytes) }} </q-item-section>
-      </q-item>
-    </q-list>
   </q-card>
 </template>
 
@@ -96,6 +101,16 @@ const memFraction = computed(() => {
   const t = overview.value?.totals;
   return t && t.memLimitBytes ? Math.min(t.memUsedBytes / t.memLimitBytes, 1) : 0;
 });
+
+const TOP_SERVERS = 3;
+const topByMem = computed(() =>
+  [...(overview.value?.servers ?? [])]
+    .sort((a, b) => b.memUsedBytes - a.memUsedBytes)
+    .slice(0, TOP_SERVERS),
+);
+const topByCpu = computed(() =>
+  [...(overview.value?.servers ?? [])].sort((a, b) => b.cpuPct - a.cpuPct).slice(0, TOP_SERVERS),
+);
 
 function formatBytes(bytes: number): string {
   const mb = bytes / 1024 / 1024;
